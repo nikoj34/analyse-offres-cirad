@@ -1,11 +1,23 @@
 import { useProjectStore } from "@/store/projectStore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS } from "@/types/project";
+import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getVersionDisplayLabel } from "@/types/project";
 import { useMemo } from "react";
-import { Lock } from "lucide-react";
+import { Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle } from "lucide-react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   Table,
   TableBody,
@@ -15,10 +27,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+// Decisions available depend on whether this is the last version or not
 const DECISION_OPTIONS: NegotiationDecision[] = ["non_defini", "retenue", "non_retenue", "attributaire"];
 
 const SynthesePage = () => {
-  const { project, setNegotiationDecision, getNegotiationDecision } = useProjectStore();
+  const {
+    project,
+    setNegotiationDecision,
+    getNegotiationDecision,
+    validateVersion,
+    unvalidateVersion,
+    hasAttributaire,
+  } = useProjectStore();
   const { activeCompanies, version, isReadOnly, isNego, negoLabel } = useAnalysisContext();
   const { weightingCriteria, lotLines } = project;
 
@@ -30,6 +50,10 @@ const SynthesePage = () => {
   const valueTechnique = technicalCriteria.filter((c) => c.id !== "environnemental" && c.id !== "planning");
   const envCriterion = technicalCriteria.find((c) => c.id === "environnemental");
   const planCriterion = technicalCriteria.find((c) => c.id === "planning");
+
+  const versionHasAttributaire = version ? hasAttributaire(version.id) : false;
+  const isValidated = version?.validated ?? false;
+  const displayLabel = version ? getVersionDisplayLabel(version.label) : "";
 
   const results = useMemo(() => {
     if (!version) return [];
@@ -133,7 +157,7 @@ const SynthesePage = () => {
   const fmt = (n: number) =>
     new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
 
-  const pageTitle = isNego ? `Synthèse — ${negoLabel}` : "Synthèse & Classement";
+  const pageTitle = isNego ? `Synthèse — ${negoLabel}` : `Synthèse & Classement — ${displayLabel}`;
 
   if (activeCompanies.length === 0) {
     return (
@@ -156,9 +180,14 @@ const SynthesePage = () => {
       <div>
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
           {pageTitle}
-          {isReadOnly && (
+          {isReadOnly && !isValidated && (
             <Badge variant="secondary" className="gap-1">
               <Lock className="h-3 w-3" /> Figée
+            </Badge>
+          )}
+          {isValidated && (
+            <Badge variant="default" className="gap-1 bg-green-600">
+              <CheckCircle className="h-3 w-3" /> Validée
             </Badge>
           )}
         </h1>
@@ -166,6 +195,65 @@ const SynthesePage = () => {
           Classement global des entreprises (technique + prix). Total sur {maxTotal} pts.
         </p>
       </div>
+
+      {/* Validate / Unvalidate buttons */}
+      {version && versionHasAttributaire && !isValidated && (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button className="gap-2 bg-green-600 hover:bg-green-700">
+              <CheckCircle className="h-4 w-4" />
+              Valider l'analyse — Attribuer
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-green-600" />
+                Valider l'analyse ?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Une entreprise est <strong>attributaire</strong>. Valider l'analyse va figer définitivement
+                cette phase. Aucune négociation supplémentaire ne pourra être créée. Vous pourrez débloquer si nécessaire.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Annuler</AlertDialogCancel>
+              <AlertDialogAction onClick={() => validateVersion(version.id)}>
+                Confirmer la validation
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+
+      {version && isValidated && (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="outline" className="gap-2">
+              <Unlock className="h-4 w-4" />
+              Débloquer l'analyse
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-destructive" />
+                Débloquer l'analyse ?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                L'analyse sera déverrouillée. Vous pourrez modifier les données et éventuellement créer
+                une nouvelle phase de négociation.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Annuler</AlertDialogCancel>
+              <AlertDialogAction onClick={() => unvalidateVersion(version.id)}>
+                Confirmer le déblocage
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
 
       <Card>
         <CardHeader>
@@ -185,7 +273,7 @@ const SynthesePage = () => {
                 <TableHead className="text-right">Montant Total</TableHead>
                 <TableHead className="text-right">Globale / {maxTotal}</TableHead>
                 <TableHead className="text-center">Statut</TableHead>
-                <TableHead className="text-center">Phase Négo</TableHead>
+                <TableHead className="text-center">Décision</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -239,7 +327,7 @@ const SynthesePage = () => {
                         <Select
                           value={decision}
                           onValueChange={(v) => setNegotiationDecision(row.company.id, v as NegotiationDecision)}
-                          disabled={isReadOnly}
+                          disabled={isReadOnly || isValidated}
                         >
                           <SelectTrigger className="w-36">
                             <SelectValue />

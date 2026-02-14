@@ -1,8 +1,12 @@
+import { useState } from "react";
 import { useProjectStore } from "@/store/projectStore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Lock, Unlock, ArrowRight, AlertTriangle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Plus, Lock, Unlock, ArrowRight, AlertTriangle, CheckCircle, ShieldCheck } from "lucide-react";
+import { getVersionDisplayLabel } from "@/types/project";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,28 +20,45 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const VersionsPage = () => {
-  const { project, createVersion, switchVersion, unfreezeVersion } = useProjectStore();
+  const {
+    project,
+    createVersion,
+    switchVersion,
+    unfreezeVersion,
+    validateVersion,
+    unvalidateVersion,
+    hasAttributaire,
+  } = useProjectStore();
   const { versions, currentVersionId } = project;
+  const [negoDate, setNegoDate] = useState(new Date().toISOString().split("T")[0]);
 
-  const nextLabel = `V${versions.length}`;
+  const nextIndex = versions.length;
+  const nextLabel = `V${nextIndex}`;
+  const nextDisplayLabel = getVersionDisplayLabel(nextLabel);
   const canCreate = versions.length < 3;
+
+  // Check if current version has attributaire → block nego creation
+  const currentVersion = versions.find((v) => v.id === currentVersionId);
+  const currentHasAttributaire = currentVersion ? hasAttributaire(currentVersion.id) : false;
+  const currentIsValidated = currentVersion?.validated ?? false;
+  const blockNego = currentHasAttributaire || currentIsValidated;
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Cycles de Négociation</h1>
         <p className="text-sm text-muted-foreground">
-          Gérez les versions V0 (analyse initiale), V1 et V2 (négociations). Chaque version fige les données précédentes.
+          Gérez les phases : Analyse initiale, puis Négociation 1 et 2. Chaque phase fige les données précédentes.
         </p>
       </div>
 
-      <div className="flex items-center gap-3">
-        {canCreate ? (
+      <div className="flex items-center gap-3 flex-wrap">
+        {canCreate && !blockNego ? (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button className="gap-2">
                 <Plus className="h-4 w-4" />
-                Créer {nextLabel}
+                Créer {nextDisplayLabel}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
@@ -46,30 +67,57 @@ const VersionsPage = () => {
                   <AlertTriangle className="h-5 w-5 text-destructive" />
                   Attention — Blocage définitif
                 </AlertDialogTitle>
-                <AlertDialogDescription>
-                  La création de <strong>{nextLabel}</strong> va <strong>figer définitivement</strong> la version
-                  actuelle. Les saisies (technique, prix, synthèse) de la version en cours ne pourront plus être
-                  modifiées. Les données seront copiées dans la nouvelle version pour permettre une nouvelle analyse
-                  des entreprises retenues.
+                <AlertDialogDescription asChild>
+                  <div className="space-y-3">
+                    <p>
+                      La création de <strong>{nextDisplayLabel}</strong> va <strong>figer définitivement</strong> la
+                      version actuelle. Les saisies (technique, prix, synthèse) de la version en cours ne pourront plus
+                      être modifiées. Seules les entreprises retenues seront reprises avec leurs données.
+                    </p>
+                    <div>
+                      <Label htmlFor="nego-date" className="text-sm font-medium">
+                        Date de l'analyse (obligatoire)
+                      </Label>
+                      <Input
+                        id="nego-date"
+                        type="date"
+                        value={negoDate}
+                        onChange={(e) => setNegoDate(e.target.value)}
+                        className="mt-1 w-48"
+                      />
+                    </div>
+                  </div>
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Annuler</AlertDialogCancel>
-                <AlertDialogAction onClick={() => createVersion(nextLabel)}>
-                  Confirmer et créer {nextLabel}
+                <AlertDialogAction
+                  onClick={() => createVersion(nextLabel, negoDate)}
+                  disabled={!negoDate}
+                >
+                  Confirmer et créer {nextDisplayLabel}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+        ) : blockNego ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <ShieldCheck className="h-4 w-4 text-green-600" />
+            <span>
+              {currentIsValidated
+                ? "Analyse validée — une entreprise est attributaire. Débloquez pour créer une négociation."
+                : "Une entreprise est attributaire. Validez l'analyse ou retirez l'attributaire pour continuer."}
+            </span>
+          </div>
         ) : (
           <span className="text-xs text-muted-foreground">
-            Maximum 3 versions (V0, V1, V2)
+            Maximum 3 phases (Analyse initiale, Négo 1, Négo 2)
           </span>
         )}
       </div>
 
       <div className="grid gap-4">
-        {versions.map((version) => {
+        {versions.map((version, idx) => {
           const isCurrent = version.id === currentVersionId;
           const notesCount = version.technicalNotes.filter((n) => n.notation !== null).length;
           const pricesCount = version.priceEntries.filter((e) => (e.dpgf1 ?? 0) > 0 || (e.dpgf2 ?? 0) > 0).length;
@@ -77,49 +125,119 @@ const VersionsPage = () => {
           const retainedCount = Object.values(decisions).filter(
             (d) => d === "retenue" || d === "attributaire"
           ).length;
+          const versionHasAttributaire = hasAttributaire(version.id);
+          const displayLabel = getVersionDisplayLabel(version.label);
 
           return (
             <Card key={version.id} className={isCurrent ? "ring-2 ring-primary" : ""}>
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <CardTitle className="text-lg">{version.label}</CardTitle>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <CardTitle className="text-lg">{displayLabel}</CardTitle>
                     {isCurrent && <Badge variant="default">Active</Badge>}
-                    {version.frozen && (
+                    {version.frozen && !version.validated && (
                       <Badge variant="secondary">
                         <Lock className="h-3 w-3 mr-1" /> Figée
                       </Badge>
                     )}
+                    {version.validated && (
+                      <Badge variant="default" className="bg-green-600">
+                        <CheckCircle className="h-3 w-3 mr-1" /> Validée
+                      </Badge>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    {version.frozen && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Validate button: shown when attributaire exists and not yet validated */}
+                    {isCurrent && versionHasAttributaire && !version.validated && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="default" size="sm" className="gap-1 bg-green-600 hover:bg-green-700">
+                            <CheckCircle className="h-3 w-3" />
+                            Valider l'analyse
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle className="flex items-center gap-2">
+                              <ShieldCheck className="h-5 w-5 text-green-600" />
+                              Valider l'analyse ?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Une entreprise est <strong>attributaire</strong>. Valider l'analyse va figer
+                              définitivement cette phase. Aucune négociation supplémentaire ne pourra être créée.
+                              Vous pourrez débloquer si nécessaire.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Annuler</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => validateVersion(version.id)}>
+                              Confirmer la validation
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+
+                    {/* Unvalidate */}
+                    {version.validated && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button variant="outline" size="sm" className="gap-1">
                             <Unlock className="h-3 w-3" />
-                            Défiger
+                            Débloquer
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
                             <AlertDialogTitle className="flex items-center gap-2">
                               <AlertTriangle className="h-5 w-5 text-destructive" />
-                              Défiger {version.label} ?
+                              Débloquer {displayLabel} ?
                             </AlertDialogTitle>
                             <AlertDialogDescription>
-                              Vous allez pouvoir modifier les saisies de <strong>{version.label}</strong>.
-                              Attention : les modifications peuvent affecter la cohérence des versions suivantes.
+                              L'analyse sera déverrouillée. Vous pourrez modifier les données et éventuellement
+                              créer une nouvelle phase de négociation.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Annuler</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => unfreezeVersion(version.id)}>
-                              Confirmer le dégel
+                            <AlertDialogAction onClick={() => unvalidateVersion(version.id)}>
+                              Confirmer le déblocage
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
                     )}
+
+                    {/* Unfreeze (for frozen but not validated) */}
+                    {version.frozen && !version.validated && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="outline" size="sm" className="gap-1">
+                            <Unlock className="h-3 w-3" />
+                            Débloquer
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle className="flex items-center gap-2">
+                              <AlertTriangle className="h-5 w-5 text-destructive" />
+                              Débloquer {displayLabel} ?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Vous allez pouvoir modifier les saisies de <strong>{displayLabel}</strong>.
+                              Attention : les modifications peuvent affecter la cohérence des phases suivantes.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Annuler</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => unfreezeVersion(version.id)}>
+                              Confirmer le déblocage
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+
                     {!isCurrent && (
                       <Button
                         variant="outline"
@@ -134,7 +252,8 @@ const VersionsPage = () => {
                   </div>
                 </div>
                 <CardDescription>
-                  Créée le {new Date(version.createdAt).toLocaleDateString("fr-FR")}
+                  Date d'analyse : {version.analysisDate || "Non renseignée"} — Créée le{" "}
+                  {new Date(version.createdAt).toLocaleDateString("fr-FR")}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -148,7 +267,7 @@ const VersionsPage = () => {
                     <span className="font-medium">{pricesCount}</span>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Retenues négo : </span>
+                    <span className="text-muted-foreground">Retenues : </span>
                     <span className="font-medium">{retainedCount}</span>
                   </div>
                 </div>

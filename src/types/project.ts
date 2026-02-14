@@ -88,13 +88,25 @@ export const NEGOTIATION_DECISION_LABELS: Record<NegotiationDecision, string> = 
   attributaire: "Attributaire",
 };
 
+export const VERSION_DISPLAY_LABELS: Record<string, string> = {
+  V0: "Analyse initiale",
+  V1: "Analyse suite à négociation 1",
+  V2: "Analyse suite à négociation 2",
+};
+
+export function getVersionDisplayLabel(label: string): string {
+  return VERSION_DISPLAY_LABELS[label] ?? label;
+}
+
 export interface NegotiationVersion {
   id: string;
-  label: string;
+  label: string; // V0, V1, V2
   createdAt: string;
+  analysisDate: string; // date of analysis for this version
   technicalNotes: TechnicalNote[];
   priceEntries: PriceEntry[];
   frozen: boolean;
+  validated: boolean; // true when attributaire confirmed
   negotiationDecisions: Record<number, NegotiationDecision>;
 }
 
@@ -145,9 +157,11 @@ export function createDefaultProject(): ProjectData {
         id: versionId,
         label: "V0",
         createdAt: new Date().toISOString(),
+        analysisDate: new Date().toISOString().split("T")[0],
         technicalNotes: [],
         priceEntries: [],
         frozen: false,
+        validated: false,
         negotiationDecisions: {},
       },
     ],

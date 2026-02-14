@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { useProjectStore } from "@/store/projectStore";
+import { getVersionDisplayLabel } from "@/types/project";
 
 export function useAnalysisContext() {
   const { round } = useParams<{ round: string }>();
@@ -32,6 +33,8 @@ export function useAnalysisContext() {
     return true;
   });
 
+  const displayLabel = targetVersion ? getVersionDisplayLabel(targetVersion.label) : "";
+
   return {
     version: targetVersion,
     versionId: targetVersion?.id,
@@ -39,6 +42,6 @@ export function useAnalysisContext() {
     isNego,
     negoRound,
     isReadOnly: targetVersion?.frozen ?? false,
-    negoLabel: isNego ? `Négociation ${negoRound}` : null,
+    negoLabel: isNego ? `Négociation ${negoRound}` : displayLabel,
   };
 }
