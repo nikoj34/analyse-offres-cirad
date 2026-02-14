@@ -85,6 +85,7 @@ export interface NegotiationVersion {
   technicalNotes: TechnicalNote[];
   priceEntries: PriceEntry[];
   frozen: boolean;
+  negotiationRetained: number[]; // company IDs retained for negotiation
 }
 
 export interface ProjectData {
@@ -138,6 +139,7 @@ export function createDefaultProject(): ProjectData {
         technicalNotes: [],
         priceEntries: [],
         frozen: false,
+        negotiationRetained: [],
       },
     ],
     currentVersionId: versionId,

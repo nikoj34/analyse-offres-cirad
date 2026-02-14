@@ -1,5 +1,5 @@
 import { useProjectStore } from "@/store/projectStore";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,6 @@ import { useMemo } from "react";
 const NOTATION_OPTIONS: NotationLevel[] = ["tres_bien", "bien", "moyen", "passable", "insuffisant"];
 
 function cleanText(text: string): string {
-  // Trim spaces, fix common misspellings
   let cleaned = text.trim().replace(/\s+/g, " ");
   const corrections: Record<string, string> = {
     "insufisant": "insuffisant",
@@ -33,20 +32,27 @@ const TechniquePage = () => {
   const { companies, weightingCriteria, versions, currentVersionId } = project;
 
   const activeCompanies = companies.filter((c) => c.name.trim() !== "");
-  const technicalCriteria = weightingCriteria.filter((c) => c.id !== "prix");
+  const allTechnicalCriteria = weightingCriteria.filter((c) => c.id !== "prix");
+  
+  // Separate technical sub-criteria from environmental/planning
+  const valueTechniqueCriteria = allTechnicalCriteria.filter(
+    (c) => c.id !== "environnemental" && c.id !== "planning"
+  );
+  const environnementalCriterion = weightingCriteria.find((c) => c.id === "environnemental");
+  const planningCriterion = weightingCriteria.find((c) => c.id === "planning");
 
   const currentVersion = versions.find((v) => v.id === currentVersionId);
 
-  // Compute weighted scores per company
   const scores = useMemo(() => {
     if (!currentVersion) return {};
     const result: Record<number, { total: number; byCriterion: Record<string, number> }> = {};
 
     for (const company of activeCompanies) {
+      if (company.status === "ecartee") continue;
       const byCriterion: Record<string, number> = {};
       let total = 0;
 
-      for (const criterion of technicalCriteria) {
+      for (const criterion of allTechnicalCriteria) {
         if (criterion.subCriteria.length > 0) {
           let criterionScore = 0;
           const subTotal = criterion.subCriteria.reduce((s, sc) => s + sc.weight, 0);
@@ -79,7 +85,7 @@ const TechniquePage = () => {
       result[company.id] = { total, byCriterion };
     }
     return result;
-  }, [activeCompanies, technicalCriteria, currentVersion]);
+  }, [activeCompanies, allTechnicalCriteria, currentVersion]);
 
   if (activeCompanies.length === 0) {
     return (
@@ -94,7 +100,7 @@ const TechniquePage = () => {
     );
   }
 
-  const maxTechnicalWeight = technicalCriteria.reduce((s, c) => s + c.weight, 0);
+  const maxTechnicalWeight = allTechnicalCriteria.reduce((s, c) => s + c.weight, 0);
 
   return (
     <div className="space-y-6">
@@ -124,15 +130,51 @@ const TechniquePage = () => {
             </div>
           </CardHeader>
           {company.status !== "ecartee" && (
-            <CardContent className="space-y-4">
-              {technicalCriteria.map((criterion) => (
-                <CriterionBlock
-                  key={criterion.id}
-                  criterion={criterion}
-                  companyId={company.id}
-                  score={scores[company.id]?.byCriterion[criterion.id] ?? 0}
-                />
-              ))}
+            <CardContent className="space-y-6">
+              {/* Valeur Technique section */}
+              {valueTechniqueCriteria.length > 0 && (
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-foreground border-b border-border pb-2">
+                    Valeur Technique
+                  </h3>
+                  {valueTechniqueCriteria.map((criterion) => (
+                    <CriterionBlock
+                      key={criterion.id}
+                      criterion={criterion}
+                      companyId={company.id}
+                      score={scores[company.id]?.byCriterion[criterion.id] ?? 0}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Critère Environnemental */}
+              {environnementalCriterion && (
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-foreground border-b border-border pb-2">
+                    Critère Environnemental
+                  </h3>
+                  <CriterionBlock
+                    criterion={environnementalCriterion}
+                    companyId={company.id}
+                    score={scores[company.id]?.byCriterion[environnementalCriterion.id] ?? 0}
+                  />
+                </div>
+              )}
+
+              {/* Critère Planning */}
+              {planningCriterion && (
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-foreground border-b border-border pb-2">
+                    Critère Planning
+                  </h3>
+                  <CriterionBlock
+                    criterion={planningCriterion}
+                    companyId={company.id}
+                    score={scores[company.id]?.byCriterion[planningCriterion.id] ?? 0}
+                  />
+                </div>
+              )}
             </CardContent>
           )}
         </Card>
@@ -194,8 +236,8 @@ function CriterionBlock({
                   </SelectContent>
                 </Select>
                 <Textarea
-                  className="flex-1 min-h-[60px] text-sm"
-                  rows={3}
+                  className="flex-1 min-h-[80px] text-sm"
+                  rows={4}
                   value={note?.comment ?? ""}
                   onChange={(e) =>
                     setTechnicalNote(
@@ -207,6 +249,7 @@ function CriterionBlock({
                     )
                   }
                   placeholder="Commentaire / justification"
+                  maxLength={2000}
                 />
               </div>
             </div>
@@ -251,8 +294,8 @@ function CriterionBlock({
           </SelectContent>
         </Select>
         <Textarea
-          className="flex-1 min-h-[60px] text-sm"
-          rows={3}
+          className="flex-1 min-h-[80px] text-sm"
+          rows={4}
           value={note?.comment ?? ""}
           onChange={(e) =>
             setTechnicalNote(
@@ -264,6 +307,7 @@ function CriterionBlock({
             )
           }
           placeholder="Commentaire / justification"
+          maxLength={2000}
         />
       </div>
     </div>

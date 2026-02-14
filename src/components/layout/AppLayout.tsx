@@ -8,7 +8,6 @@ import {
   BarChart3,
   GitBranch,
   Download,
-  Bot,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -18,7 +17,6 @@ const NAV_ITEMS = [
   { to: "/synthese", label: "Synthèse", icon: BarChart3 },
   { to: "/versions", label: "Négociations", icon: GitBranch },
   { to: "/export", label: "Export Excel", icon: Download },
-  { to: "/assistant", label: "Assistant IA", icon: Bot },
 ];
 
 export function AppLayout({ children }: { children: ReactNode }) {

@@ -12,6 +12,7 @@ import {
   TechnicalNote,
   NotationLevel,
   PriceEntry,
+  NegotiationVersion,
 } from "@/types/project";
 
 interface ProjectStore {
@@ -43,6 +44,15 @@ interface ProjectStore {
   // Price entries
   setPriceEntry: (companyId: number, lotLineId: number, dpgf1: number | null, dpgf2: number | null) => void;
   getPriceEntry: (companyId: number, lotLineId: number) => PriceEntry | undefined;
+
+  // Negotiation
+  toggleNegotiationRetained: (companyId: number) => void;
+  isNegotiationRetained: (companyId: number) => boolean;
+
+  // Versions
+  createVersion: (label: string) => void;
+  switchVersion: (versionId: string) => void;
+  freezeVersion: (versionId: string) => void;
 
   // Reset
   resetProject: () => void;
@@ -241,6 +251,71 @@ export const useProjectStore = create<ProjectStore>()(
         if (!version) return undefined;
         return version.priceEntries.find((e) => e.companyId === companyId && e.lotLineId === lotLineId);
       },
+
+      toggleNegotiationRetained: (companyId) =>
+        set((state) => {
+          const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
+          if (!version) return state;
+          const retained = version.negotiationRetained ?? [];
+          const newRetained = retained.includes(companyId)
+            ? retained.filter((id) => id !== companyId)
+            : [...retained, companyId];
+          return {
+            project: {
+              ...state.project,
+              versions: state.project.versions.map((v) =>
+                v.id === state.project.currentVersionId ? { ...v, negotiationRetained: newRetained } : v
+              ),
+            },
+          };
+        }),
+
+      isNegotiationRetained: (companyId) => {
+        const state = get();
+        const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
+        return (version?.negotiationRetained ?? []).includes(companyId);
+      },
+
+      createVersion: (label) =>
+        set((state) => {
+          const currentVersion = state.project.versions.find((v) => v.id === state.project.currentVersionId);
+          const newVersionId = crypto.randomUUID();
+          const newVersion: NegotiationVersion = {
+            id: newVersionId,
+            label,
+            createdAt: new Date().toISOString(),
+            technicalNotes: currentVersion ? [...currentVersion.technicalNotes] : [],
+            priceEntries: currentVersion ? [...currentVersion.priceEntries] : [],
+            frozen: false,
+            negotiationRetained: currentVersion ? [...(currentVersion.negotiationRetained ?? [])] : [],
+          };
+          // Freeze current version
+          const versions = state.project.versions.map((v) =>
+            v.id === state.project.currentVersionId ? { ...v, frozen: true } : v
+          );
+          return {
+            project: {
+              ...state.project,
+              versions: [...versions, newVersion],
+              currentVersionId: newVersionId,
+            },
+          };
+        }),
+
+      switchVersion: (versionId) =>
+        set((state) => ({
+          project: { ...state.project, currentVersionId: versionId },
+        })),
+
+      freezeVersion: (versionId) =>
+        set((state) => ({
+          project: {
+            ...state.project,
+            versions: state.project.versions.map((v) =>
+              v.id === versionId ? { ...v, frozen: true } : v
+            ),
+          },
+        })),
 
       resetProject: () => set({ project: createDefaultProject() }),
     }),

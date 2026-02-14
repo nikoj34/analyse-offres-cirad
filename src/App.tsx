@@ -10,7 +10,6 @@ import PrixPage from "./pages/PrixPage";
 import SynthesePage from "./pages/SynthesePage";
 import VersionsPage from "./pages/VersionsPage";
 import ExportPage from "./pages/ExportPage";
-import AssistantPage from "./pages/AssistantPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -29,7 +28,6 @@ const App = () => (
             <Route path="/synthese" element={<SynthesePage />} />
             <Route path="/versions" element={<VersionsPage />} />
             <Route path="/export" element={<ExportPage />} />
-            <Route path="/assistant" element={<AssistantPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AppLayout>
