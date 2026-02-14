@@ -47,38 +47,48 @@ export function CompaniesForm() {
           {companies.map((company) => (
             <div
               key={company.id}
-              className="flex items-center gap-3 rounded-md border border-border p-3"
+              className="space-y-2 rounded-md border border-border p-3"
             >
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-                {company.id}
-              </span>
-              <Input
-                className="flex-1"
-                value={company.name}
-                onChange={(e) => updateCompany(company.id, { name: e.target.value })}
-                placeholder={`Entreprise ${company.id}${company.id === 7 ? " (entité spéciale)" : ""}`}
-              />
-              <Select
-                value={company.status}
-                onValueChange={(v) => setCompanyStatus(company.id, v as CompanyStatus)}
-              >
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="non_defini">—</SelectItem>
-                  <SelectItem value="retenue">Retenue</SelectItem>
-                  <SelectItem value="ecartee">Écartée</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => removeCompany(company.id)}
-                disabled={companies.length <= 1}
-              >
-                <Trash2 className="h-4 w-4 text-muted-foreground" />
-              </Button>
+              <div className="flex items-center gap-3">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                  {company.id}
+                </span>
+                <Input
+                  className="flex-1"
+                  value={company.name}
+                  onChange={(e) => updateCompany(company.id, { name: e.target.value })}
+                  placeholder={`Entreprise ${company.id}${company.id === 7 ? " (entité spéciale)" : ""}`}
+                />
+                <Select
+                  value={company.status}
+                  onValueChange={(v) => setCompanyStatus(company.id, v as CompanyStatus)}
+                >
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="non_defini">—</SelectItem>
+                    <SelectItem value="retenue">Retenue</SelectItem>
+                    <SelectItem value="ecartee">Écartée</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => removeCompany(company.id)}
+                  disabled={companies.length <= 1}
+                >
+                  <Trash2 className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </div>
+              {company.status === "ecartee" && (
+                <Input
+                  className="ml-10"
+                  value={company.exclusionReason ?? ""}
+                  onChange={(e) => updateCompany(company.id, { exclusionReason: e.target.value })}
+                  placeholder="Motif d'exclusion (ex: offre irrégulière, hors délai...)"
+                />
+              )}
             </div>
           ))}
         </div>

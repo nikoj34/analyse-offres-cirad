@@ -106,27 +106,35 @@ const TechniquePage = () => {
       </div>
 
       {activeCompanies.map((company) => (
-        <Card key={company.id}>
+        <Card key={company.id} className={company.status === "ecartee" ? "opacity-60" : ""}>
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">
                 {company.id}. {company.name}
               </CardTitle>
-              <Badge variant={scores[company.id]?.total > 0 ? "default" : "secondary"}>
-                {(scores[company.id]?.total ?? 0).toFixed(1)} / {maxTechnicalWeight}
-              </Badge>
+              {company.status === "ecartee" ? (
+                <Badge variant="destructive">
+                  Écartée{company.exclusionReason ? ` — ${company.exclusionReason}` : ""}
+                </Badge>
+              ) : (
+                <Badge variant={scores[company.id]?.total > 0 ? "default" : "secondary"}>
+                  {(scores[company.id]?.total ?? 0).toFixed(1)} / {maxTechnicalWeight}
+                </Badge>
+              )}
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {technicalCriteria.map((criterion) => (
-              <CriterionBlock
-                key={criterion.id}
-                criterion={criterion}
-                companyId={company.id}
-                score={scores[company.id]?.byCriterion[criterion.id] ?? 0}
-              />
-            ))}
-          </CardContent>
+          {company.status !== "ecartee" && (
+            <CardContent className="space-y-4">
+              {technicalCriteria.map((criterion) => (
+                <CriterionBlock
+                  key={criterion.id}
+                  criterion={criterion}
+                  companyId={company.id}
+                  score={scores[company.id]?.byCriterion[criterion.id] ?? 0}
+                />
+              ))}
+            </CardContent>
+          )}
         </Card>
       ))}
     </div>
@@ -186,8 +194,8 @@ function CriterionBlock({
                   </SelectContent>
                 </Select>
                 <Textarea
-                  className="flex-1 min-h-[36px] text-sm"
-                  rows={1}
+                  className="flex-1 min-h-[60px] text-sm"
+                  rows={3}
                   value={note?.comment ?? ""}
                   onChange={(e) =>
                     setTechnicalNote(
@@ -243,8 +251,8 @@ function CriterionBlock({
           </SelectContent>
         </Select>
         <Textarea
-          className="flex-1 min-h-[36px] text-sm"
-          rows={1}
+          className="flex-1 min-h-[60px] text-sm"
+          rows={3}
           value={note?.comment ?? ""}
           onChange={(e) =>
             setTechnicalNote(

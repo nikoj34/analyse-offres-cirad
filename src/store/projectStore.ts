@@ -11,6 +11,7 @@ import {
   LotType,
   TechnicalNote,
   NotationLevel,
+  PriceEntry,
 } from "@/types/project";
 
 interface ProjectStore {
@@ -39,6 +40,10 @@ interface ProjectStore {
   setTechnicalNote: (companyId: number, criterionId: string, subCriterionId: string | undefined, notation: NotationLevel | null, comment: string) => void;
   getTechnicalNote: (companyId: number, criterionId: string, subCriterionId?: string) => TechnicalNote | undefined;
 
+  // Price entries
+  setPriceEntry: (companyId: number, lotLineId: number, dpgf1: number | null, dpgf2: number | null) => void;
+  getPriceEntry: (companyId: number, lotLineId: number) => PriceEntry | undefined;
+
   // Reset
   resetProject: () => void;
 }
@@ -60,7 +65,7 @@ export const useProjectStore = create<ProjectStore>()(
           return {
             project: {
               ...state.project,
-              companies: [...state.project.companies, { id: nextId, name: "", status: "non_defini" }],
+              companies: [...state.project.companies, { id: nextId, name: "", status: "non_defini", exclusionReason: "" }],
             },
           };
         }),
@@ -204,6 +209,37 @@ export const useProjectStore = create<ProjectStore>()(
             n.criterionId === criterionId &&
             (n.subCriterionId ?? undefined) === subCriterionId
         );
+      },
+
+      setPriceEntry: (companyId, lotLineId, dpgf1, dpgf2) =>
+        set((state) => {
+          const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
+          if (!version) return state;
+
+          const entries = [...version.priceEntries];
+          const idx = entries.findIndex((e) => e.companyId === companyId && e.lotLineId === lotLineId);
+          const newEntry: PriceEntry = { companyId, lotLineId, dpgf1, dpgf2 };
+          if (idx >= 0) {
+            entries[idx] = newEntry;
+          } else {
+            entries.push(newEntry);
+          }
+
+          return {
+            project: {
+              ...state.project,
+              versions: state.project.versions.map((v) =>
+                v.id === state.project.currentVersionId ? { ...v, priceEntries: entries } : v
+              ),
+            },
+          };
+        }),
+
+      getPriceEntry: (companyId, lotLineId) => {
+        const state = get();
+        const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
+        if (!version) return undefined;
+        return version.priceEntries.find((e) => e.companyId === companyId && e.lotLineId === lotLineId);
       },
 
       resetProject: () => set({ project: createDefaultProject() }),
