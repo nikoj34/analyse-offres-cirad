@@ -37,11 +37,14 @@ const VersionsPage = () => {
   const nextDisplayLabel = getVersionDisplayLabel(nextLabel);
   const canCreate = versions.length < 3;
 
-  // Check if current version has attributaire → block nego creation
+  // Current version check
   const currentVersion = versions.find((v) => v.id === currentVersionId);
   const currentHasAttributaire = currentVersion ? hasAttributaire(currentVersion.id) : false;
   const currentIsValidated = currentVersion?.validated ?? false;
-  const blockNego = currentHasAttributaire || currentIsValidated;
+  // Block nego if current version has attributaire OR is validated with attributaire
+  const blockNego = currentHasAttributaire || (currentIsValidated && currentHasAttributaire);
+  // Can only create nego if current version is validated (with retenue pour nego, not attributaire)
+  const canCreateNego = canCreate && currentIsValidated && !currentHasAttributaire;
 
   return (
     <div className="space-y-6">
@@ -53,7 +56,7 @@ const VersionsPage = () => {
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
-        {canCreate && !blockNego ? (
+        {canCreateNego ? (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button className="gap-2">
@@ -100,20 +103,23 @@ const VersionsPage = () => {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-        ) : blockNego ? (
+        ) : currentHasAttributaire ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <ShieldCheck className="h-4 w-4 text-green-600" />
             <span>
-              {currentIsValidated
-                ? "Analyse validée — une entreprise est attributaire. Débloquez pour créer une négociation."
-                : "Une entreprise est attributaire. Validez l'analyse ou retirez l'attributaire pour continuer."}
+              Une entreprise est attributaire. Impossible de créer une négociation.
             </span>
           </div>
-        ) : (
+        ) : !currentIsValidated && canCreate ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <AlertTriangle className="h-4 w-4" />
+            <span>Validez l'analyse en cours dans la Synthèse pour pouvoir créer une négociation.</span>
+          </div>
+        ) : !canCreate ? (
           <span className="text-xs text-muted-foreground">
             Maximum 3 phases (Analyse initiale, Négo 1, Négo 2)
           </span>
-        )}
+        ) : null}
       </div>
 
       <div className="grid gap-4">
@@ -128,6 +134,9 @@ const VersionsPage = () => {
           const versionHasAttributaire = hasAttributaire(version.id);
           const displayLabel = getVersionDisplayLabel(version.label);
 
+          // A version should be shown as frozen if it's not the current one and a later version exists
+          const isEffectivelyFrozen = version.frozen || version.validated || (!isCurrent && idx < versions.length - 1);
+
           return (
             <Card key={version.id} className={isCurrent ? "ring-2 ring-primary" : ""}>
               <CardHeader>
@@ -135,19 +144,19 @@ const VersionsPage = () => {
                   <div className="flex items-center gap-3 flex-wrap">
                     <CardTitle className="text-lg">{displayLabel}</CardTitle>
                     {isCurrent && <Badge variant="default">Active</Badge>}
-                    {version.frozen && !version.validated && (
-                      <Badge variant="secondary">
-                        <Lock className="h-3 w-3 mr-1" /> Figée
-                      </Badge>
-                    )}
                     {version.validated && (
                       <Badge variant="default" className="bg-green-600">
                         <CheckCircle className="h-3 w-3 mr-1" /> Validée
                       </Badge>
                     )}
+                    {isEffectivelyFrozen && !version.validated && (
+                      <Badge variant="secondary">
+                        <Lock className="h-3 w-3 mr-1" /> Figée
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* Validate button: shown when attributaire exists and not yet validated */}
+                    {/* Validate button */}
                     {isCurrent && versionHasAttributaire && !version.validated && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -164,8 +173,7 @@ const VersionsPage = () => {
                             </AlertDialogTitle>
                             <AlertDialogDescription>
                               Une entreprise est <strong>attributaire</strong>. Valider l'analyse va figer
-                              définitivement cette phase. Aucune négociation supplémentaire ne pourra être créée.
-                              Vous pourrez débloquer si nécessaire.
+                              définitivement cette phase.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -194,8 +202,7 @@ const VersionsPage = () => {
                               Débloquer {displayLabel} ?
                             </AlertDialogTitle>
                             <AlertDialogDescription>
-                              L'analyse sera déverrouillée. Vous pourrez modifier les données et éventuellement
-                              créer une nouvelle phase de négociation.
+                              L'analyse sera déverrouillée. Vous pourrez modifier les données.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -208,7 +215,7 @@ const VersionsPage = () => {
                       </AlertDialog>
                     )}
 
-                    {/* Unfreeze (for frozen but not validated) */}
+                    {/* Unfreeze (for frozen but not validated, not current) */}
                     {version.frozen && !version.validated && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -225,7 +232,6 @@ const VersionsPage = () => {
                             </AlertDialogTitle>
                             <AlertDialogDescription>
                               Vous allez pouvoir modifier les saisies de <strong>{displayLabel}</strong>.
-                              Attention : les modifications peuvent affecter la cohérence des phases suivantes.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>

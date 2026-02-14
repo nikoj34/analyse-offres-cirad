@@ -83,7 +83,7 @@ export type NegotiationDecision = "non_defini" | "retenue" | "non_retenue" | "at
 
 export const NEGOTIATION_DECISION_LABELS: Record<NegotiationDecision, string> = {
   non_defini: "—",
-  retenue: "Retenue",
+  retenue: "Retenue pour négociation",
   non_retenue: "Non retenue",
   attributaire: "Attributaire",
 };
