@@ -6,8 +6,8 @@ import { useMultiProjectStore } from "@/store/multiProjectStore";
 import { getVersionDisplayLabel } from "@/types/project";
 import {
   FileText,
-  ClipboardList,
-  DollarSign,
+  Wrench,
+  Euro,
   BarChart3,
   GitBranch,
   Download,
@@ -74,8 +74,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </div>
         <nav className="flex flex-col gap-1 p-3">
           <SidebarLink to="/" icon={FileText} label="Page de Garde" />
-          <SidebarLink to="/technique" icon={ClipboardList} label="Analyse Technique" />
-          <SidebarLink to="/prix" icon={DollarSign} label="Prix" />
+          <SidebarLink to="/technique" icon={Wrench} label="Analyse Technique" />
+          <SidebarLink to="/prix" icon={Euro} label="Prix" />
           <SidebarLink to="/synthese" icon={BarChart3} label="Synthèse" />
 
           <Collapsible open={negoOpen} onOpenChange={setNegoOpen}>
@@ -107,12 +107,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
                       </div>
                       <SidebarLink
                         to={`/nego/${round}/technique`}
-                        icon={ClipboardList}
+                        icon={Wrench}
                         label={`Technique ${shortLabel}`}
                       />
                       <SidebarLink
                         to={`/nego/${round}/prix`}
-                        icon={DollarSign}
+                        icon={Euro}
                         label={`Prix ${shortLabel}`}
                       />
                       <SidebarLink

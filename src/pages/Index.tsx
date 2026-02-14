@@ -15,8 +15,8 @@ const Index = () => {
       </div>
       <ProjectInfoForm />
       <CompaniesForm />
-      <LotLinesForm />
       <EstimationForm />
+      <LotLinesForm />
       <WeightingForm />
     </div>
   );

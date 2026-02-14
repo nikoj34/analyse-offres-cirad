@@ -67,6 +67,16 @@ function buildTechSheet(
   techTitle.font = { bold: true, size: 12, color: { argb: COLORS.darkText } };
   techTitle.fill = lightFill(COLORS.lightBlue);
   techTitle.border = thinBorder();
+  tRow++;
+
+  // Date d'analyse and validation date
+  techSheet.getCell(`B${tRow}`).value = `Date d'analyse : ${version.analysisDate || "—"}`;
+  techSheet.getCell(`B${tRow}`).font = { italic: true, size: 9 };
+  if (version.validated && version.validatedAt) {
+    techSheet.getCell(`D${tRow}`).value = `Validée le : ${new Date(version.validatedAt).toLocaleDateString("fr-FR")}`;
+    techSheet.getCell(`D${tRow}`).font = { italic: true, size: 9, color: { argb: "2E7D32" } };
+  }
+  tRow++;
   tRow += 2;
 
   techSheet.getCell(`B${tRow}`).value = `Note technique pondérée sur ${maxTechWeight} %`;
@@ -195,7 +205,16 @@ function buildPrixSheet(
   prixTitle.font = { bold: true, size: 12, color: { argb: COLORS.darkText } };
   prixTitle.fill = lightFill(COLORS.lightBlue);
   prixTitle.border = thinBorder();
-  pRow += 2;
+  pRow++;
+
+  // Date d'analyse and validation date
+  prixSheet.getCell(`B${pRow}`).value = `Date d'analyse : ${version.analysisDate || "—"}`;
+  prixSheet.getCell(`B${pRow}`).font = { italic: true, size: 9 };
+  if (version.validated && version.validatedAt) {
+    prixSheet.getCell(`D${pRow}`).value = `Validée le : ${new Date(version.validatedAt).toLocaleDateString("fr-FR")}`;
+    prixSheet.getCell(`D${pRow}`).font = { italic: true, size: 9, color: { argb: "2E7D32" } };
+  }
+  pRow++;
 
   for (const company of companies) {
     const isExcluded = company.status === "ecartee";
@@ -335,7 +354,16 @@ function buildSyntheseSheet(
   synthTitle.font = { bold: true, size: 12, color: { argb: COLORS.darkText } };
   synthTitle.fill = lightFill(COLORS.lightBlue);
   synthTitle.border = thinBorder();
-  sRow += 2;
+  sRow++;
+
+  // Date d'analyse and validation date
+  synthSheet.getCell(`B${sRow}`).value = `Date d'analyse : ${version.analysisDate || "—"}`;
+  synthSheet.getCell(`B${sRow}`).font = { italic: true, size: 9 };
+  if (version.validated && version.validatedAt) {
+    synthSheet.getCell(`D${sRow}`).value = `Validée le : ${new Date(version.validatedAt).toLocaleDateString("fr-FR")}`;
+    synthSheet.getCell(`D${sRow}`).font = { italic: true, size: 9, color: { argb: "2E7D32" } };
+  }
+  sRow++;
 
   const synthHeaders = [
     "Entreprise",
@@ -527,7 +555,7 @@ function buildSyntheseSheet(
 
 export async function exportToExcel(project: ProjectData) {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "ProcureAnalyze";
+  wb.creator = "Analyse d'offres CIRAD";
   wb.created = new Date();
 
   const activeCompanies = project.companies.filter((c) => c.name.trim() !== "");
