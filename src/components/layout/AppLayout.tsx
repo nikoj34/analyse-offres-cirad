@@ -2,6 +2,7 @@ import { ReactNode, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/store/projectStore";
+import { getVersionDisplayLabel } from "@/types/project";
 import {
   FileText,
   ClipboardList,
@@ -85,25 +86,27 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 <SidebarLink to="/versions" icon={GitBranch} label="Cycles" />
                 {negoVersions.map((v, i) => {
                   const round = i + 1;
+                  const displayLabel = getVersionDisplayLabel(v.label);
+                  const shortLabel = round === 1 ? "Négo 1" : "Négo 2";
                   return (
                     <div key={v.id} className="space-y-0.5">
                       <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                        Négo {round}
+                        {shortLabel}
                       </div>
                       <SidebarLink
                         to={`/nego/${round}/technique`}
                         icon={ClipboardList}
-                        label={`Technique Négo ${round}`}
+                        label={`Technique ${shortLabel}`}
                       />
                       <SidebarLink
                         to={`/nego/${round}/prix`}
                         icon={DollarSign}
-                        label={`Prix Négo ${round}`}
+                        label={`Prix ${shortLabel}`}
                       />
                       <SidebarLink
                         to={`/nego/${round}/synthese`}
                         icon={BarChart3}
-                        label={`Synthèse Négo ${round}`}
+                        label={`Synthèse ${shortLabel}`}
                       />
                     </div>
                   );

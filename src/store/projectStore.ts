@@ -43,10 +43,16 @@ interface ProjectStore {
   setNegotiationDecision: (companyId: number, decision: NegotiationDecision) => void;
   getNegotiationDecision: (companyId: number) => NegotiationDecision;
 
-  createVersion: (label: string) => void;
+  createVersion: (label: string, analysisDate: string) => void;
   switchVersion: (versionId: string) => void;
   freezeVersion: (versionId: string) => void;
   unfreezeVersion: (versionId: string) => void;
+  validateVersion: (versionId: string) => void;
+  unvalidateVersion: (versionId: string) => void;
+  updateVersionAnalysisDate: (versionId: string, date: string) => void;
+
+  hasAttributaire: (versionId: string) => boolean;
+  canCreateNego: () => boolean;
 
   resetProject: () => void;
 }
@@ -266,22 +272,62 @@ export const useProjectStore = create<ProjectStore>()(
         return version?.negotiationDecisions?.[companyId] ?? "non_defini";
       },
 
-      createVersion: (label) =>
+      hasAttributaire: (versionId) => {
+        const state = get();
+        const version = state.project.versions.find((v) => v.id === versionId);
+        if (!version) return false;
+        return Object.values(version.negotiationDecisions).some((d) => d === "attributaire");
+      },
+
+      canCreateNego: () => {
+        const state = get();
+        const currentVersion = state.project.versions.find((v) => v.id === state.project.currentVersionId);
+        if (!currentVersion) return false;
+        // Can't create nego if current version has an attributaire and is validated
+        if (currentVersion.validated) return false;
+        // Can't create more than 3 versions
+        if (state.project.versions.length >= 3) return false;
+        return true;
+      },
+
+      createVersion: (label, analysisDate) =>
         set((state) => {
           const currentVersion = state.project.versions.find((v) => v.id === state.project.currentVersionId);
+          if (!currentVersion) return state;
+          
+          // Get retained companies from current version (the one being frozen)
+          const currentDecisions = currentVersion.negotiationDecisions ?? {};
+          const retainedIds = Object.entries(currentDecisions)
+            .filter(([, d]) => d === "retenue" || d === "attributaire")
+            .map(([id]) => Number(id));
+
           const newVersionId = crypto.randomUUID();
+          
+          // Copy only retained companies' data from current (latest) version
+          const newTechnicalNotes = currentVersion.technicalNotes.filter(
+            (n) => retainedIds.includes(n.companyId)
+          );
+          const newPriceEntries = currentVersion.priceEntries.filter(
+            (e) => retainedIds.includes(e.companyId)
+          );
+
           const newVersion: NegotiationVersion = {
             id: newVersionId,
             label,
             createdAt: new Date().toISOString(),
-            technicalNotes: currentVersion ? [...currentVersion.technicalNotes] : [],
-            priceEntries: currentVersion ? [...currentVersion.priceEntries] : [],
+            analysisDate,
+            technicalNotes: newTechnicalNotes.map((n) => ({ ...n })),
+            priceEntries: newPriceEntries.map((e) => ({ ...e })),
             frozen: false,
-            negotiationDecisions: currentVersion ? { ...currentVersion.negotiationDecisions } : {},
+            validated: false,
+            negotiationDecisions: {},
           };
+          
+          // Freeze current version
           const versions = state.project.versions.map((v) =>
             v.id === state.project.currentVersionId ? { ...v, frozen: true } : v
           );
+          
           return {
             project: {
               ...state.project,
@@ -316,26 +362,66 @@ export const useProjectStore = create<ProjectStore>()(
           },
         })),
 
+      validateVersion: (versionId) =>
+        set((state) => ({
+          project: {
+            ...state.project,
+            versions: state.project.versions.map((v) =>
+              v.id === versionId ? { ...v, validated: true, frozen: true } : v
+            ),
+          },
+        })),
+
+      unvalidateVersion: (versionId) =>
+        set((state) => ({
+          project: {
+            ...state.project,
+            versions: state.project.versions.map((v) =>
+              v.id === versionId ? { ...v, validated: false, frozen: false } : v
+            ),
+          },
+        })),
+
+      updateVersionAnalysisDate: (versionId, date) =>
+        set((state) => ({
+          project: {
+            ...state.project,
+            versions: state.project.versions.map((v) =>
+              v.id === versionId ? { ...v, analysisDate: date } : v
+            ),
+          },
+        })),
+
       resetProject: () => set({ project: createDefaultProject() }),
     }),
     {
       name: "procure-analyze-project",
-      version: 2,
+      version: 3,
       migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as any;
-        if (version < 2 && state?.project) {
-          if (state.project.lotLines) {
-            state.project.lotLines = state.project.lotLines.map((l: any) => ({
-              ...l,
-              estimationDpgf1: l.estimationDpgf1 ?? l.estimation ?? null,
-              estimationDpgf2: l.estimationDpgf2 ?? null,
-            }));
+        if (state?.project) {
+          if (version < 2) {
+            if (state.project.lotLines) {
+              state.project.lotLines = state.project.lotLines.map((l: any) => ({
+                ...l,
+                estimationDpgf1: l.estimationDpgf1 ?? l.estimation ?? null,
+                estimationDpgf2: l.estimationDpgf2 ?? null,
+              }));
+            }
+            if (state.project.versions) {
+              state.project.versions = state.project.versions.map((v: any) => ({
+                ...v,
+                negotiationDecisions: v.negotiationDecisions ??
+                  Object.fromEntries((v.negotiationRetained ?? []).map((id: number) => [id, "retenue" as const])),
+              }));
+            }
           }
+          // Migration to v3: add analysisDate and validated to versions
           if (state.project.versions) {
             state.project.versions = state.project.versions.map((v: any) => ({
               ...v,
-              negotiationDecisions: v.negotiationDecisions ??
-                Object.fromEntries((v.negotiationRetained ?? []).map((id: number) => [id, "retenue" as const])),
+              analysisDate: v.analysisDate ?? state.project.info?.analysisDate ?? new Date().toISOString().split("T")[0],
+              validated: v.validated ?? false,
             }));
           }
         }
