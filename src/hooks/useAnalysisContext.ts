@@ -35,10 +35,9 @@ export function useAnalysisContext() {
 
   const displayLabel = targetVersion ? getVersionDisplayLabel(targetVersion.label) : "";
 
-  // A version is read-only if frozen, validated, or if a later version exists
-  const versionIdx = project.versions.findIndex((v) => v.id === targetVersion?.id);
-  const hasLaterVersion = versionIdx >= 0 && versionIdx < project.versions.length - 1;
-  const effectiveReadOnly = (targetVersion?.frozen ?? false) || (targetVersion?.validated ?? false) || hasLaterVersion;
+  // A version is read-only if frozen or validated
+  // When unfrozen via "Débloquer", frozen=false so editing is allowed even if later versions exist
+  const effectiveReadOnly = (targetVersion?.frozen ?? false) || (targetVersion?.validated ?? false);
 
   return {
     version: targetVersion,

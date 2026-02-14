@@ -181,7 +181,7 @@ export const useProjectStore = create<ProjectStore>()(
       setTechnicalNote: (companyId, criterionId, subCriterionId, notation, comment) =>
         set((state) => {
           const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
-          if (!version || version.frozen) return state;
+          if (!version) return state;
 
           const notes = [...version.technicalNotes];
           const idx = notes.findIndex(
@@ -223,7 +223,7 @@ export const useProjectStore = create<ProjectStore>()(
       setPriceEntry: (companyId, lotLineId, dpgf1, dpgf2) =>
         set((state) => {
           const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
-          if (!version || version.frozen) return state;
+          if (!version) return state;
 
           const entries = [...version.priceEntries];
           const idx = entries.findIndex((e) => e.companyId === companyId && e.lotLineId === lotLineId);
@@ -320,6 +320,7 @@ export const useProjectStore = create<ProjectStore>()(
             priceEntries: newPriceEntries.map((e) => ({ ...e })),
             frozen: false,
             validated: false,
+            validatedAt: null,
             negotiationDecisions: {},
           };
           
@@ -367,7 +368,7 @@ export const useProjectStore = create<ProjectStore>()(
           project: {
             ...state.project,
             versions: state.project.versions.map((v) =>
-              v.id === versionId ? { ...v, validated: true, frozen: true } : v
+              v.id === versionId ? { ...v, validated: true, frozen: true, validatedAt: new Date().toISOString() } : v
             ),
           },
         })),
@@ -377,7 +378,7 @@ export const useProjectStore = create<ProjectStore>()(
           project: {
             ...state.project,
             versions: state.project.versions.map((v) =>
-              v.id === versionId ? { ...v, validated: false, frozen: false } : v
+              v.id === versionId ? { ...v, validated: false, frozen: false, validatedAt: null } : v
             ),
           },
         })),
@@ -416,12 +417,13 @@ export const useProjectStore = create<ProjectStore>()(
               }));
             }
           }
-          // Migration to v3: add analysisDate and validated to versions
+          // Migration to v3: add analysisDate, validated, validatedAt to versions
           if (state.project.versions) {
             state.project.versions = state.project.versions.map((v: any) => ({
               ...v,
               analysisDate: v.analysisDate ?? state.project.info?.analysisDate ?? new Date().toISOString().split("T")[0],
               validated: v.validated ?? false,
+              validatedAt: v.validatedAt ?? null,
             }));
           }
         }

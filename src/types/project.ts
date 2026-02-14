@@ -107,6 +107,7 @@ export interface NegotiationVersion {
   priceEntries: PriceEntry[];
   frozen: boolean;
   validated: boolean; // true when attributaire confirmed
+  validatedAt: string | null; // ISO date string of validation
   negotiationDecisions: Record<number, NegotiationDecision>;
 }
 
@@ -162,6 +163,7 @@ export function createDefaultProject(): ProjectData {
         priceEntries: [],
         frozen: false,
         validated: false,
+        validatedAt: null,
         negotiationDecisions: {},
       },
     ],

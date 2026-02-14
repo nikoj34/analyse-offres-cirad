@@ -11,7 +11,7 @@ export function LotLinesForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">Lots / PSE / Variantes / Tranches Optionnelles</CardTitle>
+        <CardTitle className="text-lg">PSE / Variantes / Tranches Optionnelles</CardTitle>
         <CardDescription>
           Système en cascade : la ligne suivante apparaît quand la précédente est remplie (max. 12).
           Choisissez l'affectation DPGF et saisissez les estimations correspondantes.

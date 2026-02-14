@@ -10,24 +10,7 @@ import { Lock } from "lucide-react";
 
 const NOTATION_OPTIONS: NotationLevel[] = ["tres_bien", "bien", "moyen", "passable", "insuffisant"];
 
-function cleanText(text: string): string {
-  let cleaned = text.trim().replace(/\s+/g, " ");
-  const corrections: Record<string, string> = {
-    insufisant: "insuffisant",
-    insufissant: "insuffisant",
-    insuffisent: "insuffisant",
-    passabe: "passable",
-    moye: "moyen",
-    "tres bien": "très bien",
-  };
-  const lower = cleaned.toLowerCase();
-  for (const [wrong, correct] of Object.entries(corrections)) {
-    if (lower.includes(wrong)) {
-      cleaned = cleaned.replace(new RegExp(wrong, "gi"), correct);
-    }
-  }
-  return cleaned;
-}
+// No longer clean/strip spaces — allow natural text input including spaces and newlines
 
 const TechniquePage = () => {
   const { project, setTechnicalNote, getTechnicalNote } = useProjectStore();
@@ -236,7 +219,7 @@ function CriterionBlock({
                   rows={4}
                   value={note?.comment ?? ""}
                   onChange={(e) =>
-                    setTechnicalNote(companyId, criterion.id, sub.id, note?.notation ?? null, cleanText(e.target.value))
+                    setTechnicalNote(companyId, criterion.id, sub.id, note?.notation ?? null, e.target.value)
                   }
                   placeholder="Commentaire / justification"
                   maxLength={2000}
@@ -282,7 +265,7 @@ function CriterionBlock({
           rows={4}
           value={note?.comment ?? ""}
           onChange={(e) =>
-            setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, cleanText(e.target.value))
+            setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, e.target.value)
           }
           placeholder="Commentaire / justification"
           maxLength={2000}

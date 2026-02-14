@@ -197,6 +197,11 @@ const SynthesePage = () => {
           {isValidated && (
             <Badge variant="default" className="gap-1 bg-green-600">
               <CheckCircle className="h-3 w-3" /> Validée
+              {version?.validatedAt && (
+                <span className="ml-1 font-normal text-xs">
+                  le {new Date(version.validatedAt).toLocaleDateString("fr-FR")}
+                </span>
+              )}
             </Badge>
           )}
         </h1>

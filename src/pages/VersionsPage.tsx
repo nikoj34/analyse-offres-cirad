@@ -147,6 +147,11 @@ const VersionsPage = () => {
                     {version.validated && (
                       <Badge variant="default" className="bg-green-600">
                         <CheckCircle className="h-3 w-3 mr-1" /> Validée
+                        {version.validatedAt && (
+                          <span className="ml-1 font-normal text-xs">
+                            le {new Date(version.validatedAt).toLocaleDateString("fr-FR")}
+                          </span>
+                        )}
                       </Badge>
                     )}
                     {isEffectivelyFrozen && !version.validated && (

@@ -1,6 +1,7 @@
 import { useMultiProjectStore } from "@/store/multiProjectStore";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Plus, FolderOpen, Trash2 } from "lucide-react";
 import {
   AlertDialog,
@@ -14,10 +15,30 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ciradLogo from "@/assets/cirad-logo.png";
+import { getVersionDisplayLabel } from "@/types/project";
+
+function getProjectStatus(project: any): { label: string; color: string; detail: string } {
+  const versions = project.versions ?? [];
+  // Check if any version has attributaire validated
+  for (const v of versions) {
+    if (v.validated && Object.values(v.negotiationDecisions ?? {}).some((d: string) => d === "attributaire")) {
+      const date = v.validatedAt ? new Date(v.validatedAt).toLocaleDateString("fr-FR") : "";
+      return { label: "Terminé", color: "bg-green-600", detail: date ? `Validé le ${date}` : "" };
+    }
+  }
+  // In progress - find current phase
+  const lastVersion = versions[versions.length - 1];
+  if (lastVersion) {
+    const displayLabel = getVersionDisplayLabel(lastVersion.label);
+    return { label: "En cours", color: "bg-blue-500", detail: displayLabel };
+  }
+  return { label: "En cours", color: "bg-blue-500", detail: "" };
+}
 
 const ProjectsPage = () => {
   const { getProjectList, createProject, openProject, deleteProject } = useMultiProjectStore();
   const projects = getProjectList();
+  const { projects: allProjects } = useMultiProjectStore();
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -53,50 +74,62 @@ const ProjectsPage = () => {
           </Card>
         ) : (
           <div className="grid gap-3">
-            {projects.map((p) => (
-              <Card
-                key={p.id}
-                className="cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
-                onClick={() => openProject(p.id)}
-              >
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">{p.name}</CardTitle>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent onClick={(e) => e.stopPropagation()}>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Supprimer cette analyse ?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            L'analyse « {p.name} » sera définitivement supprimée. Cette action est irréversible.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Annuler</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => deleteProject(p.id)}>
-                            Supprimer
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                  <CardDescription>
-                    {p.marketRef && `Réf. ${p.marketRef} — `}
-                    {p.lotAnalyzed && `${p.lotAnalyzed} — `}
-                    Mis à jour le {new Date(p.updatedAt).toLocaleDateString("fr-FR")}
-                  </CardDescription>
-                </CardHeader>
-              </Card>
-            ))}
+            {projects.map((p) => {
+              const fullProject = allProjects[p.id];
+              const status = fullProject ? getProjectStatus(fullProject) : { label: "En cours", color: "bg-blue-500", detail: "" };
+              return (
+                <Card
+                  key={p.id}
+                  className="cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
+                  onClick={() => openProject(p.id)}
+                >
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <CardTitle className="text-base">{p.name}</CardTitle>
+                        <Badge className={`${status.color} text-white`}>
+                          {status.label}
+                        </Badge>
+                        {status.detail && (
+                          <span className="text-xs text-muted-foreground">{status.detail}</span>
+                        )}
+                      </div>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Supprimer cette analyse ?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              L'analyse « {p.name} » sera définitivement supprimée. Cette action est irréversible.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Annuler</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => deleteProject(p.id)}>
+                              Supprimer
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                    <CardDescription>
+                      {p.marketRef && `Réf. ${p.marketRef} — `}
+                      {p.lotAnalyzed && `${p.lotAnalyzed} — `}
+                      Mis à jour le {new Date(p.updatedAt).toLocaleDateString("fr-FR")}
+                    </CardDescription>
+                  </CardHeader>
+                </Card>
+              );
+            })}
           </div>
         )}
       </main>
