@@ -95,7 +95,7 @@ export const useProjectStore = create<ProjectStore>()(
           if (updates.label && updates.label.trim() !== "" && lotLines.length < 12) {
             const nextId = id + 1;
             if (!lotLines.find((l) => l.id === nextId)) {
-              lotLines.push({ id: nextId, label: "", type: null });
+              lotLines.push({ id: nextId, label: "", type: null, dpgfAssignment: "both", estimation: null });
             }
           }
 

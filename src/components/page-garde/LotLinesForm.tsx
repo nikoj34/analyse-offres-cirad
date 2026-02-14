@@ -2,12 +2,18 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useProjectStore } from "@/store/projectStore";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { LotType } from "@/types/project";
+import { LotType, DpgfAssignment } from "@/types/project";
 
 const LOT_TYPE_LABELS: Record<LotType, string> = {
   PSE: "PSE",
   VARIANTE: "Variante",
   T_OPTIONNELLE: "Tranche Optionnelle",
+};
+
+const DPGF_LABELS: Record<DpgfAssignment, string> = {
+  DPGF_1: "DPGF 1",
+  DPGF_2: "DPGF 2",
+  both: "Les deux",
 };
 
 export function LotLinesForm() {
@@ -51,6 +57,32 @@ export function LotLinesForm() {
                   <SelectItem value="T_OPTIONNELLE">Tranche Optionnelle</SelectItem>
                 </SelectContent>
               </Select>
+              <Select
+                value={line.dpgfAssignment}
+                onValueChange={(v) =>
+                  updateLotLine(line.id, { dpgfAssignment: v as DpgfAssignment })
+                }
+              >
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="DPGF" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="both">Les deux</SelectItem>
+                  <SelectItem value="DPGF_1">DPGF 1</SelectItem>
+                  <SelectItem value="DPGF_2">DPGF 2</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                className="w-36"
+                type="number"
+                value={line.estimation ?? ""}
+                onChange={(e) =>
+                  updateLotLine(line.id, {
+                    estimation: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
+                placeholder="Estimation € HT"
+              />
             </div>
           ))}
         </div>

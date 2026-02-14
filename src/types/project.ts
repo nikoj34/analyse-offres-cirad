@@ -10,10 +10,14 @@ export interface Company {
 
 export type LotType = "PSE" | "VARIANTE" | "T_OPTIONNELLE";
 
+export type DpgfAssignment = "DPGF_1" | "DPGF_2" | "both";
+
 export interface LotLine {
   id: number; // 1-12
   label: string;
   type: LotType | null;
+  dpgfAssignment: DpgfAssignment; // which DPGF this line is assigned to
+  estimation: number | null; // estimation amount in € HT
 }
 
 export type NotationLevel = "tres_bien" | "bien" | "moyen" | "passable" | "insuffisant";
@@ -54,6 +58,8 @@ export interface ProjectInfo {
   lotNumber: string;
   analysisDate: string;
   author: string;
+  estimationDpgf1: number | null; // Estimation TF DPGF_1 (€ HT)
+  estimationDpgf2: number | null; // Estimation TF DPGF_2 (€ HT)
 }
 
 export interface TechnicalNote {
@@ -117,9 +123,11 @@ export function createDefaultProject(): ProjectData {
       lotNumber: "",
       analysisDate: new Date().toISOString().split("T")[0],
       author: "",
+      estimationDpgf1: null,
+      estimationDpgf2: null,
     },
     companies: [{ id: 1, name: "", status: "non_defini" }],
-    lotLines: [{ id: 1, label: "", type: null }],
+    lotLines: [{ id: 1, label: "", type: null, dpgfAssignment: "both", estimation: null }],
     weightingCriteria: DEFAULT_CRITERIA,
     versions: [
       {
