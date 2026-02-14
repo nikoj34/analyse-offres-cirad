@@ -27,7 +27,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-// Decisions available depend on whether this is the last version or not
 const DECISION_OPTIONS: NegotiationDecision[] = ["non_defini", "retenue", "non_retenue", "attributaire"];
 
 const SynthesePage = () => {
@@ -54,6 +53,16 @@ const SynthesePage = () => {
   const versionHasAttributaire = version ? hasAttributaire(version.id) : false;
   const isValidated = version?.validated ?? false;
   const displayLabel = version ? getVersionDisplayLabel(version.label) : "";
+
+  // Check if all non-excluded companies have a decision (not "non_defini")
+  const allDecided = useMemo(() => {
+    const eligibleCompanies = activeCompanies.filter((c) => c.status !== "ecartee");
+    if (eligibleCompanies.length === 0) return false;
+    return eligibleCompanies.every((c) => {
+      const d = version?.negotiationDecisions?.[c.id];
+      return d && d !== "non_defini";
+    });
+  }, [activeCompanies, version]);
 
   const results = useMemo(() => {
     if (!version) return [];
@@ -196,13 +205,13 @@ const SynthesePage = () => {
         </p>
       </div>
 
-      {/* Validate / Unvalidate buttons */}
-      {version && versionHasAttributaire && !isValidated && (
+      {/* Validate button: shown when ALL companies have a decision and not yet validated */}
+      {version && allDecided && !isValidated && !isReadOnly && (
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button className="gap-2 bg-green-600 hover:bg-green-700">
               <CheckCircle className="h-4 w-4" />
-              Valider l'analyse — Attribuer
+              {versionHasAttributaire ? "Valider l'analyse — Attribuer" : "Valider l'analyse"}
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
@@ -212,8 +221,18 @@ const SynthesePage = () => {
                 Valider l'analyse ?
               </AlertDialogTitle>
               <AlertDialogDescription>
-                Une entreprise est <strong>attributaire</strong>. Valider l'analyse va figer définitivement
-                cette phase. Aucune négociation supplémentaire ne pourra être créée. Vous pourrez débloquer si nécessaire.
+                {versionHasAttributaire ? (
+                  <>
+                    Une entreprise est <strong>attributaire</strong>. Valider l'analyse va figer définitivement
+                    cette phase. Aucune négociation supplémentaire ne pourra être créée.
+                  </>
+                ) : (
+                  <>
+                    La validation va figer cette phase. Les entreprises « Retenue pour négociation » 
+                    pourront passer en phase de négociation suivante.
+                  </>
+                )}
+                {" "}Vous pourrez débloquer si nécessaire.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -329,7 +348,7 @@ const SynthesePage = () => {
                           onValueChange={(v) => setNegotiationDecision(row.company.id, v as NegotiationDecision)}
                           disabled={isReadOnly || isValidated}
                         >
-                          <SelectTrigger className="w-36">
+                          <SelectTrigger className="w-44">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>

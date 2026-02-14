@@ -35,13 +35,18 @@ export function useAnalysisContext() {
 
   const displayLabel = targetVersion ? getVersionDisplayLabel(targetVersion.label) : "";
 
+  // A version is read-only if frozen, validated, or if a later version exists
+  const versionIdx = project.versions.findIndex((v) => v.id === targetVersion?.id);
+  const hasLaterVersion = versionIdx >= 0 && versionIdx < project.versions.length - 1;
+  const effectiveReadOnly = (targetVersion?.frozen ?? false) || (targetVersion?.validated ?? false) || hasLaterVersion;
+
   return {
     version: targetVersion,
     versionId: targetVersion?.id,
     activeCompanies,
     isNego,
     negoRound,
-    isReadOnly: targetVersion?.frozen ?? false,
+    isReadOnly: effectiveReadOnly,
     negoLabel: isNego ? `Négociation ${negoRound}` : displayLabel,
   };
 }

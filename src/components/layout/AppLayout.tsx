@@ -2,6 +2,7 @@ import { ReactNode, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/store/projectStore";
+import { useMultiProjectStore } from "@/store/multiProjectStore";
 import { getVersionDisplayLabel } from "@/types/project";
 import {
   FileText,
@@ -11,12 +12,14 @@ import {
   GitBranch,
   Download,
   ChevronDown,
+  ArrowLeft,
 } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import ciradLogo from "@/assets/cirad-logo.png";
 
 function SidebarLink({
   to,
@@ -47,17 +50,27 @@ function SidebarLink({
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { project } = useProjectStore();
+  const { closeProject } = useMultiProjectStore();
   const [negoOpen, setNegoOpen] = useState(true);
-  const negoVersions = project.versions.slice(1); // V1, V2...
+  const negoVersions = project.versions.slice(1);
 
   return (
     <div className="flex min-h-screen bg-background">
       <aside className="w-64 shrink-0 border-r border-border bg-sidebar">
-        <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-6">
-          <BarChart3 className="h-6 w-6 text-sidebar-primary" />
-          <span className="text-lg font-bold text-sidebar-foreground">
-            ProcureAnalyze
+        <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-4">
+          <img src={ciradLogo} alt="CIRAD" className="h-8" />
+          <span className="text-sm font-bold text-sidebar-foreground leading-tight">
+            Analyse d'offres
           </span>
+        </div>
+        <div className="px-3 pt-2 pb-1">
+          <button
+            onClick={() => closeProject()}
+            className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full rounded-md px-2 py-1.5 hover:bg-sidebar-accent/50"
+          >
+            <ArrowLeft className="h-3 w-3" />
+            Retour aux projets
+          </button>
         </div>
         <nav className="flex flex-col gap-1 p-3">
           <SidebarLink to="/" icon={FileText} label="Page de Garde" />
@@ -86,7 +99,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 <SidebarLink to="/versions" icon={GitBranch} label="Cycles" />
                 {negoVersions.map((v, i) => {
                   const round = i + 1;
-                  const displayLabel = getVersionDisplayLabel(v.label);
                   const shortLabel = round === 1 ? "Négo 1" : "Négo 2";
                   return (
                     <div key={v.id} className="space-y-0.5">
