@@ -295,19 +295,19 @@ export async function exportToExcel(project: ProjectData) {
       col++;
 
       prixSheet.getCell(pRow, col + 1).value = d1 || "";
-      prixSheet.getCell(pRow, col + 1).numFmt = '#,##0';
+      prixSheet.getCell(pRow, col + 1).numFmt = '#,##0.00 "€"';
       prixSheet.getCell(pRow, col + 1).border = thinBorder();
       col++;
 
       if (hasDpgf2) {
         prixSheet.getCell(pRow, col + 1).value = d2 || "";
-        prixSheet.getCell(pRow, col + 1).numFmt = '#,##0';
+        prixSheet.getCell(pRow, col + 1).numFmt = '#,##0.00 "€"';
         prixSheet.getCell(pRow, col + 1).border = thinBorder();
         col++;
       }
 
       prixSheet.getCell(pRow, col + 1).value = d1 + d2;
-      prixSheet.getCell(pRow, col + 1).numFmt = '#,##0';
+      prixSheet.getCell(pRow, col + 1).numFmt = '#,##0.00 "€"';
       prixSheet.getCell(pRow, col + 1).font = { bold: true };
       prixSheet.getCell(pRow, col + 1).border = thinBorder();
       pRow++;
@@ -321,7 +321,7 @@ export async function exportToExcel(project: ProjectData) {
     col++;
 
     prixSheet.getCell(pRow, col + 1).value = totalDpgf1;
-    prixSheet.getCell(pRow, col + 1).numFmt = '#,##0';
+    prixSheet.getCell(pRow, col + 1).numFmt = '#,##0.00 "€"';
     prixSheet.getCell(pRow, col + 1).font = { bold: true };
     prixSheet.getCell(pRow, col + 1).fill = lightFill(COLORS.lightGreen);
     prixSheet.getCell(pRow, col + 1).border = thinBorder();
@@ -329,7 +329,7 @@ export async function exportToExcel(project: ProjectData) {
 
     if (hasDpgf2) {
       prixSheet.getCell(pRow, col + 1).value = totalDpgf2;
-      prixSheet.getCell(pRow, col + 1).numFmt = '#,##0';
+      prixSheet.getCell(pRow, col + 1).numFmt = '#,##0.00 "€"';
       prixSheet.getCell(pRow, col + 1).font = { bold: true };
       prixSheet.getCell(pRow, col + 1).fill = lightFill(COLORS.lightGreen);
       prixSheet.getCell(pRow, col + 1).border = thinBorder();
@@ -337,7 +337,7 @@ export async function exportToExcel(project: ProjectData) {
     }
 
     prixSheet.getCell(pRow, col + 1).value = totalDpgf1 + totalDpgf2;
-    prixSheet.getCell(pRow, col + 1).numFmt = '#,##0';
+    prixSheet.getCell(pRow, col + 1).numFmt = '#,##0.00 "€"';
     prixSheet.getCell(pRow, col + 1).font = { bold: true };
     prixSheet.getCell(pRow, col + 1).fill = lightFill(COLORS.lightGreen);
     prixSheet.getCell(pRow, col + 1).border = thinBorder();
@@ -376,7 +376,7 @@ export async function exportToExcel(project: ProjectData) {
     prixSheet.getCell(`B${pRow}`).value = `${company.id}. ${company.name}`;
     prixSheet.getCell(`B${pRow}`).border = thinBorder();
     prixSheet.getCell(`C${pRow}`).value = total;
-    prixSheet.getCell(`C${pRow}`).numFmt = '#,##0 "€"';
+    prixSheet.getCell(`C${pRow}`).numFmt = '#,##0.00 "€"';
     prixSheet.getCell(`C${pRow}`).border = thinBorder();
     prixSheet.getCell(`D${pRow}`).value = Number(score.toFixed(1));
     prixSheet.getCell(`D${pRow}`).font = { bold: true };
@@ -633,50 +633,98 @@ export async function exportToExcel(project: ProjectData) {
     return b.globalScore - a.globalScore;
   });
 
+  // Track data rows for formulas
+  const dataStartRow = sRow;
   let synthRank = 0;
+  const nonExcludedRows: number[] = [];
+
   for (const r of sortedSynth) {
     const isExcluded = r.company.status === "ecartee";
-    if (!isExcluded) synthRank++;
+    if (!isExcluded) {
+      synthRank++;
+      nonExcludedRows.push(sRow);
+    }
     const decisions = currentVersion.negotiationDecisions ?? {};
     const decision: NegotiationDecision = decisions[r.company.id] ?? "non_defini";
     const decisionLabel = NEGOTIATION_DECISION_LABELS[decision];
 
-    const values = [
-      `${r.company.id}. ${r.company.name}${isExcluded ? " (Écartée)" : ""}`,
-      isExcluded ? "—" : r.priceTotal,
-      isExcluded ? "—" : Number(r.priceScore.toFixed(1)),
-      isExcluded ? "—" : Number(r.techScore.toFixed(1)),
-      isExcluded ? "—" : Number(r.envScore.toFixed(1)),
-      isExcluded ? "—" : Number(r.planScore.toFixed(1)),
-      isExcluded ? "—" : Number(r.globalScore.toFixed(1)),
-      isExcluded ? "—" : synthRank,
-      isExcluded ? "Écartée" : decisionLabel,
-    ];
+    // Col mapping: B=name, C=montant, D=prix, E=tech, F=enviro, G=planning, H=global, I=rank, J=phase
+    const nameCell = synthSheet.getCell(sRow, 2);
+    nameCell.value = `${r.company.id}. ${r.company.name}${isExcluded ? " (Écartée)" : ""}`;
+    nameCell.border = thinBorder();
+    nameCell.alignment = { horizontal: "left" };
 
-    values.forEach((val, i) => {
-      const c = synthSheet.getCell(sRow, i + 2);
-      c.value = val;
-      c.border = thinBorder();
-      c.alignment = { horizontal: i === 0 ? "left" : "center" };
+    const montantCell = synthSheet.getCell(sRow, 3);
+    montantCell.value = isExcluded ? "—" : r.priceTotal;
+    montantCell.border = thinBorder();
+    montantCell.alignment = { horizontal: "center" };
+    if (!isExcluded) montantCell.numFmt = '#,##0.00 "€"';
 
-      if (isExcluded) {
+    const prixScoreCell = synthSheet.getCell(sRow, 4);
+    prixScoreCell.value = isExcluded ? "—" : Number(r.priceScore.toFixed(1));
+    prixScoreCell.border = thinBorder();
+    prixScoreCell.alignment = { horizontal: "center" };
+
+    const techCell = synthSheet.getCell(sRow, 5);
+    techCell.value = isExcluded ? "—" : Number(r.techScore.toFixed(1));
+    techCell.border = thinBorder();
+    techCell.alignment = { horizontal: "center" };
+
+    const envCell = synthSheet.getCell(sRow, 6);
+    envCell.value = isExcluded ? "—" : Number(r.envScore.toFixed(1));
+    envCell.border = thinBorder();
+    envCell.alignment = { horizontal: "center" };
+
+    const planCell = synthSheet.getCell(sRow, 7);
+    planCell.value = isExcluded ? "—" : Number(r.planScore.toFixed(1));
+    planCell.border = thinBorder();
+    planCell.alignment = { horizontal: "center" };
+
+    // Global score = SUM formula (D+E+F+G)
+    const globalCell = synthSheet.getCell(sRow, 8);
+    if (isExcluded) {
+      globalCell.value = "—";
+    } else {
+      globalCell.value = { formula: `D${sRow}+E${sRow}+F${sRow}+G${sRow}` };
+    }
+    globalCell.border = thinBorder();
+    globalCell.alignment = { horizontal: "center" };
+    globalCell.font = { bold: true };
+
+    const rankCell = synthSheet.getCell(sRow, 9);
+    rankCell.border = thinBorder();
+    rankCell.alignment = { horizontal: "center" };
+
+    const phaseCell = synthSheet.getCell(sRow, 10);
+    phaseCell.value = isExcluded ? "Écartée" : decisionLabel;
+    phaseCell.border = thinBorder();
+    phaseCell.alignment = { horizontal: "center" };
+
+    if (isExcluded) {
+      rankCell.value = "—";
+      for (let i = 2; i <= 10; i++) {
+        const c = synthSheet.getCell(sRow, i);
         c.font = { italic: true, color: { argb: COLORS.excluded } };
         c.fill = lightFill(COLORS.lightRed);
-      } else if (i === 7 && synthRank === 1) {
-        c.fill = lightFill(COLORS.lightGreen);
-        c.font = { bold: true };
       }
+    } else {
+      const isRetained = decision === "retenue" || decision === "attributaire";
+      phaseCell.font = { bold: true, color: { argb: isRetained ? "2E7D32" : COLORS.excluded } };
+    }
 
-      if (i === 1 && typeof val === "number") {
-        c.numFmt = '#,##0 "€"';
-      }
-
-      if (i === 8) {
-        const isRetained = decision === "retenue" || decision === "attributaire";
-        c.font = { bold: true, color: { argb: isRetained ? "2E7D32" : COLORS.excluded } };
-      }
-    });
     sRow++;
+  }
+
+  // Add RANK formulas for non-excluded companies
+  for (const row of nonExcludedRows) {
+    const rankCell = synthSheet.getCell(row, 9);
+    // Build range of all global score cells for non-excluded
+    const rangeRefs = nonExcludedRows.map((r) => `H${r}`).join(",");
+    rankCell.value = { formula: `RANK(H${row},H${nonExcludedRows[0]}:H${nonExcludedRows[nonExcludedRows.length - 1]})` };
+    rankCell.font = { bold: true };
+    if (rankCell.value && typeof rankCell.value === "object") {
+      // Highlight rank 1
+    }
   }
 
   for (let i = 2; i <= 10; i++) {
