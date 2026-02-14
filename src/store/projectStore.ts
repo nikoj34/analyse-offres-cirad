@@ -1,0 +1,166 @@
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import {
+  ProjectData,
+  Company,
+  LotLine,
+  WeightingCriterion,
+  ProjectInfo,
+  createDefaultProject,
+  CompanyStatus,
+  LotType,
+} from "@/types/project";
+
+interface ProjectStore {
+  project: ProjectData;
+
+  // Project info
+  updateInfo: (info: Partial<ProjectInfo>) => void;
+
+  // Companies
+  addCompany: () => void;
+  removeCompany: (id: number) => void;
+  updateCompany: (id: number, updates: Partial<Company>) => void;
+  setCompanyStatus: (id: number, status: CompanyStatus) => void;
+
+  // Lot lines
+  updateLotLine: (id: number, updates: Partial<LotLine>) => void;
+
+  // Weighting
+  updateCriterionWeight: (criterionId: string, weight: number) => void;
+  updateCriterionLabel: (criterionId: string, label: string) => void;
+  addSubCriterion: (criterionId: string) => void;
+  removeSubCriterion: (criterionId: string, subId: string) => void;
+  updateSubCriterion: (criterionId: string, subId: string, updates: { label?: string; weight?: number }) => void;
+
+  // Reset
+  resetProject: () => void;
+}
+
+export const useProjectStore = create<ProjectStore>()(
+  persist(
+    (set) => ({
+      project: createDefaultProject(),
+
+      updateInfo: (info) =>
+        set((state) => ({
+          project: { ...state.project, info: { ...state.project.info, ...info } },
+        })),
+
+      addCompany: () =>
+        set((state) => {
+          if (state.project.companies.length >= 16) return state;
+          const nextId = state.project.companies.length + 1;
+          return {
+            project: {
+              ...state.project,
+              companies: [...state.project.companies, { id: nextId, name: "", status: "non_defini" }],
+            },
+          };
+        }),
+
+      removeCompany: (id) =>
+        set((state) => {
+          if (state.project.companies.length <= 1) return state;
+          const filtered = state.project.companies
+            .filter((c) => c.id !== id)
+            .map((c, i) => ({ ...c, id: i + 1 }));
+          return { project: { ...state.project, companies: filtered } };
+        }),
+
+      updateCompany: (id, updates) =>
+        set((state) => ({
+          project: {
+            ...state.project,
+            companies: state.project.companies.map((c) => (c.id === id ? { ...c, ...updates } : c)),
+          },
+        })),
+
+      setCompanyStatus: (id, status) =>
+        set((state) => ({
+          project: {
+            ...state.project,
+            companies: state.project.companies.map((c) => (c.id === id ? { ...c, status } : c)),
+          },
+        })),
+
+      updateLotLine: (id, updates) =>
+        set((state) => {
+          const lotLines = [...state.project.lotLines];
+          const idx = lotLines.findIndex((l) => l.id === id);
+          if (idx === -1) return state;
+          lotLines[idx] = { ...lotLines[idx], ...updates };
+
+          // Cascade: if this line now has a label and there's no next line, add one (max 12)
+          if (updates.label && updates.label.trim() !== "" && lotLines.length < 12) {
+            const nextId = id + 1;
+            if (!lotLines.find((l) => l.id === nextId)) {
+              lotLines.push({ id: nextId, label: "", type: null });
+            }
+          }
+
+          return { project: { ...state.project, lotLines } };
+        }),
+
+      updateCriterionWeight: (criterionId, weight) =>
+        set((state) => ({
+          project: {
+            ...state.project,
+            weightingCriteria: state.project.weightingCriteria.map((c) =>
+              c.id === criterionId ? { ...c, weight } : c
+            ),
+          },
+        })),
+
+      updateCriterionLabel: (criterionId, label) =>
+        set((state) => ({
+          project: {
+            ...state.project,
+            weightingCriteria: state.project.weightingCriteria.map((c) =>
+              c.id === criterionId ? { ...c, label } : c
+            ),
+          },
+        })),
+
+      addSubCriterion: (criterionId) =>
+        set((state) => ({
+          project: {
+            ...state.project,
+            weightingCriteria: state.project.weightingCriteria.map((c) => {
+              if (c.id !== criterionId) return c;
+              const newSub = { id: crypto.randomUUID(), label: "", weight: 0 };
+              return { ...c, subCriteria: [...c.subCriteria, newSub] };
+            }),
+          },
+        })),
+
+      removeSubCriterion: (criterionId, subId) =>
+        set((state) => ({
+          project: {
+            ...state.project,
+            weightingCriteria: state.project.weightingCriteria.map((c) => {
+              if (c.id !== criterionId) return c;
+              return { ...c, subCriteria: c.subCriteria.filter((s) => s.id !== subId) };
+            }),
+          },
+        })),
+
+      updateSubCriterion: (criterionId, subId, updates) =>
+        set((state) => ({
+          project: {
+            ...state.project,
+            weightingCriteria: state.project.weightingCriteria.map((c) => {
+              if (c.id !== criterionId) return c;
+              return {
+                ...c,
+                subCriteria: c.subCriteria.map((s) => (s.id === subId ? { ...s, ...updates } : s)),
+              };
+            }),
+          },
+        })),
+
+      resetProject: () => set({ project: createDefaultProject() }),
+    }),
+    { name: "procure-analyze-project" }
+  )
+);

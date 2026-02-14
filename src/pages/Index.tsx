@@ -1,12 +1,21 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { ProjectInfoForm } from "@/components/page-garde/ProjectInfoForm";
+import { CompaniesForm } from "@/components/page-garde/CompaniesForm";
+import { LotLinesForm } from "@/components/page-garde/LotLinesForm";
+import { WeightingForm } from "@/components/page-garde/WeightingForm";
 
 const Index = () => {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Page de Garde</h1>
+        <p className="text-sm text-muted-foreground">
+          Saisissez les informations générales du projet, les entreprises candidates et les pondérations.
+        </p>
       </div>
+      <ProjectInfoForm />
+      <CompaniesForm />
+      <LotLinesForm />
+      <WeightingForm />
     </div>
   );
 };
