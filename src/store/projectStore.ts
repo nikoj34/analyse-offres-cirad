@@ -9,6 +9,8 @@ import {
   createDefaultProject,
   CompanyStatus,
   LotType,
+  TechnicalNote,
+  NotationLevel,
 } from "@/types/project";
 
 interface ProjectStore {
@@ -33,13 +35,17 @@ interface ProjectStore {
   removeSubCriterion: (criterionId: string, subId: string) => void;
   updateSubCriterion: (criterionId: string, subId: string, updates: { label?: string; weight?: number }) => void;
 
+  // Technical notes
+  setTechnicalNote: (companyId: number, criterionId: string, subCriterionId: string | undefined, notation: NotationLevel | null, comment: string) => void;
+  getTechnicalNote: (companyId: number, criterionId: string, subCriterionId?: string) => TechnicalNote | undefined;
+
   // Reset
   resetProject: () => void;
 }
 
 export const useProjectStore = create<ProjectStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       project: createDefaultProject(),
 
       updateInfo: (info) =>
@@ -91,7 +97,6 @@ export const useProjectStore = create<ProjectStore>()(
           if (idx === -1) return state;
           lotLines[idx] = { ...lotLines[idx], ...updates };
 
-          // Cascade: if this line now has a label and there's no next line, add one (max 12)
           if (updates.label && updates.label.trim() !== "" && lotLines.length < 12) {
             const nextId = id + 1;
             if (!lotLines.find((l) => l.id === nextId)) {
@@ -158,6 +163,48 @@ export const useProjectStore = create<ProjectStore>()(
             }),
           },
         })),
+
+      setTechnicalNote: (companyId, criterionId, subCriterionId, notation, comment) =>
+        set((state) => {
+          const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
+          if (!version) return state;
+
+          const notes = [...version.technicalNotes];
+          const idx = notes.findIndex(
+            (n) =>
+              n.companyId === companyId &&
+              n.criterionId === criterionId &&
+              (n.subCriterionId ?? undefined) === subCriterionId
+          );
+
+          const newNote: TechnicalNote = { companyId, criterionId, subCriterionId, notation, comment };
+          if (idx >= 0) {
+            notes[idx] = newNote;
+          } else {
+            notes.push(newNote);
+          }
+
+          return {
+            project: {
+              ...state.project,
+              versions: state.project.versions.map((v) =>
+                v.id === state.project.currentVersionId ? { ...v, technicalNotes: notes } : v
+              ),
+            },
+          };
+        }),
+
+      getTechnicalNote: (companyId, criterionId, subCriterionId) => {
+        const state = get();
+        const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
+        if (!version) return undefined;
+        return version.technicalNotes.find(
+          (n) =>
+            n.companyId === companyId &&
+            n.criterionId === criterionId &&
+            (n.subCriterionId ?? undefined) === subCriterionId
+        );
+      },
 
       resetProject: () => set({ project: createDefaultProject() }),
     }),
