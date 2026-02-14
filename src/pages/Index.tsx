@@ -2,6 +2,7 @@ import { ProjectInfoForm } from "@/components/page-garde/ProjectInfoForm";
 import { CompaniesForm } from "@/components/page-garde/CompaniesForm";
 import { LotLinesForm } from "@/components/page-garde/LotLinesForm";
 import { WeightingForm } from "@/components/page-garde/WeightingForm";
+import { EstimationForm } from "@/components/page-garde/EstimationForm";
 
 const Index = () => {
   return (
@@ -15,6 +16,7 @@ const Index = () => {
       <ProjectInfoForm />
       <CompaniesForm />
       <LotLinesForm />
+      <EstimationForm />
       <WeightingForm />
     </div>
   );
