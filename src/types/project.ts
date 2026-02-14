@@ -6,6 +6,7 @@ export interface Company {
   id: number; // 1-16
   name: string;
   status: CompanyStatus;
+  exclusionReason: string; // reason for exclusion if status is "ecartee"
 }
 
 export type LotType = "PSE" | "VARIANTE" | "T_OPTIONNELLE";
@@ -126,7 +127,7 @@ export function createDefaultProject(): ProjectData {
       estimationDpgf1: null,
       estimationDpgf2: null,
     },
-    companies: [{ id: 1, name: "", status: "non_defini" }],
+    companies: [{ id: 1, name: "", status: "non_defini", exclusionReason: "" }],
     lotLines: [{ id: 1, label: "", type: null, dpgfAssignment: "both", estimation: null }],
     weightingCriteria: DEFAULT_CRITERIA,
     versions: [
