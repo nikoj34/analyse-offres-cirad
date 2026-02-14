@@ -24,8 +24,12 @@ const PrixPage = () => {
 
     for (const company of activeCompanies) {
       if (company.status === "ecartee") continue;
-      let dpgf1Sum = 0;
-      let dpgf2Sum = 0;
+      // Base DPGF entry (lotLineId = 0)
+      const baseDpgf = version.priceEntries.find(
+        (e) => e.companyId === company.id && e.lotLineId === 0
+      );
+      let dpgf1Sum = baseDpgf?.dpgf1 ?? 0;
+      let dpgf2Sum = baseDpgf?.dpgf2 ?? 0;
 
       for (const line of activeLotLines) {
         const entry = version.priceEntries.find(
@@ -134,6 +138,47 @@ const PrixPage = () => {
                   <span className="text-right">DPGF 1 (€ HT)</span>
                   <span className="text-right">DPGF 2 (€ HT)</span>
                 </div>
+                {/* Base DPGF row */}
+                {(() => {
+                  const dpgfEntry = getPriceEntry(company.id, 0);
+                  return (
+                    <div className="grid grid-cols-[1fr_120px_120px] gap-2 items-center rounded-md border-2 border-primary/30 bg-primary/5 p-2">
+                      <div className="text-sm">
+                        <span className="font-semibold">DPGF (Tranche Ferme)</span>
+                      </div>
+                      <Input
+                        type="number"
+                        className="text-right text-sm"
+                        value={dpgfEntry?.dpgf1 ?? ""}
+                        disabled={isReadOnly}
+                        onChange={(e) =>
+                          setPriceEntry(
+                            company.id,
+                            0,
+                            e.target.value ? Number(e.target.value) : null,
+                            dpgfEntry?.dpgf2 ?? null
+                          )
+                        }
+                        placeholder="0"
+                      />
+                      <Input
+                        type="number"
+                        className="text-right text-sm"
+                        value={dpgfEntry?.dpgf2 ?? ""}
+                        disabled={isReadOnly}
+                        onChange={(e) =>
+                          setPriceEntry(
+                            company.id,
+                            0,
+                            dpgfEntry?.dpgf1 ?? null,
+                            e.target.value ? Number(e.target.value) : null
+                          )
+                        }
+                        placeholder="0"
+                      />
+                    </div>
+                  );
+                })()}
                 {activeLotLines.map((line) => {
                   const entry = getPriceEntry(company.id, line.id);
                   const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
