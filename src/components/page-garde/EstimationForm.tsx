@@ -8,29 +8,24 @@ export function EstimationForm() {
   const { info, lotLines } = project;
 
   const computed = useMemo(() => {
-    const lotEstimations = lotLines.filter((l) => l.estimation != null);
+    const lotEstimations = lotLines.filter((l) => l.label.trim() !== "");
 
-    const dpgf1Lines = lotEstimations.filter(
-      (l) => l.dpgfAssignment === "DPGF_1" || l.dpgfAssignment === "both"
-    );
-    const dpgf2Lines = lotEstimations.filter(
-      (l) => l.dpgfAssignment === "DPGF_2" || l.dpgfAssignment === "both"
-    );
+    const sumDpgf1 = (lines: typeof lotEstimations) =>
+      lines.reduce((s, l) => s + (l.estimationDpgf1 ?? 0), 0);
+    const sumDpgf2 = (lines: typeof lotEstimations) =>
+      lines.reduce((s, l) => s + (l.estimationDpgf2 ?? 0), 0);
 
     const pse = lotEstimations.filter((l) => l.type === "PSE");
     const variante = lotEstimations.filter((l) => l.type === "VARIANTE");
     const to = lotEstimations.filter((l) => l.type === "T_OPTIONNELLE");
-    const base = lotEstimations.filter((l) => l.type === null);
-
-    const sumEst = (lines: typeof lotEstimations) =>
-      lines.reduce((s, l) => s + (l.estimation ?? 0), 0);
 
     const estDpgf1 = info.estimationDpgf1 ?? 0;
     const estDpgf2 = info.estimationDpgf2 ?? 0;
     const estTF = estDpgf1 + estDpgf2;
-    const estPSE = sumEst(pse);
-    const estVariante = sumEst(variante);
-    const estTO = sumEst(to);
+
+    const estPSE = sumDpgf1(pse) + sumDpgf2(pse);
+    const estVariante = sumDpgf1(variante) + sumDpgf2(variante);
+    const estTO = sumDpgf1(to) + sumDpgf2(to);
 
     return {
       estTF,
@@ -53,7 +48,6 @@ export function EstimationForm() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* DPGF inputs */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-foreground">
@@ -87,7 +81,6 @@ export function EstimationForm() {
           </div>
         </div>
 
-        {/* Computed summaries */}
         <div className="rounded-md border border-border bg-muted/50 p-4">
           <h4 className="mb-3 text-sm font-semibold text-foreground">Récapitulatif</h4>
           <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">

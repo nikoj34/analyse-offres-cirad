@@ -26,6 +26,9 @@ const App = () => (
             <Route path="/technique" element={<TechniquePage />} />
             <Route path="/prix" element={<PrixPage />} />
             <Route path="/synthese" element={<SynthesePage />} />
+            <Route path="/nego/:round/technique" element={<TechniquePage />} />
+            <Route path="/nego/:round/prix" element={<PrixPage />} />
+            <Route path="/nego/:round/synthese" element={<SynthesePage />} />
             <Route path="/versions" element={<VersionsPage />} />
             <Route path="/export" element={<ExportPage />} />
             <Route path="*" element={<NotFound />} />
