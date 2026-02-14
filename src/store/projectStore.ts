@@ -13,48 +13,40 @@ import {
   NotationLevel,
   PriceEntry,
   NegotiationVersion,
+  NegotiationDecision,
 } from "@/types/project";
 
 interface ProjectStore {
   project: ProjectData;
 
-  // Project info
   updateInfo: (info: Partial<ProjectInfo>) => void;
 
-  // Companies
   addCompany: () => void;
   removeCompany: (id: number) => void;
   updateCompany: (id: number, updates: Partial<Company>) => void;
   setCompanyStatus: (id: number, status: CompanyStatus) => void;
 
-  // Lot lines
   updateLotLine: (id: number, updates: Partial<LotLine>) => void;
 
-  // Weighting
   updateCriterionWeight: (criterionId: string, weight: number) => void;
   updateCriterionLabel: (criterionId: string, label: string) => void;
   addSubCriterion: (criterionId: string) => void;
   removeSubCriterion: (criterionId: string, subId: string) => void;
   updateSubCriterion: (criterionId: string, subId: string, updates: { label?: string; weight?: number }) => void;
 
-  // Technical notes
   setTechnicalNote: (companyId: number, criterionId: string, subCriterionId: string | undefined, notation: NotationLevel | null, comment: string) => void;
   getTechnicalNote: (companyId: number, criterionId: string, subCriterionId?: string) => TechnicalNote | undefined;
 
-  // Price entries
   setPriceEntry: (companyId: number, lotLineId: number, dpgf1: number | null, dpgf2: number | null) => void;
   getPriceEntry: (companyId: number, lotLineId: number) => PriceEntry | undefined;
 
-  // Negotiation
-  toggleNegotiationRetained: (companyId: number) => void;
-  isNegotiationRetained: (companyId: number) => boolean;
+  setNegotiationDecision: (companyId: number, decision: NegotiationDecision) => void;
+  getNegotiationDecision: (companyId: number) => NegotiationDecision;
 
-  // Versions
   createVersion: (label: string) => void;
   switchVersion: (versionId: string) => void;
   freezeVersion: (versionId: string) => void;
 
-  // Reset
   resetProject: () => void;
 }
 
@@ -115,7 +107,7 @@ export const useProjectStore = create<ProjectStore>()(
           if (updates.label && updates.label.trim() !== "" && lotLines.length < 12) {
             const nextId = id + 1;
             if (!lotLines.find((l) => l.id === nextId)) {
-              lotLines.push({ id: nextId, label: "", type: null, dpgfAssignment: "both", estimation: null });
+              lotLines.push({ id: nextId, label: "", type: null, dpgfAssignment: "both", estimationDpgf1: null, estimationDpgf2: null });
             }
           }
 
@@ -182,7 +174,7 @@ export const useProjectStore = create<ProjectStore>()(
       setTechnicalNote: (companyId, criterionId, subCriterionId, notation, comment) =>
         set((state) => {
           const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
-          if (!version) return state;
+          if (!version || version.frozen) return state;
 
           const notes = [...version.technicalNotes];
           const idx = notes.findIndex(
@@ -224,7 +216,7 @@ export const useProjectStore = create<ProjectStore>()(
       setPriceEntry: (companyId, lotLineId, dpgf1, dpgf2) =>
         set((state) => {
           const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
-          if (!version) return state;
+          if (!version || version.frozen) return state;
 
           const entries = [...version.priceEntries];
           const idx = entries.findIndex((e) => e.companyId === companyId && e.lotLineId === lotLineId);
@@ -252,28 +244,25 @@ export const useProjectStore = create<ProjectStore>()(
         return version.priceEntries.find((e) => e.companyId === companyId && e.lotLineId === lotLineId);
       },
 
-      toggleNegotiationRetained: (companyId) =>
+      setNegotiationDecision: (companyId, decision) =>
         set((state) => {
           const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
           if (!version) return state;
-          const retained = version.negotiationRetained ?? [];
-          const newRetained = retained.includes(companyId)
-            ? retained.filter((id) => id !== companyId)
-            : [...retained, companyId];
+          const decisions = { ...version.negotiationDecisions, [companyId]: decision };
           return {
             project: {
               ...state.project,
               versions: state.project.versions.map((v) =>
-                v.id === state.project.currentVersionId ? { ...v, negotiationRetained: newRetained } : v
+                v.id === state.project.currentVersionId ? { ...v, negotiationDecisions: decisions } : v
               ),
             },
           };
         }),
 
-      isNegotiationRetained: (companyId) => {
+      getNegotiationDecision: (companyId) => {
         const state = get();
         const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
-        return (version?.negotiationRetained ?? []).includes(companyId);
+        return version?.negotiationDecisions?.[companyId] ?? "non_defini";
       },
 
       createVersion: (label) =>
@@ -287,9 +276,8 @@ export const useProjectStore = create<ProjectStore>()(
             technicalNotes: currentVersion ? [...currentVersion.technicalNotes] : [],
             priceEntries: currentVersion ? [...currentVersion.priceEntries] : [],
             frozen: false,
-            negotiationRetained: currentVersion ? [...(currentVersion.negotiationRetained ?? [])] : [],
+            negotiationDecisions: currentVersion ? { ...currentVersion.negotiationDecisions } : {},
           };
-          // Freeze current version
           const versions = state.project.versions.map((v) =>
             v.id === state.project.currentVersionId ? { ...v, frozen: true } : v
           );
@@ -319,6 +307,29 @@ export const useProjectStore = create<ProjectStore>()(
 
       resetProject: () => set({ project: createDefaultProject() }),
     }),
-    { name: "procure-analyze-project" }
+    {
+      name: "procure-analyze-project",
+      version: 2,
+      migrate: (persistedState: unknown, version: number) => {
+        const state = persistedState as any;
+        if (version < 2 && state?.project) {
+          if (state.project.lotLines) {
+            state.project.lotLines = state.project.lotLines.map((l: any) => ({
+              ...l,
+              estimationDpgf1: l.estimationDpgf1 ?? l.estimation ?? null,
+              estimationDpgf2: l.estimationDpgf2 ?? null,
+            }));
+          }
+          if (state.project.versions) {
+            state.project.versions = state.project.versions.map((v: any) => ({
+              ...v,
+              negotiationDecisions: v.negotiationDecisions ??
+                Object.fromEntries((v.negotiationRetained ?? []).map((id: number) => [id, "retenue" as const])),
+            }));
+          }
+        }
+        return state;
+      },
+    }
   )
 );

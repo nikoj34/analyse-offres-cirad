@@ -1,8 +1,7 @@
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
-import { ProjectData, NOTATION_LABELS, NOTATION_VALUES, NotationLevel } from "@/types/project";
+import { ProjectData, NOTATION_LABELS, NOTATION_VALUES, NotationLevel, NEGOTIATION_DECISION_LABELS, NegotiationDecision } from "@/types/project";
 
-// Colors matching the CIRAD model
 const COLORS = {
   headerBg: "1F4E79",
   headerFont: "FFFFFF",
@@ -55,7 +54,6 @@ export async function exportToExcel(project: ProjectData) {
   const pgSheet = wb.addWorksheet("PAGE_DE_GARDE");
   pgSheet.properties.defaultRowHeight = 18;
 
-  // Title
   pgSheet.mergeCells("B2:K2");
   const titleCell = pgSheet.getCell("B2");
   titleCell.value = `ANALYSE DES OFFRES — ${project.info.name || "Projet"} — Lot n° ${project.info.lotNumber || ""}`;
@@ -63,7 +61,6 @@ export async function exportToExcel(project: ProjectData) {
   titleCell.fill = lightFill(COLORS.lightBlue);
   titleCell.border = thinBorder();
 
-  // Project info
   const infoData = [
     ["Nom du projet", project.info.name],
     ["Réf. du marché", project.info.marketRef],
@@ -147,7 +144,7 @@ export async function exportToExcel(project: ProjectData) {
 
   // Lot lines
   row += 1;
-  pgSheet.mergeCells(`B${row}:F${row}`);
+  pgSheet.mergeCells(`B${row}:G${row}`);
   const lotTitle = pgSheet.getCell(`B${row}`);
   lotTitle.value = "PSE / VARIANTE / TRANCHE OPTIONNELLE";
   lotTitle.font = headerFont();
@@ -155,9 +152,10 @@ export async function exportToExcel(project: ProjectData) {
   lotTitle.border = thinBorder();
   row++;
 
-  ["B", "C", "D", "E", "F"].forEach((col, i) => {
+  ["Type", "N°", "Intitulé", "DPGF", "Est. DPGF 1 (€)", "Est. DPGF 2 (€)"].forEach((h, i) => {
+    const col = String.fromCharCode(66 + i);
     const c = pgSheet.getCell(`${col}${row}`);
-    c.value = ["Type", "N°", "Intitulé", "DPGF", "Estimation (€ HT)"][i];
+    c.value = h;
     c.font = { bold: true, size: 9 };
     c.fill = lightFill(COLORS.lightBlue);
     c.border = thinBorder();
@@ -169,9 +167,11 @@ export async function exportToExcel(project: ProjectData) {
     pgSheet.getCell(`C${row}`).value = line.id;
     pgSheet.getCell(`D${row}`).value = line.label;
     pgSheet.getCell(`E${row}`).value = line.dpgfAssignment;
-    pgSheet.getCell(`F${row}`).value = line.estimation ?? 0;
+    pgSheet.getCell(`F${row}`).value = line.estimationDpgf1 ?? 0;
     pgSheet.getCell(`F${row}`).numFmt = '#,##0 "€"';
-    ["B", "C", "D", "E", "F"].forEach((col) => {
+    pgSheet.getCell(`G${row}`).value = line.estimationDpgf2 ?? 0;
+    pgSheet.getCell(`G${row}`).numFmt = '#,##0 "€"';
+    ["B", "C", "D", "E", "F", "G"].forEach((col) => {
       pgSheet.getCell(`${col}${row}`).border = thinBorder();
     });
     row++;
@@ -187,9 +187,10 @@ export async function exportToExcel(project: ProjectData) {
   weightTitle.border = thinBorder();
   row++;
 
-  ["B", "C", "D"].forEach((col, i) => {
+  ["Critère", "Pondération %", "Sous-critères"].forEach((h, i) => {
+    const col = String.fromCharCode(66 + i);
     const c = pgSheet.getCell(`${col}${row}`);
-    c.value = ["Critère", "Pondération %", "Sous-critères"][i];
+    c.value = h;
     c.font = { bold: true, size: 9 };
     c.fill = lightFill(COLORS.lightBlue);
     c.border = thinBorder();
@@ -207,20 +208,19 @@ export async function exportToExcel(project: ProjectData) {
     row++;
   }
 
-  // Set column widths for PAGE_DE_GARDE
   pgSheet.getColumn("B").width = 25;
   pgSheet.getColumn("C").width = 15;
   pgSheet.getColumn("D").width = 30;
   pgSheet.getColumn("E").width = 15;
   pgSheet.getColumn("F").width = 20;
+  pgSheet.getColumn("G").width = 20;
 
   // =========== PRIX ===========
   const prixSheet = wb.addWorksheet("PRIX");
   prixSheet.properties.defaultRowHeight = 18;
 
-  // Header row
   const hasDpgf2 = activeLotLines.some((l) => l.dpgfAssignment === "DPGF_2" || l.dpgfAssignment === "both");
-  
+
   let pRow = 2;
   prixSheet.mergeCells(`B${pRow}:${hasDpgf2 ? "H" : "F"}${pRow}`);
   const prixTitle = prixSheet.getCell(`B${pRow}`);
@@ -230,10 +230,9 @@ export async function exportToExcel(project: ProjectData) {
   prixTitle.border = thinBorder();
   pRow += 2;
 
-  // Estimation row
   const estTotalDpgf1 = project.info.estimationDpgf1 ?? 0;
   const estTotalDpgf2 = project.info.estimationDpgf2 ?? 0;
-  
+
   prixSheet.getCell(`B${pRow}`).value = `TOTAL DPGF 1 — Estimé à ${fmt(estTotalDpgf1)} € HT`;
   prixSheet.getCell(`B${pRow}`).font = { bold: true, size: 10 };
   prixSheet.getCell(`B${pRow}`).fill = lightFill(COLORS.lightYellow);
@@ -246,11 +245,9 @@ export async function exportToExcel(project: ProjectData) {
   }
   pRow += 2;
 
-  // Build price table per company
   for (const company of activeCompanies) {
     const isExcluded = company.status === "ecartee";
-    
-    // Company header
+
     prixSheet.mergeCells(`B${pRow}:${hasDpgf2 ? "H" : "F"}${pRow}`);
     const compHeader = prixSheet.getCell(`B${pRow}`);
     compHeader.value = `${company.id}. ${company.name}${isExcluded ? " (ÉCARTÉE)" : ""}`;
@@ -266,13 +263,12 @@ export async function exportToExcel(project: ProjectData) {
       continue;
     }
 
-    // Column headers
     const cols = ["Ligne", "DPGF 1 (€ HT)"];
     if (hasDpgf2) cols.push("DPGF 2 (€ HT)");
     cols.push("Total (€ HT)");
 
     cols.forEach((label, i) => {
-      const colLetter = String.fromCharCode(66 + i); // B, C, D...
+      const colLetter = String.fromCharCode(66 + i);
       const c = prixSheet.getCell(`${colLetter}${pRow}`);
       c.value = label;
       c.font = { bold: true, size: 9 };
@@ -293,7 +289,7 @@ export async function exportToExcel(project: ProjectData) {
       totalDpgf1 += d1;
       totalDpgf2 += d2;
 
-      let col = 1; // B=1
+      let col = 1;
       prixSheet.getCell(pRow, col + 1).value = `${line.label}${line.type ? ` (${line.type})` : ""}`;
       prixSheet.getCell(pRow, col + 1).border = thinBorder();
       col++;
@@ -317,7 +313,6 @@ export async function exportToExcel(project: ProjectData) {
       pRow++;
     }
 
-    // Totals row
     let col = 1;
     prixSheet.getCell(pRow, col + 1).value = "TOTAL";
     prixSheet.getCell(pRow, col + 1).font = { bold: true };
@@ -359,7 +354,6 @@ export async function exportToExcel(project: ProjectData) {
   priceScoreTitle.border = thinBorder();
   pRow++;
 
-  // Compute price scores
   const companyTotals: Record<number, number> = {};
   for (const company of activeCompanies) {
     if (company.status === "ecartee") continue;
@@ -435,7 +429,6 @@ export async function exportToExcel(project: ProjectData) {
       continue;
     }
 
-    // Headers
     ["Critère", "Sous-critère", "Pondération", "Notation", "Note", "Commentaire"].forEach((label, i) => {
       const c = techSheet.getCell(tRow, i + 2);
       c.value = label;
@@ -467,6 +460,7 @@ export async function exportToExcel(project: ProjectData) {
           techSheet.getCell(tRow, 5).value = notationLabel;
           techSheet.getCell(tRow, 6).value = Number(subScore.toFixed(1));
           techSheet.getCell(tRow, 7).value = note?.comment || "";
+          techSheet.getCell(tRow, 7).alignment = { wrapText: true, vertical: "top" };
           for (let i = 2; i <= 7; i++) {
             techSheet.getCell(tRow, i).border = thinBorder();
           }
@@ -488,6 +482,7 @@ export async function exportToExcel(project: ProjectData) {
         techSheet.getCell(tRow, 5).value = notationLabel;
         techSheet.getCell(tRow, 6).value = Number(score.toFixed(1));
         techSheet.getCell(tRow, 7).value = note?.comment || "";
+        techSheet.getCell(tRow, 7).alignment = { wrapText: true, vertical: "top" };
         for (let i = 2; i <= 7; i++) {
           techSheet.getCell(tRow, i).border = thinBorder();
         }
@@ -512,7 +507,7 @@ export async function exportToExcel(project: ProjectData) {
   techSheet.getColumn(4).width = 14;
   techSheet.getColumn(5).width = 14;
   techSheet.getColumn(6).width = 10;
-  techSheet.getColumn(7).width = 40;
+  techSheet.getColumn(7).width = 60;
 
   // =========== SYNTHESE ===========
   const synthSheet = wb.addWorksheet("SYNTHESE");
@@ -537,7 +532,6 @@ export async function exportToExcel(project: ProjectData) {
   const planW = planCrit?.weight ?? 0;
   const maxGlobal = vtWeight + envW + planW + prixWeight;
 
-  // Headers
   const synthHeaders = [
     "Entreprise",
     "Montant Total HT",
@@ -560,7 +554,6 @@ export async function exportToExcel(project: ProjectData) {
   });
   sRow++;
 
-  // Compute all scores
   interface SynthResult {
     company: typeof activeCompanies[0];
     priceTotal: number;
@@ -626,7 +619,6 @@ export async function exportToExcel(project: ProjectData) {
     synthResults.push({ company, priceTotal, priceScore: 0, techScore, envScore, planScore, globalScore: 0 });
   }
 
-  // Compute price scores
   const validSynthPrices = synthResults.filter((r) => r.company.status !== "ecartee" && r.priceTotal > 0);
   const minSynthPrice = validSynthPrices.length > 0 ? Math.min(...validSynthPrices.map((r) => r.priceTotal)) : 0;
   for (const r of synthResults) {
@@ -635,7 +627,6 @@ export async function exportToExcel(project: ProjectData) {
     r.globalScore = r.techScore + r.envScore + r.planScore + r.priceScore;
   }
 
-  // Sort
   const sortedSynth = [...synthResults].sort((a, b) => {
     if (a.company.status === "ecartee" && b.company.status !== "ecartee") return 1;
     if (a.company.status !== "ecartee" && b.company.status === "ecartee") return -1;
@@ -646,7 +637,9 @@ export async function exportToExcel(project: ProjectData) {
   for (const r of sortedSynth) {
     const isExcluded = r.company.status === "ecartee";
     if (!isExcluded) synthRank++;
-    const retained = (currentVersion.negotiationRetained ?? []).includes(r.company.id);
+    const decisions = currentVersion.negotiationDecisions ?? {};
+    const decision: NegotiationDecision = decisions[r.company.id] ?? "non_defini";
+    const decisionLabel = NEGOTIATION_DECISION_LABELS[decision];
 
     const values = [
       `${r.company.id}. ${r.company.name}${isExcluded ? " (Écartée)" : ""}`,
@@ -657,7 +650,7 @@ export async function exportToExcel(project: ProjectData) {
       isExcluded ? "—" : Number(r.planScore.toFixed(1)),
       isExcluded ? "—" : Number(r.globalScore.toFixed(1)),
       isExcluded ? "—" : synthRank,
-      isExcluded ? "Écartée" : retained ? "OUI" : "NON",
+      isExcluded ? "Écartée" : decisionLabel,
     ];
 
     values.forEach((val, i) => {
@@ -679,13 +672,13 @@ export async function exportToExcel(project: ProjectData) {
       }
 
       if (i === 8) {
-        c.font = { bold: true, color: { argb: retained ? "2E7D32" : COLORS.excluded } };
+        const isRetained = decision === "retenue" || decision === "attributaire";
+        c.font = { bold: true, color: { argb: isRetained ? "2E7D32" : COLORS.excluded } };
       }
     });
     sRow++;
   }
 
-  // Set column widths
   for (let i = 2; i <= 10; i++) {
     synthSheet.getColumn(i).width = i === 2 ? 25 : 18;
   }

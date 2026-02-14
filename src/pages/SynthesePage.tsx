@@ -1,10 +1,11 @@
 import { useProjectStore } from "@/store/projectStore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { NOTATION_VALUES } from "@/types/project";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS } from "@/types/project";
 import { useMemo } from "react";
-import { Check, X } from "lucide-react";
+import { Lock } from "lucide-react";
+import { useAnalysisContext } from "@/hooks/useAnalysisContext";
 import {
   Table,
   TableBody,
@@ -14,24 +15,24 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-const SynthesePage = () => {
-  const { project, toggleNegotiationRetained, isNegotiationRetained } = useProjectStore();
-  const { companies, weightingCriteria, versions, currentVersionId, lotLines } = project;
+const DECISION_OPTIONS: NegotiationDecision[] = ["non_defini", "retenue", "non_retenue", "attributaire"];
 
-  const activeCompanies = companies.filter((c) => c.name.trim() !== "");
-  const currentVersion = versions.find((v) => v.id === currentVersionId);
+const SynthesePage = () => {
+  const { project, setNegotiationDecision, getNegotiationDecision } = useProjectStore();
+  const { activeCompanies, version, isReadOnly, isNego, negoLabel } = useAnalysisContext();
+  const { weightingCriteria, lotLines } = project;
+
   const technicalCriteria = weightingCriteria.filter((c) => c.id !== "prix");
   const prixCriterion = weightingCriteria.find((c) => c.id === "prix");
   const prixWeight = prixCriterion?.weight ?? 40;
   const activeLotLines = lotLines.filter((l) => l.label.trim() !== "");
 
-  // Separate criteria for display
   const valueTechnique = technicalCriteria.filter((c) => c.id !== "environnemental" && c.id !== "planning");
   const envCriterion = technicalCriteria.find((c) => c.id === "environnemental");
   const planCriterion = technicalCriteria.find((c) => c.id === "planning");
 
   const results = useMemo(() => {
-    if (!currentVersion) return [];
+    if (!version) return [];
 
     const techScores: Record<number, { total: number; technique: number; env: number; planning: number }> = {};
     for (const company of activeCompanies) {
@@ -50,7 +51,7 @@ const SynthesePage = () => {
           let raw = 0;
           const subTotal = criterion.subCriteria.reduce((s, sc) => s + sc.weight, 0);
           for (const sub of criterion.subCriteria) {
-            const note = currentVersion.technicalNotes.find(
+            const note = version.technicalNotes.find(
               (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
             );
             if (note?.notation) {
@@ -60,7 +61,7 @@ const SynthesePage = () => {
           }
           criterionScore = (raw / 5) * criterion.weight;
         } else {
-          const note = currentVersion.technicalNotes.find(
+          const note = version.technicalNotes.find(
             (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
           );
           if (note?.notation) {
@@ -81,7 +82,7 @@ const SynthesePage = () => {
       if (company.status === "ecartee") continue;
       let sum = 0;
       for (const line of activeLotLines) {
-        const entry = currentVersion.priceEntries.find(
+        const entry = version.priceEntries.find(
           (e) => e.companyId === company.id && e.lotLineId === line.id
         );
         sum += (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
@@ -114,7 +115,7 @@ const SynthesePage = () => {
         globalScore,
       };
     });
-  }, [activeCompanies, technicalCriteria, currentVersion, prixWeight, activeLotLines]);
+  }, [activeCompanies, technicalCriteria, version, prixWeight, activeLotLines]);
 
   const sorted = useMemo(() => {
     return [...results].sort((a, b) => {
@@ -132,13 +133,17 @@ const SynthesePage = () => {
   const fmt = (n: number) =>
     new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
 
+  const pageTitle = isNego ? `Synthèse — ${negoLabel}` : "Synthèse & Classement";
+
   if (activeCompanies.length === 0) {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Synthèse & Classement</h1>
+          <h1 className="text-2xl font-bold text-foreground">{pageTitle}</h1>
           <p className="text-sm text-muted-foreground">
-            Veuillez d'abord saisir des entreprises dans la Page de Garde.
+            {isNego
+              ? "Aucune entreprise retenue pour cette phase de négociation."
+              : "Veuillez d'abord saisir des entreprises dans la Page de Garde."}
           </p>
         </div>
       </div>
@@ -149,7 +154,14 @@ const SynthesePage = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Synthèse & Classement</h1>
+        <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+          {pageTitle}
+          {isReadOnly && (
+            <Badge variant="secondary" className="gap-1">
+              <Lock className="h-3 w-3" /> Figée
+            </Badge>
+          )}
+        </h1>
         <p className="text-sm text-muted-foreground">
           Classement global des entreprises (technique + prix). Total sur {maxTotal} pts.
         </p>
@@ -180,7 +192,7 @@ const SynthesePage = () => {
               {sorted.map((row) => {
                 const isExcluded = row.company.status === "ecartee";
                 if (!isExcluded) rank++;
-                const retained = isNegotiationRetained(row.company.id);
+                const decision = getNegotiationDecision(row.company.id);
                 return (
                   <TableRow key={row.company.id} className={isExcluded ? "opacity-50" : ""}>
                     <TableCell className="font-semibold">
@@ -224,15 +236,22 @@ const SynthesePage = () => {
                       {isExcluded ? (
                         <span className="text-xs text-muted-foreground">—</span>
                       ) : (
-                        <Button
-                          variant={retained ? "default" : "outline"}
-                          size="sm"
-                          className="gap-1"
-                          onClick={() => toggleNegotiationRetained(row.company.id)}
+                        <Select
+                          value={decision}
+                          onValueChange={(v) => setNegotiationDecision(row.company.id, v as NegotiationDecision)}
+                          disabled={isReadOnly}
                         >
-                          {retained ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
-                          {retained ? "Retenue" : "Non retenue"}
-                        </Button>
+                          <SelectTrigger className="w-36">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DECISION_OPTIONS.map((d) => (
+                              <SelectItem key={d} value={d}>
+                                {NEGOTIATION_DECISION_LABELS[d]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       )}
                     </TableCell>
                   </TableRow>

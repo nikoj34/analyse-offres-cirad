@@ -8,8 +8,6 @@ export function useAnalysisContext() {
 
   const negoRound = round ? parseInt(round) : null;
   const isNego = negoRound !== null && !isNaN(negoRound);
-
-  // V0 = versions[0], Négo 1 = versions[1], Négo 2 = versions[2]
   const versionIndex = isNego ? negoRound : 0;
   const targetVersion = project.versions[versionIndex] ?? project.versions[0];
 
@@ -22,7 +20,10 @@ export function useAnalysisContext() {
   // For nego rounds, only show companies retained in previous version
   let retainedIds: number[] | null = null;
   if (isNego && versionIndex > 0 && project.versions[versionIndex - 1]) {
-    retainedIds = project.versions[versionIndex - 1].negotiationRetained ?? [];
+    const prevDecisions = project.versions[versionIndex - 1].negotiationDecisions ?? {};
+    retainedIds = Object.entries(prevDecisions)
+      .filter(([, d]) => d === "retenue" || d === "attributaire")
+      .map(([id]) => Number(id));
   }
 
   const activeCompanies = project.companies.filter((c) => {

@@ -6,7 +6,7 @@ export interface Company {
   id: number; // 1-16
   name: string;
   status: CompanyStatus;
-  exclusionReason: string; // reason for exclusion if status is "ecartee"
+  exclusionReason: string;
 }
 
 export type LotType = "PSE" | "VARIANTE" | "T_OPTIONNELLE";
@@ -17,8 +17,9 @@ export interface LotLine {
   id: number; // 1-12
   label: string;
   type: LotType | null;
-  dpgfAssignment: DpgfAssignment; // which DPGF this line is assigned to
-  estimation: number | null; // estimation amount in € HT
+  dpgfAssignment: DpgfAssignment;
+  estimationDpgf1: number | null;
+  estimationDpgf2: number | null;
 }
 
 export type NotationLevel = "tres_bien" | "bien" | "moyen" | "passable" | "insuffisant";
@@ -42,14 +43,14 @@ export const NOTATION_VALUES: Record<NotationLevel, number> = {
 export interface WeightingCriterion {
   id: string;
   label: string;
-  weight: number; // multiple of 5, 5-70
+  weight: number;
   subCriteria: SubCriterion[];
 }
 
 export interface SubCriterion {
   id: string;
   label: string;
-  weight: number; // percentage within parent criterion
+  weight: number;
 }
 
 export interface ProjectInfo {
@@ -59,8 +60,8 @@ export interface ProjectInfo {
   lotNumber: string;
   analysisDate: string;
   author: string;
-  estimationDpgf1: number | null; // Estimation TF DPGF_1 (€ HT)
-  estimationDpgf2: number | null; // Estimation TF DPGF_2 (€ HT)
+  estimationDpgf1: number | null;
+  estimationDpgf2: number | null;
 }
 
 export interface TechnicalNote {
@@ -78,14 +79,23 @@ export interface PriceEntry {
   dpgf2: number | null;
 }
 
+export type NegotiationDecision = "non_defini" | "retenue" | "non_retenue" | "attributaire";
+
+export const NEGOTIATION_DECISION_LABELS: Record<NegotiationDecision, string> = {
+  non_defini: "—",
+  retenue: "Retenue",
+  non_retenue: "Non retenue",
+  attributaire: "Attributaire",
+};
+
 export interface NegotiationVersion {
   id: string;
-  label: string; // V0, V1, V2
+  label: string;
   createdAt: string;
   technicalNotes: TechnicalNote[];
   priceEntries: PriceEntry[];
   frozen: boolean;
-  negotiationRetained: number[]; // company IDs retained for negotiation
+  negotiationDecisions: Record<number, NegotiationDecision>;
 }
 
 export interface ProjectData {
@@ -98,7 +108,6 @@ export interface ProjectData {
   currentVersionId: string;
 }
 
-// Default weighting criteria
 export const DEFAULT_CRITERIA: WeightingCriterion[] = [
   { id: "prix", label: "Prix", weight: 40, subCriteria: [] },
   {
@@ -129,7 +138,7 @@ export function createDefaultProject(): ProjectData {
       estimationDpgf2: null,
     },
     companies: [{ id: 1, name: "", status: "non_defini", exclusionReason: "" }],
-    lotLines: [{ id: 1, label: "", type: null, dpgfAssignment: "both", estimation: null }],
+    lotLines: [{ id: 1, label: "", type: null, dpgfAssignment: "both", estimationDpgf1: null, estimationDpgf2: null }],
     weightingCriteria: DEFAULT_CRITERIA,
     versions: [
       {
@@ -139,7 +148,7 @@ export function createDefaultProject(): ProjectData {
         technicalNotes: [],
         priceEntries: [],
         frozen: false,
-        negotiationRetained: [],
+        negotiationDecisions: {},
       },
     ],
     currentVersionId: versionId,

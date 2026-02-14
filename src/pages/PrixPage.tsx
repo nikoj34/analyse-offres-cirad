@@ -3,24 +3,23 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useMemo } from "react";
+import { useAnalysisContext } from "@/hooks/useAnalysisContext";
+import { Lock } from "lucide-react";
 
 const PrixPage = () => {
   const { project, setPriceEntry, getPriceEntry } = useProjectStore();
-  const { companies, lotLines, weightingCriteria, versions, currentVersionId } = project;
+  const { activeCompanies, version, isReadOnly, isNego, negoLabel } = useAnalysisContext();
+  const { lotLines, weightingCriteria } = project;
 
-  const activeCompanies = companies.filter((c) => c.name.trim() !== "");
   const activeLotLines = lotLines.filter((l) => l.label.trim() !== "");
   const prixCriterion = weightingCriteria.find((c) => c.id === "prix");
   const prixWeight = prixCriterion?.weight ?? 40;
 
-  const currentVersion = versions.find((v) => v.id === currentVersionId);
-
   const fmt = (n: number) =>
     new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
 
-  // Compute totals per company
   const companyTotals = useMemo(() => {
-    if (!currentVersion) return {};
+    if (!version) return {};
     const result: Record<number, { dpgf1: number; dpgf2: number; total: number }> = {};
 
     for (const company of activeCompanies) {
@@ -29,7 +28,7 @@ const PrixPage = () => {
       let dpgf2Sum = 0;
 
       for (const line of activeLotLines) {
-        const entry = currentVersion.priceEntries.find(
+        const entry = version.priceEntries.find(
           (e) => e.companyId === company.id && e.lotLineId === line.id
         );
         dpgf1Sum += entry?.dpgf1 ?? 0;
@@ -39,9 +38,8 @@ const PrixPage = () => {
       result[company.id] = { dpgf1: dpgf1Sum, dpgf2: dpgf2Sum, total: dpgf1Sum + dpgf2Sum };
     }
     return result;
-  }, [activeCompanies, activeLotLines, currentVersion]);
+  }, [activeCompanies, activeLotLines, version]);
 
-  // Compute price scores: Note = (min / offre) * weight
   const priceScores = useMemo(() => {
     const totals = Object.entries(companyTotals)
       .filter(([, v]) => v.total > 0)
@@ -57,13 +55,17 @@ const PrixPage = () => {
     return result;
   }, [companyTotals, prixWeight]);
 
+  const pageTitle = isNego ? `Module Prix — ${negoLabel}` : "Module Prix";
+
   if (activeCompanies.length === 0) {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Module Prix</h1>
+          <h1 className="text-2xl font-bold text-foreground">{pageTitle}</h1>
           <p className="text-sm text-muted-foreground">
-            Veuillez d'abord saisir des entreprises dans la Page de Garde.
+            {isNego
+              ? "Aucune entreprise retenue pour cette phase de négociation."
+              : "Veuillez d'abord saisir des entreprises dans la Page de Garde."}
           </p>
         </div>
       </div>
@@ -74,7 +76,7 @@ const PrixPage = () => {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Module Prix</h1>
+          <h1 className="text-2xl font-bold text-foreground">{pageTitle}</h1>
           <p className="text-sm text-muted-foreground">
             Veuillez d'abord saisir des lignes de lot dans la Page de Garde.
           </p>
@@ -86,7 +88,14 @@ const PrixPage = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Module Prix</h1>
+        <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+          {pageTitle}
+          {isReadOnly && (
+            <Badge variant="secondary" className="gap-1">
+              <Lock className="h-3 w-3" /> Figée
+            </Badge>
+          )}
+        </h1>
         <p className="text-sm text-muted-foreground">
           Saisie des prix par entreprise et par ligne de lot. Note prix pondérée sur {prixWeight} pts.
         </p>
@@ -120,7 +129,6 @@ const PrixPage = () => {
           {company.status !== "ecartee" && (
             <CardContent>
               <div className="space-y-3">
-                {/* Header */}
                 <div className="grid grid-cols-[1fr_120px_120px] gap-2 text-xs font-medium text-muted-foreground px-1">
                   <span>Ligne</span>
                   <span className="text-right">DPGF 1 (€ HT)</span>
@@ -148,6 +156,7 @@ const PrixPage = () => {
                           type="number"
                           className="text-right text-sm"
                           value={entry?.dpgf1 ?? ""}
+                          disabled={isReadOnly}
                           onChange={(e) =>
                             setPriceEntry(
                               company.id,
@@ -166,6 +175,7 @@ const PrixPage = () => {
                           type="number"
                           className="text-right text-sm"
                           value={entry?.dpgf2 ?? ""}
+                          disabled={isReadOnly}
                           onChange={(e) =>
                             setPriceEntry(
                               company.id,
@@ -182,7 +192,6 @@ const PrixPage = () => {
                     </div>
                   );
                 })}
-                {/* Totals row */}
                 {companyTotals[company.id] && (
                   <div className="grid grid-cols-[1fr_120px_120px] gap-2 rounded-md bg-muted/50 p-2 text-sm font-semibold">
                     <span>Total</span>
