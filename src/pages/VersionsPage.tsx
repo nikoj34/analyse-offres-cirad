@@ -2,7 +2,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Lock, ArrowRight, AlertTriangle } from "lucide-react";
+import { Plus, Lock, Unlock, ArrowRight, AlertTriangle } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const VersionsPage = () => {
-  const { project, createVersion, switchVersion } = useProjectStore();
+  const { project, createVersion, switchVersion, unfreezeVersion } = useProjectStore();
   const { versions, currentVersionId } = project;
 
   const nextLabel = `V${versions.length}`;
@@ -91,17 +91,47 @@ const VersionsPage = () => {
                       </Badge>
                     )}
                   </div>
-                  {!isCurrent && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => switchVersion(version.id)}
-                      className="gap-1"
-                    >
-                      <ArrowRight className="h-3 w-3" />
-                      Basculer
-                    </Button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {version.frozen && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="outline" size="sm" className="gap-1">
+                            <Unlock className="h-3 w-3" />
+                            Défiger
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle className="flex items-center gap-2">
+                              <AlertTriangle className="h-5 w-5 text-destructive" />
+                              Défiger {version.label} ?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Vous allez pouvoir modifier les saisies de <strong>{version.label}</strong>.
+                              Attention : les modifications peuvent affecter la cohérence des versions suivantes.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Annuler</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => unfreezeVersion(version.id)}>
+                              Confirmer le dégel
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                    {!isCurrent && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => switchVersion(version.id)}
+                        className="gap-1"
+                      >
+                        <ArrowRight className="h-3 w-3" />
+                        Basculer
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <CardDescription>
                   Créée le {new Date(version.createdAt).toLocaleDateString("fr-FR")}

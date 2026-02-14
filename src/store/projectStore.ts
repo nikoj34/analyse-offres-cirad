@@ -46,6 +46,7 @@ interface ProjectStore {
   createVersion: (label: string) => void;
   switchVersion: (versionId: string) => void;
   freezeVersion: (versionId: string) => void;
+  unfreezeVersion: (versionId: string) => void;
 
   resetProject: () => void;
 }
@@ -301,6 +302,16 @@ export const useProjectStore = create<ProjectStore>()(
             ...state.project,
             versions: state.project.versions.map((v) =>
               v.id === versionId ? { ...v, frozen: true } : v
+            ),
+          },
+        })),
+
+      unfreezeVersion: (versionId) =>
+        set((state) => ({
+          project: {
+            ...state.project,
+            versions: state.project.versions.map((v) =>
+              v.id === versionId ? { ...v, frozen: false } : v
             ),
           },
         })),
