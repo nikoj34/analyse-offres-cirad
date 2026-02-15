@@ -60,6 +60,7 @@ export interface ProjectInfo {
   lotNumber: string;
   analysisDate: string;
   author: string;
+  hasDualDpgf: boolean;
   estimationDpgf1: number | null;
   estimationDpgf2: number | null;
 }
@@ -148,6 +149,7 @@ export function createDefaultProject(): ProjectData {
       lotNumber: "",
       analysisDate: new Date().toISOString().split("T")[0],
       author: "",
+      hasDualDpgf: false,
       estimationDpgf1: null,
       estimationDpgf2: null,
     },

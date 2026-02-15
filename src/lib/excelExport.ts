@@ -192,7 +192,7 @@ function buildPrixSheet(
   const activeLotLines = project.lotLines.filter((l) => l.label.trim() !== "");
   const prixCriterion = project.weightingCriteria.find((c) => c.id === "prix");
   const prixWeight = prixCriterion?.weight ?? 40;
-  const hasDpgf2 = activeLotLines.some((l) => l.dpgfAssignment === "DPGF_2" || l.dpgfAssignment === "both");
+  const hasDpgf2 = project.info.hasDualDpgf ?? false;
 
   // Auto-numbering helper
   const getLineLabel = (line: typeof activeLotLines[0]) => {
@@ -296,8 +296,8 @@ function buildPrixSheet(
       if (est1 !== 0 && d1 !== 0) {
         const dev1 = ((d1 - est1) / Math.abs(est1)) * 100;
         const devCell = prixSheet.getCell(pRow, col);
-        devCell.value = Number(dev1.toFixed(1));
-        devCell.numFmt = '0.0"%"';
+        devCell.value = Number(dev1.toFixed(2));
+        devCell.numFmt = '0.00"%"';
         devCell.border = thinBorder();
         const absDev = Math.abs(dev1);
         if (absDev <= 10) devCell.font = { bold: true, color: { argb: "2E7D32" } };
@@ -333,8 +333,8 @@ function buildPrixSheet(
         if (est2 !== 0 && d2 !== 0) {
           const dev2 = ((d2 - est2) / Math.abs(est2)) * 100;
           const devCell = prixSheet.getCell(pRow, col);
-          devCell.value = Number(dev2.toFixed(1));
-          devCell.numFmt = '0.0"%"';
+          devCell.value = Number(dev2.toFixed(2));
+          devCell.numFmt = '0.00"%"';
           devCell.border = thinBorder();
           const absDev = Math.abs(dev2);
           if (absDev <= 10) devCell.font = { bold: true, color: { argb: "2E7D32" } };
@@ -361,8 +361,8 @@ function buildPrixSheet(
       if (estTotal !== 0 && offerTotal !== 0) {
         const dev = ((offerTotal - estTotal) / Math.abs(estTotal)) * 100;
         const devCell = prixSheet.getCell(pRow, col);
-        devCell.value = Number(dev.toFixed(1));
-        devCell.numFmt = '0.0"%"';
+        devCell.value = Number(dev.toFixed(2));
+        devCell.numFmt = '0.00"%"';
         devCell.border = thinBorder();
         const absDev = Math.abs(dev);
         if (absDev <= 10) { devCell.font = { bold: true, color: { argb: "2E7D32" } }; devCell.fill = lightFill("E8F5E9"); }

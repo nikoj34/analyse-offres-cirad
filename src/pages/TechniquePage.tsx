@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { NOTATION_LABELS, NOTATION_VALUES, NotationLevel, WeightingCriterion } from "@/types/project";
+import { NOTATION_LABELS, NOTATION_VALUES, NotationLevel, WeightingCriterion, NegotiationVersion } from "@/types/project";
 import { useMemo } from "react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
 import { Lock, AlertTriangle } from "lucide-react";
@@ -14,8 +14,13 @@ const NOTATION_OPTIONS: NotationLevel[] = ["tres_bien", "bien", "moyen", "passab
 
 const TechniquePage = () => {
   const { project, setTechnicalNote, getTechnicalNote, setDocumentsToVerify, getDocumentsToVerify } = useProjectStore();
-  const { activeCompanies, version, isReadOnly, isNego, negoLabel } = useAnalysisContext();
+  const { activeCompanies, version, isReadOnly, isNego, negoLabel, negoRound } = useAnalysisContext();
   const { weightingCriteria } = project;
+
+  // Get previous version for visual diff in nego rounds
+  const prevVersion = isNego && negoRound !== null && negoRound > 0
+    ? project.versions[negoRound - 1]
+    : null;
 
   const allTechnicalCriteria = weightingCriteria.filter((c) => c.id !== "prix");
   const valueTechniqueCriteria = allTechnicalCriteria.filter(
@@ -157,6 +162,7 @@ const TechniquePage = () => {
                       companyId={company.id}
                       score={scores[company.id]?.byCriterion[criterion.id] ?? 0}
                       disabled={isReadOnly}
+                      prevVersion={prevVersion}
                     />
                   ))}
                 </div>
@@ -169,6 +175,7 @@ const TechniquePage = () => {
                     companyId={company.id}
                     score={scores[company.id]?.byCriterion[environnementalCriterion.id] ?? 0}
                     disabled={isReadOnly}
+                    prevVersion={prevVersion}
                   />
                 </div>
               )}
@@ -180,6 +187,7 @@ const TechniquePage = () => {
                     companyId={company.id}
                     score={scores[company.id]?.byCriterion[planningCriterion.id] ?? 0}
                     disabled={isReadOnly}
+                    prevVersion={prevVersion}
                   />
                 </div>
               )}
@@ -210,13 +218,58 @@ function CriterionBlock({
   companyId,
   score,
   disabled,
+  prevVersion,
 }: {
   criterion: WeightingCriterion;
   companyId: number;
   score: number;
   disabled: boolean;
+  prevVersion?: NegotiationVersion | null;
 }) {
   const { setTechnicalNote, getTechnicalNote } = useProjectStore();
+
+  // Helper to get previous note for diff
+  const getPrevNote = (subId?: string) => {
+    if (!prevVersion) return undefined;
+    return prevVersion.technicalNotes.find(
+      (n) => n.companyId === companyId && n.criterionId === criterion.id &&
+        (subId ? n.subCriterionId === subId : !n.subCriterionId)
+    );
+  };
+
+  const renderNotationDiff = (currentNotation: NotationLevel | null | undefined, subId?: string) => {
+    if (!prevVersion) return null;
+    const prev = getPrevNote(subId);
+    const prevNotation = prev?.notation;
+    if (!prevNotation || prevNotation === currentNotation) return null;
+    const prevValue = NOTATION_VALUES[prevNotation];
+    const currValue = currentNotation ? NOTATION_VALUES[currentNotation] : 0;
+    if (prevValue === currValue) return null;
+    return (
+      <span className="ml-2 text-xs">
+        <span className="line-through text-destructive">{NOTATION_LABELS[prevNotation]} ({prevValue}/5)</span>
+        <span className="mx-1">→</span>
+        {currentNotation && (
+          <span className="text-green-600 font-medium">{NOTATION_LABELS[currentNotation]} ({currValue}/5)</span>
+        )}
+      </span>
+    );
+  };
+
+  const renderCommentDiff = (currentComment: string, subId?: string) => {
+    if (!prevVersion) return null;
+    const prev = getPrevNote(subId);
+    const prevComment = prev?.comment ?? "";
+    if (prevComment === currentComment || !prevComment) return null;
+    return (
+      <div className="mt-1 text-xs rounded border border-border bg-muted/30 p-2 space-y-1">
+        <div><span className="line-through text-destructive">{prevComment}</span></div>
+        {currentComment && currentComment !== prevComment && (
+          <div><span className="text-green-600">{currentComment}</span></div>
+        )}
+      </div>
+    );
+  };
 
   if (criterion.subCriteria.length > 0) {
     return (
@@ -233,6 +286,7 @@ function CriterionBlock({
             <div key={sub.id} className="ml-4 space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">
                 {sub.label} ({sub.weight}%)
+                {renderNotationDiff(note?.notation, sub.id)}
               </label>
               <div className="flex gap-2">
                 <Select
@@ -252,17 +306,20 @@ function CriterionBlock({
                     ))}
                   </SelectContent>
                 </Select>
-                <Textarea
-                  disabled={disabled}
-                  className="flex-1 min-h-[80px] text-sm"
-                  rows={4}
-                  value={note?.comment ?? ""}
-                  onChange={(e) =>
-                    setTechnicalNote(companyId, criterion.id, sub.id, note?.notation ?? null, e.target.value)
-                  }
-                  placeholder="Commentaire / justification"
-                  maxLength={2000}
-                />
+                <div className="flex-1">
+                  <Textarea
+                    disabled={disabled}
+                    className="min-h-[80px] text-sm"
+                    rows={4}
+                    value={note?.comment ?? ""}
+                    onChange={(e) =>
+                      setTechnicalNote(companyId, criterion.id, sub.id, note?.notation ?? null, e.target.value)
+                    }
+                    placeholder="Commentaire / justification"
+                    maxLength={2000}
+                  />
+                  {renderCommentDiff(note?.comment ?? "", sub.id)}
+                </div>
               </div>
             </div>
           );
@@ -277,6 +334,7 @@ function CriterionBlock({
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-semibold text-foreground">
           {criterion.label} ({criterion.weight}%)
+          {renderNotationDiff(note?.notation)}
         </h4>
         <span className="text-xs text-muted-foreground">{score.toFixed(1)} pts</span>
       </div>
@@ -298,17 +356,20 @@ function CriterionBlock({
             ))}
           </SelectContent>
         </Select>
-        <Textarea
-          disabled={disabled}
-          className="flex-1 min-h-[80px] text-sm"
-          rows={4}
-          value={note?.comment ?? ""}
-          onChange={(e) =>
-            setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, e.target.value)
-          }
-          placeholder="Commentaire / justification"
-          maxLength={2000}
-        />
+        <div className="flex-1">
+          <Textarea
+            disabled={disabled}
+            className="min-h-[80px] text-sm"
+            rows={4}
+            value={note?.comment ?? ""}
+            onChange={(e) =>
+              setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, e.target.value)
+            }
+            placeholder="Commentaire / justification"
+            maxLength={2000}
+          />
+          {renderCommentDiff(note?.comment ?? "")}
+        </div>
       </div>
     </div>
   );

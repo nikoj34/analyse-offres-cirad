@@ -16,7 +16,8 @@ function getAutoLabel(type: LotType | null, index: number): string {
 
 export function LotLinesForm() {
   const { project, updateLotLine } = useProjectStore();
-  const { lotLines } = project;
+  const { lotLines, info } = project;
+  const hasDualDpgf = info.hasDualDpgf ?? false;
 
   // Compute auto-numbering per type
   const typeCounters = useMemo(() => {
@@ -43,25 +44,25 @@ export function LotLinesForm() {
       <CardContent>
         <div className="space-y-3">
           {/* Header */}
-          <div className="grid grid-cols-[28px_80px_1fr_160px_140px_120px_120px] gap-2 text-xs font-medium text-muted-foreground px-1">
+          <div className={`grid ${hasDualDpgf ? "grid-cols-[28px_80px_1fr_160px_140px_120px_120px]" : "grid-cols-[28px_80px_1fr_160px_120px]"} gap-2 text-xs font-medium text-muted-foreground px-1`}>
             <span></span>
             <span>Auto N°</span>
             <span>Intitulé</span>
             <span>Type</span>
-            <span>Affectation</span>
+            {hasDualDpgf && <span>Affectation</span>}
             <span className="text-right">Est. DPGF 1 (€)</span>
-            <span className="text-right">Est. DPGF 2 (€)</span>
+            {hasDualDpgf && <span className="text-right">Est. DPGF 2 (€)</span>}
           </div>
 
           {lotLines.map((line) => {
-            const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
-            const showDpgf2 = line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both";
+            const showDpgf1 = !hasDualDpgf || line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
+            const showDpgf2 = hasDualDpgf && (line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both");
             const autoNum = typeCounters[line.id] ?? "";
 
             return (
               <div
                 key={line.id}
-                className="grid grid-cols-[28px_80px_1fr_160px_140px_120px_120px] gap-2 items-center"
+                className={`grid ${hasDualDpgf ? "grid-cols-[28px_80px_1fr_160px_140px_120px_120px]" : "grid-cols-[28px_80px_1fr_160px_120px]"} gap-2 items-center`}
               >
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
                   {line.id}
@@ -88,21 +89,23 @@ export function LotLinesForm() {
                     <SelectItem value="T_OPTIONNELLE">Tranche Optionnelle</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select
-                  value={line.dpgfAssignment}
-                  onValueChange={(v) =>
-                    updateLotLine(line.id, { dpgfAssignment: v as DpgfAssignment })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="DPGF" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="both">Les deux</SelectItem>
-                    <SelectItem value="DPGF_1">DPGF 1 seul</SelectItem>
-                    <SelectItem value="DPGF_2">DPGF 2 seul</SelectItem>
-                  </SelectContent>
-                </Select>
+                {hasDualDpgf && (
+                  <Select
+                    value={line.dpgfAssignment}
+                    onValueChange={(v) =>
+                      updateLotLine(line.id, { dpgfAssignment: v as DpgfAssignment })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="DPGF" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="both">Les deux</SelectItem>
+                      <SelectItem value="DPGF_1">DPGF 1 seul</SelectItem>
+                      <SelectItem value="DPGF_2">DPGF 2 seul</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
                 {showDpgf1 ? (
                   <Input
                     type="number"
@@ -118,7 +121,7 @@ export function LotLinesForm() {
                 ) : (
                   <span className="text-center text-xs text-muted-foreground">—</span>
                 )}
-                {showDpgf2 ? (
+                {hasDualDpgf && (showDpgf2 ? (
                   <Input
                     type="number"
                     className="text-right"
@@ -132,7 +135,7 @@ export function LotLinesForm() {
                   />
                 ) : (
                   <span className="text-center text-xs text-muted-foreground">—</span>
-                )}
+                ))}
               </div>
             );
           })}
