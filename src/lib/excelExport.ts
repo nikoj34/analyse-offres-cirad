@@ -758,6 +758,276 @@ function buildSyntheseSheet(
     rankCell.font = { bold: true };
   }
 
+  // ===== VALIDATION TEXT BLOCK =====
+  sRow += 2;
+
+  // Find attributaire
+  const allDecisions = version.negotiationDecisions ?? {};
+  const attributaireEntry = sortedSynth.find(
+    (r) => r.company.status !== "ecartee" && allDecisions[r.company.id] === "attributaire"
+  );
+
+  // Auto-numbering helper for lot lines
+  const getLineLabelSynth = (line: typeof activeLotLines[0]) => {
+    if (!line.type) return line.label;
+    const group = activeLotLines.filter((l) => l.type === line.type);
+    const idx = group.indexOf(line) + 1;
+    const prefix = line.type === "PSE" ? "PSE" : line.type === "VARIANTE" ? "Variante" : "TO";
+    return `${prefix} ${idx}${line.label ? ` — ${line.label}` : ""}`;
+  };
+
+  const typedLines = activeLotLines.filter((l) => l.type);
+  const fmtEuro = (n: number) =>
+    new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+
+  if (version.validated || attributaireEntry) {
+    synthSheet.mergeCells(`B${sRow}:J${sRow}`);
+    const valTitle = synthSheet.getCell(`B${sRow}`);
+    valTitle.value = "VALIDATION DE L'ANALYSE";
+    valTitle.font = { bold: true, size: 12, color: { argb: COLORS.headerFont } };
+    valTitle.fill = headerFill();
+    valTitle.border = thinBorder();
+    sRow++;
+
+    if (version.validated && version.validatedAt) {
+      synthSheet.getCell(`B${sRow}`).value = `Validée le : ${new Date(version.validatedAt).toLocaleDateString("fr-FR")}`;
+      synthSheet.getCell(`B${sRow}`).font = { italic: true, size: 10, color: { argb: "2E7D32" } };
+      sRow++;
+    }
+    sRow++;
+
+    // Attribution pressentie
+    if (attributaireEntry) {
+      const attrRank = sortedSynth.filter((r) => r.company.status !== "ecartee").indexOf(attributaireEntry) + 1;
+
+      // Determine which options are included (all typed lines with prices from the attributaire)
+      const enabledOptions = typedLines.filter((l) => {
+        const entry = version.priceEntries.find(
+          (e) => e.companyId === attributaireEntry.company.id && e.lotLineId === l.id
+        );
+        return entry && ((entry.dpgf1 ?? 0) !== 0 || (entry.dpgf2 ?? 0) !== 0);
+      });
+      const optionLabels = enabledOptions.map((l) => getLineLabelSynth(l));
+
+      synthSheet.mergeCells(`B${sRow}:J${sRow}`);
+      const attrTitle = synthSheet.getCell(`B${sRow}`);
+      attrTitle.value = "🏆 Attribution pressentie";
+      attrTitle.font = { bold: true, size: 11, color: { argb: "2E7D32" } };
+      attrTitle.fill = lightFill(COLORS.lightGreen);
+      attrTitle.border = thinBorder();
+      sRow++;
+
+      synthSheet.mergeCells(`B${sRow}:J${sRow}`);
+      synthSheet.getCell(`B${sRow}`).value = `L'entreprise ${attributaireEntry.company.name} est retenue pour un montant de ${fmtEuro(attributaireEntry.priceTotal)} HT, incluant la Solution de Base${optionLabels.length > 0 ? ` + ${optionLabels.join(", ")}` : ""}.`;
+      synthSheet.getCell(`B${sRow}`).font = { size: 10 };
+      synthSheet.getCell(`B${sRow}`).alignment = { wrapText: true };
+      synthSheet.getCell(`B${sRow}`).border = thinBorder();
+      sRow++;
+
+      synthSheet.mergeCells(`B${sRow}:J${sRow}`);
+      synthSheet.getCell(`B${sRow}`).value = `Classée au rang n°${attrRank} avec une note globale de ${attributaireEntry.globalScore.toFixed(1)} / ${maxGlobal} pts.`;
+      synthSheet.getCell(`B${sRow}`).font = { italic: true, size: 10, color: { argb: "666666" } };
+      synthSheet.getCell(`B${sRow}`).border = thinBorder();
+      sRow += 2;
+
+      // Détail du scénario retenu
+      synthSheet.getCell(`B${sRow}`).value = "Détail du scénario retenu :";
+      synthSheet.getCell(`B${sRow}`).font = { bold: true, size: 10 };
+      sRow++;
+      synthSheet.getCell(`B${sRow}`).value = "• Solution de Base (Tranche Ferme)";
+      synthSheet.getCell(`B${sRow}`).font = { size: 10 };
+      sRow++;
+      for (const l of enabledOptions) {
+        const linePrice = (() => {
+          const e = version.priceEntries.find(
+            (e) => e.companyId === attributaireEntry.company.id && e.lotLineId === l.id
+          );
+          return (e?.dpgf1 ?? 0) + (e?.dpgf2 ?? 0);
+        })();
+        synthSheet.getCell(`B${sRow}`).value = `• ${getLineLabelSynth(l)} — ${fmtEuro(linePrice)}`;
+        synthSheet.getCell(`B${sRow}`).font = { size: 10 };
+        sRow++;
+      }
+      synthSheet.getCell(`B${sRow}`).value = `Montant final HT : ${fmtEuro(attributaireEntry.priceTotal)}`;
+      synthSheet.getCell(`B${sRow}`).font = { bold: true, size: 10 };
+      sRow += 2;
+    }
+
+    // Motifs d'éviction / non-attribution
+    const excludedCompanies = companies.filter((c) => c.status === "ecartee");
+    const nonRetenues = companies.filter(
+      (c) => c.status !== "ecartee" && allDecisions[c.id] === "non_retenue"
+    );
+
+    if (excludedCompanies.length > 0 || nonRetenues.length > 0) {
+      synthSheet.mergeCells(`B${sRow}:J${sRow}`);
+      const evTitle = synthSheet.getCell(`B${sRow}`);
+      evTitle.value = "⚠️ Motifs d'éviction / non-attribution";
+      evTitle.font = { bold: true, size: 11, color: { argb: "E65100" } };
+      evTitle.fill = lightFill(COLORS.lightOrange);
+      evTitle.border = thinBorder();
+      sRow++;
+
+      for (const c of excludedCompanies) {
+        synthSheet.getCell(`B${sRow}`).value = `${c.name} — Écartée : ${c.exclusionReason || "Motif non précisé"}`;
+        synthSheet.getCell(`B${sRow}`).font = { size: 10, color: { argb: "E65100" } };
+        sRow++;
+      }
+      for (const c of nonRetenues) {
+        synthSheet.getCell(`B${sRow}`).value = `${c.name} — Non retenue`;
+        synthSheet.getCell(`B${sRow}`).font = { size: 10, color: { argb: "E65100" } };
+        sRow++;
+      }
+      sRow++;
+    }
+  }
+
+  // ===== NOTES PRIX PAR SCÉNARIO =====
+  if (typedLines.length > 0) {
+    sRow += 1;
+    synthSheet.mergeCells(`B${sRow}:J${sRow}`);
+    const scenTitle = synthSheet.getCell(`B${sRow}`);
+    scenTitle.value = "NOTES PRIX PAR SCÉNARIO";
+    scenTitle.font = { bold: true, size: 12, color: { argb: COLORS.headerFont } };
+    scenTitle.fill = headerFill();
+    scenTitle.border = thinBorder();
+    sRow++;
+
+    synthSheet.getCell(`B${sRow}`).value = "Notes de prix pour chaque scénario (Base + option individuelle), y compris ceux non retenus.";
+    synthSheet.getCell(`B${sRow}`).font = { italic: true, size: 9 };
+    sRow += 2;
+
+    const eligibleForScenario = companies.filter((c) => c.status !== "ecartee" && c.name.trim() !== "");
+
+    // Compute tech scores
+    const scenTechScores: Record<number, number> = {};
+    for (const company of eligibleForScenario) {
+      let total = 0;
+      for (const criterion of technicalCriteria) {
+        let score = 0;
+        if (criterion.subCriteria.length > 0) {
+          let raw = 0;
+          const subTotal = criterion.subCriteria.reduce((s, sc) => s + sc.weight, 0);
+          for (const sub of criterion.subCriteria) {
+            const note = version.technicalNotes.find(
+              (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
+            );
+            if (note?.notation) raw += NOTATION_VALUES[note.notation] * (subTotal > 0 ? sub.weight / subTotal : 0);
+          }
+          score = (raw / 5) * criterion.weight;
+        } else {
+          const note = version.technicalNotes.find(
+            (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
+          );
+          if (note?.notation) score = (NOTATION_VALUES[note.notation] / 5) * criterion.weight;
+        }
+        total += score;
+      }
+      scenTechScores[company.id] = total;
+    }
+
+    // Tranche Ferme
+    {
+      synthSheet.mergeCells(`B${sRow}:H${sRow}`);
+      const tfTitle = synthSheet.getCell(`B${sRow}`);
+      tfTitle.value = "Tranche Ferme (Base seule)";
+      tfTitle.font = { bold: true, size: 10, color: { argb: COLORS.headerFont } };
+      tfTitle.fill = headerFill();
+      tfTitle.border = thinBorder();
+      sRow++;
+
+      ["Entreprise", "Prix Base (€ HT)", `Note Tech`, `Note Prix (/${prixWeight})`, `Note Globale (/${maxGlobal})`, "Rang"].forEach((h, i) => {
+        const c = synthSheet.getCell(sRow, i + 2);
+        c.value = h;
+        c.font = { bold: true, size: 9 };
+        c.fill = lightFill(COLORS.lightBlue);
+        c.border = thinBorder();
+        c.alignment = { horizontal: "center", wrapText: true };
+      });
+      sRow++;
+
+      const baseTotals = eligibleForScenario.map((company) => {
+        let basePrice = 0;
+        for (const bl of activeLotLines.filter((l) => !l.type)) {
+          const e = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === bl.id);
+          basePrice += (e?.dpgf1 ?? 0) + (e?.dpgf2 ?? 0);
+        }
+        return { name: `${company.id}. ${company.name}`, basePrice, techTotal: scenTechScores[company.id] ?? 0 };
+      });
+
+      const validPrices = baseTotals.filter((t) => t.basePrice > 0).map((t) => t.basePrice);
+      const minP = validPrices.length > 0 ? Math.min(...validPrices) : 0;
+
+      const scored = baseTotals.map((t) => {
+        const ps = t.basePrice > 0 ? (minP / t.basePrice) * prixWeight : 0;
+        return { ...t, priceScore: ps, globalScore: t.techTotal + ps };
+      }).sort((a, b) => b.globalScore - a.globalScore);
+
+      scored.forEach((s, idx) => {
+        synthSheet.getCell(sRow, 2).value = s.name; synthSheet.getCell(sRow, 2).border = thinBorder();
+        synthSheet.getCell(sRow, 3).value = s.basePrice; synthSheet.getCell(sRow, 3).numFmt = '#,##0.00 "€"'; synthSheet.getCell(sRow, 3).border = thinBorder();
+        synthSheet.getCell(sRow, 4).value = Number(s.techTotal.toFixed(1)); synthSheet.getCell(sRow, 4).border = thinBorder(); synthSheet.getCell(sRow, 4).alignment = { horizontal: "center" };
+        synthSheet.getCell(sRow, 5).value = Number(s.priceScore.toFixed(2)); synthSheet.getCell(sRow, 5).border = thinBorder(); synthSheet.getCell(sRow, 5).alignment = { horizontal: "center" }; synthSheet.getCell(sRow, 5).font = { bold: true };
+        synthSheet.getCell(sRow, 6).value = Number(s.globalScore.toFixed(2)); synthSheet.getCell(sRow, 6).border = thinBorder(); synthSheet.getCell(sRow, 6).alignment = { horizontal: "center" }; synthSheet.getCell(sRow, 6).font = { bold: true };
+        synthSheet.getCell(sRow, 7).value = idx + 1; synthSheet.getCell(sRow, 7).border = thinBorder(); synthSheet.getCell(sRow, 7).alignment = { horizontal: "center" }; synthSheet.getCell(sRow, 7).font = { bold: true };
+        sRow++;
+      });
+      sRow++;
+    }
+
+    // Per option scenario
+    for (const line of typedLines) {
+      const label = getLineLabelSynth(line);
+      synthSheet.mergeCells(`B${sRow}:H${sRow}`);
+      const secTitle = synthSheet.getCell(`B${sRow}`);
+      secTitle.value = `Base + ${label}`;
+      secTitle.font = { bold: true, size: 10, color: { argb: COLORS.headerFont } };
+      secTitle.fill = headerFill();
+      secTitle.border = thinBorder();
+      sRow++;
+
+      ["Entreprise", "Total (€ HT)", `Note Tech`, `Note Prix (/${prixWeight})`, `Note Globale (/${maxGlobal})`, "Rang"].forEach((h, i) => {
+        const c = synthSheet.getCell(sRow, i + 2);
+        c.value = h;
+        c.font = { bold: true, size: 9 };
+        c.fill = lightFill(COLORS.lightBlue);
+        c.border = thinBorder();
+        c.alignment = { horizontal: "center", wrapText: true };
+      });
+      sRow++;
+
+      const totals = eligibleForScenario.map((company) => {
+        let basePrice = 0;
+        for (const bl of activeLotLines.filter((l) => !l.type)) {
+          const e = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === bl.id);
+          basePrice += (e?.dpgf1 ?? 0) + (e?.dpgf2 ?? 0);
+        }
+        const optEntry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
+        const optionPrice = (optEntry?.dpgf1 ?? 0) + (optEntry?.dpgf2 ?? 0);
+        return { name: `${company.id}. ${company.name}`, total: basePrice + optionPrice, techTotal: scenTechScores[company.id] ?? 0 };
+      });
+
+      const validPrices = totals.filter((t) => t.total > 0).map((t) => t.total);
+      const minP = validPrices.length > 0 ? Math.min(...validPrices) : 0;
+
+      const scored = totals.map((t) => {
+        const ps = t.total > 0 ? (minP / t.total) * prixWeight : 0;
+        return { ...t, priceScore: ps, globalScore: t.techTotal + ps };
+      }).sort((a, b) => b.globalScore - a.globalScore);
+
+      scored.forEach((s, idx) => {
+        synthSheet.getCell(sRow, 2).value = s.name; synthSheet.getCell(sRow, 2).border = thinBorder();
+        synthSheet.getCell(sRow, 3).value = s.total; synthSheet.getCell(sRow, 3).numFmt = '#,##0.00 "€"'; synthSheet.getCell(sRow, 3).border = thinBorder();
+        synthSheet.getCell(sRow, 4).value = Number(s.techTotal.toFixed(1)); synthSheet.getCell(sRow, 4).border = thinBorder(); synthSheet.getCell(sRow, 4).alignment = { horizontal: "center" };
+        synthSheet.getCell(sRow, 5).value = Number(s.priceScore.toFixed(2)); synthSheet.getCell(sRow, 5).border = thinBorder(); synthSheet.getCell(sRow, 5).alignment = { horizontal: "center" }; synthSheet.getCell(sRow, 5).font = { bold: true };
+        synthSheet.getCell(sRow, 6).value = Number(s.globalScore.toFixed(2)); synthSheet.getCell(sRow, 6).border = thinBorder(); synthSheet.getCell(sRow, 6).alignment = { horizontal: "center" }; synthSheet.getCell(sRow, 6).font = { bold: true };
+        synthSheet.getCell(sRow, 7).value = idx + 1; synthSheet.getCell(sRow, 7).border = thinBorder(); synthSheet.getCell(sRow, 7).alignment = { horizontal: "center" }; synthSheet.getCell(sRow, 7).font = { bold: true };
+        sRow++;
+      });
+      sRow++;
+    }
+  }
+
   for (let i = 2; i <= 10; i++) {
     synthSheet.getColumn(i).width = i === 2 ? 25 : 18;
   }
