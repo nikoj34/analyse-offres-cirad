@@ -20,6 +20,7 @@ import {
 import ciradLogo from "@/assets/cirad-logo.png";
 import { getVersionDisplayLabel } from "@/types/project";
 import { Footer } from "@/components/Footer";
+import { ImportedProjectSchema } from "@/lib/projectValidation";
 
 function getProjectStatus(project: any): { label: string; color: string; detail: string; attributaire?: string } {
   const versions = project.versions ?? [];
@@ -94,41 +95,52 @@ const ProjectsPage = () => {
     reader.onload = (ev) => {
       try {
         const imported = JSON.parse(ev.target?.result as string);
+        if (typeof imported !== "object" || imported === null) {
+          toast.error("Format de fichier invalide.");
+          return;
+        }
         const store = useMultiProjectStore.getState();
         const existingNames = new Set(
           Object.values(store.projects).map((p: any) => p.info?.name?.toLowerCase() ?? "")
         );
         let count = 0;
+        let skipped = 0;
         for (const [, project] of Object.entries(imported)) {
-          const p = project as any;
-          if (p?.info && p?.versions) {
-            // Generate new UUID to avoid overwrite
-            const newId = crypto.randomUUID();
-            const cloned = JSON.parse(JSON.stringify(p));
-            cloned.id = newId;
-
-            // Anti-overwrite: rename if name conflict
-            const originalName = cloned.info.name ?? "";
-            if (existingNames.has(originalName.toLowerCase())) {
-              const dateSuffix = new Date().toLocaleDateString("fr-FR");
-              cloned.info.name = `${originalName} (Importé le ${dateSuffix})`;
-            }
-            existingNames.add(cloned.info.name.toLowerCase());
-
-            // Regenerate version UUIDs
-            for (const v of cloned.versions ?? []) {
-              const oldVid = v.id;
-              v.id = crypto.randomUUID();
-              if (cloned.currentVersionId === oldVid) {
-                cloned.currentVersionId = v.id;
-              }
-            }
-
-            store.saveCurrentProject(cloned);
-            count++;
+          const parseResult = ImportedProjectSchema.safeParse(project);
+          if (!parseResult.success) {
+            skipped++;
+            continue;
           }
+
+          // Generate new UUID to avoid overwrite
+          const newId = crypto.randomUUID();
+          const cloned = JSON.parse(JSON.stringify(parseResult.data));
+          cloned.id = newId;
+
+          // Anti-overwrite: rename if name conflict
+          const originalName = cloned.info.name ?? "";
+          if (existingNames.has(originalName.toLowerCase())) {
+            const dateSuffix = new Date().toLocaleDateString("fr-FR");
+            cloned.info.name = `${originalName} (Importé le ${dateSuffix})`;
+          }
+          existingNames.add(cloned.info.name.toLowerCase());
+
+          // Regenerate version UUIDs
+          for (const v of cloned.versions ?? []) {
+            const oldVid = v.id;
+            v.id = crypto.randomUUID();
+            if (cloned.currentVersionId === oldVid) {
+              cloned.currentVersionId = v.id;
+            }
+          }
+
+          store.saveCurrentProject(cloned);
+          count++;
         }
-        toast.success(`${count} analyse(s) importée(s) avec succès !`);
+        const msg = skipped > 0
+          ? `${count} analyse(s) importée(s), ${skipped} ignorée(s) (format invalide).`
+          : `${count} analyse(s) importée(s) avec succès !`;
+        toast[count > 0 ? "success" : "warning"](msg);
       } catch {
         toast.error("Fichier invalide. Veuillez sélectionner un fichier JSON exporté.");
       }
