@@ -48,7 +48,7 @@ function buildTypeCounters(lotLines: LotLine[]): Record<number, string> {
 }
 
 const fmt = (n: number) =>
-  new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
+  new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
 const PrixPage = () => {
   const { project, setPriceEntry, getPriceEntry } = useProjectStore();
@@ -137,18 +137,7 @@ const PrixPage = () => {
     );
   }
 
-  if (activeLotLines.length === 0) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">{pageTitle}</h1>
-          <p className="text-sm text-muted-foreground">
-            Veuillez d'abord saisir des lignes de lot dans « Données du projet ».
-          </p>
-        </div>
-      </div>
-    );
-  }
+  // No longer block when there are no lot lines - base DPGF alone is sufficient
 
   const renderDeviationCell = (offer: number | null, estimation: number) => {
     const o = offer ?? 0;
@@ -171,6 +160,7 @@ const PrixPage = () => {
       <div className={`space-y-0.5 rounded px-1 ${devBg}`}>
         <Input
           type="number"
+          step="0.01"
           className="text-right text-sm"
           value={value ?? ""}
           disabled={disabled}

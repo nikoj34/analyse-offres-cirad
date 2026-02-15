@@ -38,7 +38,7 @@ export function EstimationForm() {
   }, [info.estimationDpgf1, info.estimationDpgf2, lotLines]);
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
+    new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
   return (
     <Card>
@@ -56,6 +56,7 @@ export function EstimationForm() {
             </label>
             <Input
               type="number"
+              step="0.01"
               value={info.estimationDpgf1 ?? ""}
               onChange={(e) =>
                 updateInfo({
@@ -72,6 +73,7 @@ export function EstimationForm() {
               </label>
               <Input
                 type="number"
+                step="0.01"
                 value={info.estimationDpgf2 ?? ""}
                 onChange={(e) =>
                   updateInfo({
