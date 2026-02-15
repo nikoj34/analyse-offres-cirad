@@ -937,6 +937,172 @@ function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
   methSheet.getColumn("H").width = 15;
 }
 
+function buildComparaisonsSheet(
+  wb: ExcelJS.Workbook,
+  project: ProjectData,
+  version: NegotiationVersion,
+  companies: typeof project.companies
+) {
+  const cmpSheet = wb.addWorksheet("COMPARAISONS");
+  cmpSheet.properties.defaultRowHeight = 18;
+
+  const activeLotLines = project.lotLines.filter((l) => l.label.trim() !== "");
+  const typedLines = activeLotLines.filter((l) => l.type);
+  if (typedLines.length === 0) return;
+
+  const technicalCriteria = project.weightingCriteria.filter((c) => c.id !== "prix");
+  const prixCriterion = project.weightingCriteria.find((c) => c.id === "prix");
+  const prixWeight = prixCriterion?.weight ?? 40;
+  const vtWeight = technicalCriteria.filter((c) => c.id !== "environnemental" && c.id !== "planning").reduce((s, c) => s + c.weight, 0);
+  const envCrit = technicalCriteria.find((c) => c.id === "environnemental");
+  const planCrit = technicalCriteria.find((c) => c.id === "planning");
+  const envW = envCrit?.weight ?? 0;
+  const planW = planCrit?.weight ?? 0;
+  const maxGlobal = vtWeight + envW + planW + prixWeight;
+
+  const eligibleCompanies = companies.filter((c) => c.status !== "ecartee" && c.name.trim() !== "");
+
+  // Auto-numbering
+  const getLineLabel = (line: typeof activeLotLines[0]) => {
+    if (!line.type) return line.label;
+    const group = activeLotLines.filter((l) => l.type === line.type);
+    const idx = group.indexOf(line) + 1;
+    const prefix = line.type === "PSE" ? "PSE" : line.type === "VARIANTE" ? "Variante" : "TO";
+    return `${prefix} ${idx}${line.label ? ` — ${line.label}` : ""}`;
+  };
+
+  // Compute tech scores once
+  const techScores: Record<number, { tech: number; env: number; plan: number; total: number }> = {};
+  for (const company of eligibleCompanies) {
+    let tech = 0, env = 0, plan = 0;
+    for (const criterion of technicalCriteria) {
+      let score = 0;
+      if (criterion.subCriteria.length > 0) {
+        let raw = 0;
+        const subTotal = criterion.subCriteria.reduce((s, sc) => s + sc.weight, 0);
+        for (const sub of criterion.subCriteria) {
+          const note = version.technicalNotes.find(
+            (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
+          );
+          if (note?.notation) {
+            raw += NOTATION_VALUES[note.notation] * (subTotal > 0 ? sub.weight / subTotal : 0);
+          }
+        }
+        score = (raw / 5) * criterion.weight;
+      } else {
+        const note = version.technicalNotes.find(
+          (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
+        );
+        if (note?.notation) score = (NOTATION_VALUES[note.notation] / 5) * criterion.weight;
+      }
+      if (criterion.id === "environnemental") env = score;
+      else if (criterion.id === "planning") plan = score;
+      else tech += score;
+    }
+    techScores[company.id] = { tech, env, plan, total: tech + env + plan };
+  }
+
+  let row = 2;
+  cmpSheet.mergeCells(`B${row}:J${row}`);
+  const title = cmpSheet.getCell(`B${row}`);
+  title.value = `${project.info.name || "Projet"} — Comparaisons par option`;
+  title.font = { bold: true, size: 12, color: { argb: COLORS.darkText } };
+  title.fill = lightFill(COLORS.lightBlue);
+  title.border = thinBorder();
+  row++;
+  cmpSheet.getCell(`B${row}`).value = "Toutes les comparaisons individuelles (Base + 1 option), y compris celles non retenues.";
+  cmpSheet.getCell(`B${row}`).font = { italic: true, size: 9 };
+  row += 2;
+
+  // For each typed line, show a comparison table
+  for (const line of typedLines) {
+    const label = getLineLabel(line);
+
+    cmpSheet.mergeCells(`B${row}:J${row}`);
+    const secTitle = cmpSheet.getCell(`B${row}`);
+    secTitle.value = `Scénario : Base + ${label}`;
+    secTitle.font = { bold: true, size: 11, color: { argb: COLORS.headerFont } };
+    secTitle.fill = headerFill();
+    secTitle.border = thinBorder();
+    row++;
+
+    const headers = ["Entreprise", "Prix Base (€)", `Prix ${label} (€)`, "Total (€ HT)", `Note Tech (/${vtWeight + envW + planW})`, `Note Prix (/${prixWeight})`, `Note Globale (/${maxGlobal})`, "Classement"];
+    headers.forEach((h, i) => {
+      const c = cmpSheet.getCell(row, i + 2);
+      c.value = h;
+      c.font = { bold: true, size: 9 };
+      c.fill = lightFill(COLORS.lightBlue);
+      c.border = thinBorder();
+      c.alignment = { horizontal: "center", wrapText: true };
+    });
+    row++;
+
+    // Compute totals for this scenario
+    const totals: { companyId: number; name: string; basePrice: number; optionPrice: number; total: number; techTotal: number }[] = [];
+    for (const company of eligibleCompanies) {
+      const baseDpgf = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === 0);
+      const baseTotal = (baseDpgf?.dpgf1 ?? 0) + (baseDpgf?.dpgf2 ?? 0);
+      // If no lot line 0, sum all base lines
+      let basePrice = baseTotal;
+      if (baseTotal === 0) {
+        const baseLines = activeLotLines.filter((l) => !l.type);
+        for (const bl of baseLines) {
+          const e = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === bl.id);
+          basePrice += (e?.dpgf1 ?? 0) + (e?.dpgf2 ?? 0);
+        }
+      }
+      const optEntry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
+      const optionPrice = (optEntry?.dpgf1 ?? 0) + (optEntry?.dpgf2 ?? 0);
+      const total = basePrice + optionPrice;
+      const ts = techScores[company.id] ?? { tech: 0, env: 0, plan: 0, total: 0 };
+      totals.push({ companyId: company.id, name: `${company.id}. ${company.name}`, basePrice, optionPrice, total, techTotal: ts.total });
+    }
+
+    const validPrices = totals.filter((t) => t.total > 0).map((t) => t.total);
+    const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : 0;
+
+    const scored = totals.map((t) => {
+      const priceScore = t.total > 0 ? (minPrice / t.total) * prixWeight : 0;
+      return { ...t, priceScore, globalScore: t.techTotal + priceScore };
+    }).sort((a, b) => b.globalScore - a.globalScore);
+
+    const dataStart = row;
+    scored.forEach((s, idx) => {
+      cmpSheet.getCell(row, 2).value = s.name;
+      cmpSheet.getCell(row, 2).border = thinBorder();
+      cmpSheet.getCell(row, 3).value = s.basePrice;
+      cmpSheet.getCell(row, 3).numFmt = '#,##0.00 "€"';
+      cmpSheet.getCell(row, 3).border = thinBorder();
+      cmpSheet.getCell(row, 4).value = s.optionPrice;
+      cmpSheet.getCell(row, 4).numFmt = '#,##0.00 "€"';
+      cmpSheet.getCell(row, 4).border = thinBorder();
+      cmpSheet.getCell(row, 5).value = s.total;
+      cmpSheet.getCell(row, 5).numFmt = '#,##0.00 "€"';
+      cmpSheet.getCell(row, 5).font = { bold: true };
+      cmpSheet.getCell(row, 5).border = thinBorder();
+      cmpSheet.getCell(row, 6).value = Number(s.techTotal.toFixed(1));
+      cmpSheet.getCell(row, 6).border = thinBorder();
+      cmpSheet.getCell(row, 6).alignment = { horizontal: "center" };
+      cmpSheet.getCell(row, 7).value = Number(s.priceScore.toFixed(2));
+      cmpSheet.getCell(row, 7).border = thinBorder();
+      cmpSheet.getCell(row, 7).alignment = { horizontal: "center" };
+      cmpSheet.getCell(row, 8).value = Number(s.globalScore.toFixed(2));
+      cmpSheet.getCell(row, 8).font = { bold: true };
+      cmpSheet.getCell(row, 8).border = thinBorder();
+      cmpSheet.getCell(row, 8).alignment = { horizontal: "center" };
+      cmpSheet.getCell(row, 9).value = idx + 1;
+      cmpSheet.getCell(row, 9).font = { bold: true };
+      cmpSheet.getCell(row, 9).border = thinBorder();
+      cmpSheet.getCell(row, 9).alignment = { horizontal: "center" };
+      row++;
+    });
+    row += 1;
+  }
+
+  cmpSheet.getColumn("B").width = 25;
+  for (let i = 3; i <= 10; i++) cmpSheet.getColumn(i).width = 18;
+}
+
 // =============== Main export function ===============
 
 export async function exportToExcel(project: ProjectData) {
@@ -1119,6 +1285,7 @@ export async function exportToExcel(project: ProjectData) {
   buildTechSheet(wb, "ANALYSE_TECHNIQUE", project, v0, activeCompanies);
   buildPrixSheet(wb, "ANALYSE_DES_PRIX", project, v0, activeCompanies);
   buildSyntheseSheet(wb, "SYNTHESE", project, v0, activeCompanies);
+  buildComparaisonsSheet(wb, project, v0, activeCompanies);
 
   // =========== Methodology ===========
   buildMethodologySheet(wb, project);
