@@ -194,8 +194,17 @@ function buildPrixSheet(
   const prixWeight = prixCriterion?.weight ?? 40;
   const hasDpgf2 = activeLotLines.some((l) => l.dpgfAssignment === "DPGF_2" || l.dpgfAssignment === "both");
 
+  // Auto-numbering helper
+  const getLineLabel = (line: typeof activeLotLines[0]) => {
+    if (!line.type) return line.label;
+    const group = activeLotLines.filter((l) => l.type === line.type);
+    const idx = group.indexOf(line) + 1;
+    const prefix = line.type === "PSE" ? "PSE" : line.type === "VARIANTE" ? "Variante" : "TO";
+    return `${prefix} ${idx}${line.label ? ` — ${line.label}` : ""}`;
+  };
+
   let pRow = 2;
-  const endCol = hasDpgf2 ? "I" : "G";
+  const endCol = hasDpgf2 ? "K" : "I";
   prixSheet.mergeCells(`B${pRow}:${endCol}${pRow}`);
   const prixTitle = prixSheet.getCell(`B${pRow}`);
   prixTitle.value = `${project.info.name || "Projet"} — Lot n° ${project.info.lotNumber || ""} — ${sheetName}`;
@@ -211,6 +220,9 @@ function buildPrixSheet(
     prixSheet.getCell(`D${pRow}`).font = { italic: true, size: 9, color: { argb: "2E7D32" } };
   }
   pRow++;
+
+  // Track total rows for MIN formula
+  const companyTotalRows: number[] = [];
 
   for (const company of companies) {
     const isExcluded = company.status === "ecartee";
@@ -230,9 +242,10 @@ function buildPrixSheet(
       continue;
     }
 
-    const cols = ["Ligne", "Estimation (€)", "DPGF 1 (€ HT)"];
-    if (hasDpgf2) cols.push("DPGF 2 (€ HT)");
-    cols.push("Total (€ HT)", "Écart (%)");
+    // Headers: Ligne | Est. DPGF1 | DPGF1 Candidat | Écart 1 | [Est. DPGF2 | DPGF2 Candidat | Écart 2] | Total | Écart Global
+    const cols: string[] = ["Ligne", "Est. DPGF 1 (€)", "DPGF 1 Candidat (€ HT)", "Écart DPGF 1 (%)"];
+    if (hasDpgf2) cols.push("Est. DPGF 2 (€)", "DPGF 2 Candidat (€ HT)", "Écart DPGF 2 (%)");
+    cols.push("Total (€ HT)", "Écart Global (%)");
 
     cols.forEach((label, i) => {
       const c = prixSheet.getCell(pRow, i + 2);
@@ -240,11 +253,11 @@ function buildPrixSheet(
       c.font = { bold: true, size: 9 };
       c.fill = lightFill(COLORS.lightBlue);
       c.border = thinBorder();
+      c.alignment = { horizontal: "center", wrapText: true };
     });
     pRow++;
 
-    let totalDpgf1 = 0;
-    let totalDpgf2 = 0;
+    const dataStartRow = pRow;
 
     for (const line of activeLotLines) {
       const entry = version.priceEntries.find(
@@ -252,49 +265,109 @@ function buildPrixSheet(
       );
       const d1 = entry?.dpgf1 ?? 0;
       const d2 = entry?.dpgf2 ?? 0;
-      const est = (line.estimationDpgf1 ?? 0) + (line.estimationDpgf2 ?? 0);
+      const est1 = line.estimationDpgf1 ?? 0;
+      const est2 = line.estimationDpgf2 ?? 0;
+      const estTotal = est1 + est2;
       const offerTotal = d1 + d2;
-      totalDpgf1 += d1;
-      totalDpgf2 += d2;
 
       let col = 2;
-      prixSheet.getCell(pRow, col).value = `${line.label}${line.type ? ` (${line.type})` : ""}`;
+
+      // Ligne label with auto-numbering
+      prixSheet.getCell(pRow, col).value = getLineLabel(line);
       prixSheet.getCell(pRow, col).border = thinBorder();
       col++;
 
-      prixSheet.getCell(pRow, col).value = est || "";
-      prixSheet.getCell(pRow, col).numFmt = '#,##0 "€"';
-      prixSheet.getCell(pRow, col).border = thinBorder();
+      // Est. DPGF 1 — grayed out
+      const est1Cell = prixSheet.getCell(pRow, col);
+      est1Cell.value = est1 || "";
+      est1Cell.numFmt = '#,##0 "€"';
+      est1Cell.border = thinBorder();
+      est1Cell.font = { italic: true, color: { argb: "808080" } };
+      est1Cell.fill = lightFill("F0F0F0");
       col++;
 
+      // DPGF 1 Candidat
       prixSheet.getCell(pRow, col).value = d1 || "";
       prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
       prixSheet.getCell(pRow, col).border = thinBorder();
       col++;
 
+      // Écart DPGF 1 — color coded
+      if (est1 !== 0 && d1 !== 0) {
+        const dev1 = ((d1 - est1) / Math.abs(est1)) * 100;
+        const devCell = prixSheet.getCell(pRow, col);
+        devCell.value = Number(dev1.toFixed(1));
+        devCell.numFmt = '0.0"%"';
+        devCell.border = thinBorder();
+        const absDev = Math.abs(dev1);
+        if (absDev <= 10) devCell.font = { bold: true, color: { argb: "2E7D32" } };
+        else if (absDev <= 20) devCell.font = { bold: true, color: { argb: "E65100" } };
+        else devCell.font = { bold: true, color: { argb: "C62828" } };
+        // Background tint
+        if (absDev <= 10) devCell.fill = lightFill("E8F5E9");
+        else if (absDev <= 20) devCell.fill = lightFill("FFF3E0");
+        else devCell.fill = lightFill("FFEBEE");
+      } else {
+        prixSheet.getCell(pRow, col).value = "—";
+        prixSheet.getCell(pRow, col).border = thinBorder();
+      }
+      col++;
+
       if (hasDpgf2) {
+        // Est. DPGF 2 — grayed out
+        const est2Cell = prixSheet.getCell(pRow, col);
+        est2Cell.value = est2 || "";
+        est2Cell.numFmt = '#,##0 "€"';
+        est2Cell.border = thinBorder();
+        est2Cell.font = { italic: true, color: { argb: "808080" } };
+        est2Cell.fill = lightFill("F0F0F0");
+        col++;
+
+        // DPGF 2 Candidat
         prixSheet.getCell(pRow, col).value = d2 || "";
         prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
         prixSheet.getCell(pRow, col).border = thinBorder();
         col++;
+
+        // Écart DPGF 2 — color coded
+        if (est2 !== 0 && d2 !== 0) {
+          const dev2 = ((d2 - est2) / Math.abs(est2)) * 100;
+          const devCell = prixSheet.getCell(pRow, col);
+          devCell.value = Number(dev2.toFixed(1));
+          devCell.numFmt = '0.0"%"';
+          devCell.border = thinBorder();
+          const absDev = Math.abs(dev2);
+          if (absDev <= 10) devCell.font = { bold: true, color: { argb: "2E7D32" } };
+          else if (absDev <= 20) devCell.font = { bold: true, color: { argb: "E65100" } };
+          else devCell.font = { bold: true, color: { argb: "C62828" } };
+          if (absDev <= 10) devCell.fill = lightFill("E8F5E9");
+          else if (absDev <= 20) devCell.fill = lightFill("FFF3E0");
+          else devCell.fill = lightFill("FFEBEE");
+        } else {
+          prixSheet.getCell(pRow, col).value = "—";
+          prixSheet.getCell(pRow, col).border = thinBorder();
+        }
+        col++;
       }
 
+      // Total
       prixSheet.getCell(pRow, col).value = offerTotal;
       prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
       prixSheet.getCell(pRow, col).font = { bold: true };
       prixSheet.getCell(pRow, col).border = thinBorder();
       col++;
 
-      // Deviation %
-      if (est !== 0 && offerTotal !== 0) {
-        const dev = ((offerTotal - est) / Math.abs(est)) * 100;
+      // Écart Global — color coded
+      if (estTotal !== 0 && offerTotal !== 0) {
+        const dev = ((offerTotal - estTotal) / Math.abs(estTotal)) * 100;
         const devCell = prixSheet.getCell(pRow, col);
-        devCell.value = Number(dev.toFixed(0));
-        devCell.numFmt = '0"%"';
+        devCell.value = Number(dev.toFixed(1));
+        devCell.numFmt = '0.0"%"';
         devCell.border = thinBorder();
-        if (dev <= 10) devCell.font = { color: { argb: "2E7D32" } };
-        else if (dev <= 20) devCell.font = { color: { argb: "E65100" } };
-        else devCell.font = { color: { argb: "C62828" } };
+        const absDev = Math.abs(dev);
+        if (absDev <= 10) { devCell.font = { bold: true, color: { argb: "2E7D32" } }; devCell.fill = lightFill("E8F5E9"); }
+        else if (absDev <= 20) { devCell.font = { bold: true, color: { argb: "E65100" } }; devCell.fill = lightFill("FFF3E0"); }
+        else { devCell.font = { bold: true, color: { argb: "C62828" } }; devCell.fill = lightFill("FFEBEE"); }
       } else {
         prixSheet.getCell(pRow, col).value = "—";
         prixSheet.getCell(pRow, col).border = thinBorder();
@@ -304,19 +377,23 @@ function buildPrixSheet(
     }
 
     // Total row with SUM formulas
-    const dataStartRow = pRow - activeLotLines.length;
     let col = 2;
     prixSheet.getCell(pRow, col).value = "TOTAL";
     prixSheet.getCell(pRow, col).font = { bold: true };
     prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
     prixSheet.getCell(pRow, col).border = thinBorder();
-    col++; // skip estimation col
-    prixSheet.getCell(pRow, col).value = "";
+    col++;
+
+    // Est DPGF1 SUM
+    const estD1Col = String.fromCharCode(64 + col);
+    prixSheet.getCell(pRow, col).value = { formula: `SUM(${estD1Col}${dataStartRow}:${estD1Col}${pRow - 1})` };
+    prixSheet.getCell(pRow, col).numFmt = '#,##0 "€"';
+    prixSheet.getCell(pRow, col).font = { bold: true, italic: true, color: { argb: "808080" } };
     prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
     prixSheet.getCell(pRow, col).border = thinBorder();
     col++;
 
-    // DPGF1 SUM formula
+    // DPGF1 SUM
     const d1Col = String.fromCharCode(64 + col);
     prixSheet.getCell(pRow, col).value = { formula: `SUM(${d1Col}${dataStartRow}:${d1Col}${pRow - 1})` };
     prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
@@ -325,7 +402,23 @@ function buildPrixSheet(
     prixSheet.getCell(pRow, col).border = thinBorder();
     col++;
 
+    // Ecart 1 skip
+    prixSheet.getCell(pRow, col).value = "";
+    prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
+    prixSheet.getCell(pRow, col).border = thinBorder();
+    col++;
+
     if (hasDpgf2) {
+      // Est DPGF2 SUM
+      const estD2Col = String.fromCharCode(64 + col);
+      prixSheet.getCell(pRow, col).value = { formula: `SUM(${estD2Col}${dataStartRow}:${estD2Col}${pRow - 1})` };
+      prixSheet.getCell(pRow, col).numFmt = '#,##0 "€"';
+      prixSheet.getCell(pRow, col).font = { bold: true, italic: true, color: { argb: "808080" } };
+      prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
+      prixSheet.getCell(pRow, col).border = thinBorder();
+      col++;
+
+      // DPGF2 SUM
       const d2Col = String.fromCharCode(64 + col);
       prixSheet.getCell(pRow, col).value = { formula: `SUM(${d2Col}${dataStartRow}:${d2Col}${pRow - 1})` };
       prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
@@ -333,8 +426,15 @@ function buildPrixSheet(
       prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
       prixSheet.getCell(pRow, col).border = thinBorder();
       col++;
+
+      // Ecart 2 skip
+      prixSheet.getCell(pRow, col).value = "";
+      prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
+      prixSheet.getCell(pRow, col).border = thinBorder();
+      col++;
     }
 
+    // Total SUM
     const totCol = String.fromCharCode(64 + col);
     prixSheet.getCell(pRow, col).value = { formula: `SUM(${totCol}${dataStartRow}:${totCol}${pRow - 1})` };
     prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
@@ -342,17 +442,73 @@ function buildPrixSheet(
     prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
     prixSheet.getCell(pRow, col).border = thinBorder();
 
+    companyTotalRows.push(pRow);
     pRow += 2;
   }
 
+  // Price score summary with Excel formulas
+  if (companyTotalRows.length > 0) {
+    const totalColIdx = hasDpgf2 ? 9 : 7; // Column index where Total is
+    const totalColLetter = String.fromCharCode(64 + totalColIdx);
+
+    prixSheet.mergeCells(`B${pRow}:${endCol}${pRow}`);
+    const scoreTitle = prixSheet.getCell(`B${pRow}`);
+    scoreTitle.value = "NOTATION PRIX (formules dynamiques)";
+    scoreTitle.font = headerFont();
+    scoreTitle.fill = headerFill();
+    scoreTitle.border = thinBorder();
+    pRow++;
+
+    ["Entreprise", "Montant Total HT", `Note Prix / ${prixWeight}`].forEach((h, i) => {
+      const c = prixSheet.getCell(pRow, i + 2);
+      c.value = h;
+      c.font = { bold: true, size: 9 };
+      c.fill = lightFill(COLORS.lightBlue);
+      c.border = thinBorder();
+      c.alignment = { horizontal: "center" };
+    });
+    pRow++;
+
+    const eligibleCompanies = companies.filter((c) => c.status !== "ecartee");
+    const scoreStartRow = pRow;
+
+    // MIN formula reference — collect total cell refs
+    const totalCellRefs = companyTotalRows.map((r) => `${totalColLetter}${r}`);
+    const minFormula = `MIN(${totalCellRefs.join(",")})`;
+
+    let compIdx = 0;
+    for (const company of eligibleCompanies) {
+      const totalRow = companyTotalRows[compIdx];
+      if (totalRow === undefined) { compIdx++; continue; }
+
+      prixSheet.getCell(pRow, 2).value = `${company.id}. ${company.name}`;
+      prixSheet.getCell(pRow, 2).border = thinBorder();
+
+      // Reference the total from above
+      prixSheet.getCell(pRow, 3).value = { formula: `${totalColLetter}${totalRow}` };
+      prixSheet.getCell(pRow, 3).numFmt = '#,##0.00 "€"';
+      prixSheet.getCell(pRow, 3).border = thinBorder();
+
+      // Note Prix = (MIN / Montant) * Pondération — Excel formula
+      prixSheet.getCell(pRow, 4).value = {
+        formula: `IF(C${pRow}>0,(${minFormula}/C${pRow})*${prixWeight},0)`
+      };
+      prixSheet.getCell(pRow, 4).numFmt = '0.00';
+      prixSheet.getCell(pRow, 4).font = { bold: true };
+      prixSheet.getCell(pRow, 4).border = thinBorder();
+      prixSheet.getCell(pRow, 4).alignment = { horizontal: "center" };
+
+      compIdx++;
+      pRow++;
+    }
+
+    pRow++;
+  }
+
   prixSheet.getColumn("B").width = 30;
-  prixSheet.getColumn("C").width = 18;
-  prixSheet.getColumn("D").width = 18;
-  prixSheet.getColumn("E").width = 18;
-  prixSheet.getColumn("F").width = 18;
-  prixSheet.getColumn("G").width = 12;
-  prixSheet.getColumn("H").width = 18;
-  prixSheet.getColumn("I").width = 12;
+  for (let i = 3; i <= 12; i++) {
+    prixSheet.getColumn(i).width = 18;
+  }
 }
 
 function buildSyntheseSheet(
@@ -494,10 +650,15 @@ function buildSyntheseSheet(
   });
 
   const nonExcludedRows: number[] = [];
+  // Track montant column cells for MIN formula
+  const montantCells: string[] = [];
 
   for (const r of sortedSynth) {
     const isExcluded = r.company.status === "ecartee";
-    if (!isExcluded) nonExcludedRows.push(sRow);
+    if (!isExcluded) {
+      nonExcludedRows.push(sRow);
+      montantCells.push(`C${sRow}`);
+    }
 
     const decisions = version.negotiationDecisions ?? {};
     const decision: NegotiationDecision = decisions[r.company.id] ?? "non_defini";
@@ -514,8 +675,15 @@ function buildSyntheseSheet(
     montantCell.alignment = { horizontal: "center" };
     if (!isExcluded) montantCell.numFmt = '#,##0.00 "€"';
 
+    // Note Prix = (MIN / Montant) * Pondération — Excel formula
     const prixScoreCell = synthSheet.getCell(sRow, 4);
-    prixScoreCell.value = isExcluded ? "—" : Number(r.priceScore.toFixed(1));
+    if (isExcluded) {
+      prixScoreCell.value = "—";
+    } else {
+      const minRef = `MIN(${montantCells.map(() => "").join("")})`; // placeholder, will set after loop
+      // Temporary static value; we'll overwrite with formula after collecting all montant cells
+      prixScoreCell.value = Number(r.priceScore.toFixed(2));
+    }
     prixScoreCell.border = thinBorder();
     prixScoreCell.alignment = { horizontal: "center" };
 
@@ -566,6 +734,21 @@ function buildSyntheseSheet(
     }
 
     sRow++;
+  }
+
+  // Now set Excel formulas for Note Prix using collected montant cells
+  const minFormula = `MIN(${montantCells.join(",")})`;
+  for (const row of nonExcludedRows) {
+    const prixScoreCell = synthSheet.getCell(row, 4);
+    prixScoreCell.value = {
+      formula: `IF(C${row}>0,(${minFormula}/C${row})*${prixWeight},0)`
+    };
+    prixScoreCell.numFmt = '0.00';
+    prixScoreCell.font = { bold: true };
+
+    // Re-apply global formula since D changed
+    synthSheet.getCell(row, 8).value = { formula: `D${row}+E${row}+F${row}+G${row}` };
+    synthSheet.getCell(row, 8).font = { bold: true };
   }
 
   // RANK formulas

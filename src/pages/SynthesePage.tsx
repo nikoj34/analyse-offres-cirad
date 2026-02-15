@@ -70,6 +70,7 @@ const SynthesePage = () => {
   const [attributaireDialogOpen, setAttributaireDialogOpen] = useState(false);
   const [validationComment, setValidationComment] = useState("");
   const [validationDialogOpen, setValidationDialogOpen] = useState(false);
+  const [evictionMotif, setEvictionMotif] = useState("");
 
   const toggleLine = (id: number) => {
     setEnabledLines((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -457,7 +458,7 @@ const SynthesePage = () => {
 
       {/* Validation modal */}
       <Dialog open={validationDialogOpen} onOpenChange={setValidationDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShieldCheck className="h-5 w-5 text-green-600" />
@@ -470,10 +471,78 @@ const SynthesePage = () => {
             </DialogDescription>
           </DialogHeader>
 
+          {/* Attribution pressentie */}
           {attributaireResult && (
-            <div className="rounded-md border border-border bg-muted/30 p-4 text-sm leading-relaxed">
-              <p className="font-semibold mb-1">Attributaire au Rang 1 :</p>
-              <p>{scenarioDescription}</p>
+            <div className="space-y-3">
+              <div className="rounded-md border border-green-300 bg-green-50 p-4 text-sm leading-relaxed">
+                <p className="font-semibold mb-2 text-green-800">🏆 Attribution pressentie</p>
+                <p>{scenarioDescription}</p>
+                <p className="mt-2 text-muted-foreground">
+                  Classée au rang n°1 avec une note globale de {attributaireResult.globalScore.toFixed(1)} / {maxTotal} pts.
+                </p>
+              </div>
+
+              {/* Scenario detail */}
+              <div className="rounded-md border border-border bg-muted/30 p-4 text-sm">
+                <p className="font-semibold mb-1">Détail du scénario retenu :</p>
+                <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
+                  <li>Solution de Base (Tranche Ferme)</li>
+                  {activeLotLines.filter((l) => l.type && enabledLines[l.id]).map((l) => (
+                    <li key={l.id}>{getLineLabel(l)} — {fmt(getLinePrice(attributaireResult.company.id, l.id))}</li>
+                  ))}
+                </ul>
+                <p className="mt-2 font-semibold">
+                  Montant final HT : {fmt(attributaireResult.priceTotal)}
+                </p>
+              </div>
+
+              {/* Variante info if any variante enabled */}
+              {activeLotLines.some((l) => l.type === "VARIANTE" && enabledLines[l.id]) && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">
+                  <p className="font-semibold text-blue-800 mb-1">📋 Variante retenue</p>
+                  <p className="text-blue-700">
+                    Le scénario retenu inclut une variante proposée par le candidat. L'analyse confirme que cette variante
+                    présente un avantage technique et/ou économique par rapport à la solution de base.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Motif d'éviction for excluded companies */}
+          {(() => {
+            const excludedCompanies = activeCompanies.filter((c) => c.status === "ecartee");
+            const nonRetenues = activeCompanies.filter((c) => c.status !== "ecartee" && getNegotiationDecision(c.id) === "non_retenue");
+            if (excludedCompanies.length === 0 && nonRetenues.length === 0) return null;
+            return (
+              <div className="rounded-md border border-orange-200 bg-orange-50 p-4 text-sm">
+                <p className="font-semibold text-orange-800 mb-2">⚠️ Motifs d'éviction / non-attribution</p>
+                {excludedCompanies.map((c) => (
+                  <p key={c.id} className="text-orange-700">
+                    <span className="font-medium">{c.name}</span> — Écartée : {c.exclusionReason || "Motif non précisé"}
+                  </p>
+                ))}
+                {nonRetenues.map((c) => (
+                  <p key={c.id} className="text-orange-700">
+                    <span className="font-medium">{c.name}</span> — Non retenue
+                  </p>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Non-attribution motif */}
+          {nobodyRetained && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-destructive">Motif de non-attribution (obligatoire)</label>
+              <Textarea
+                className="text-sm border-destructive"
+                rows={3}
+                placeholder="Conformément à l'article L2152-4 du Code de la commande publique, le pouvoir adjudicateur déclare sans suite la présente consultation..."
+                value={evictionMotif}
+                onChange={(e) => setEvictionMotif(e.target.value)}
+                maxLength={3000}
+              />
             </div>
           )}
 
@@ -498,7 +567,7 @@ const SynthesePage = () => {
                   setValidationDialogOpen(false);
                 }
               }}
-              disabled={nobodyRetained && !validationComment.trim()}
+              disabled={nobodyRetained && !evictionMotif.trim()}
             >
               Confirmer la validation
             </Button>
