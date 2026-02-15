@@ -64,9 +64,7 @@ const SynthesePage = () => {
     return init;
   });
 
-  const [compareVariantes, setCompareVariantes] = useState(false);
-  const [comparePSE, setComparePSE] = useState(false);
-  const [compareTO, setCompareTO] = useState(false);
+  const [compareLines, setCompareLines] = useState<Record<number, boolean>>({});
   const [attributaireDialogOpen, setAttributaireDialogOpen] = useState(false);
   const [validationComment, setValidationComment] = useState("");
   const [validationDialogOpen, setValidationDialogOpen] = useState(false);
@@ -243,11 +241,9 @@ const SynthesePage = () => {
       hasMissing: boolean;
     }[] = [];
 
-    const optionLines = [
-      ...(comparePSE ? pseLines : []),
-      ...(compareVariantes ? varianteLines : []),
-      ...(compareTO ? toLines : []),
-    ];
+    const optionLines = [...pseLines, ...varianteLines, ...toLines].filter(
+      (l) => !!compareLines[l.id]
+    );
 
     if (optionLines.length === 0) return [];
 
@@ -293,7 +289,7 @@ const SynthesePage = () => {
     // Sort comparison rows by globalScore desc
     rows.sort((a, b) => b.globalScore - a.globalScore);
     return rows;
-  }, [version, comparePSE, compareVariantes, compareTO, pseLines, varianteLines, toLines, activeCompanies, results, prixWeight]);
+  }, [version, compareLines, pseLines, varianteLines, toLines, activeCompanies, results, prixWeight]);
 
   const valueTechWeight = valueTechnique.reduce((s, c) => s + c.weight, 0);
   const envWeight = envCriterion?.weight ?? 0;
@@ -613,7 +609,10 @@ const SynthesePage = () => {
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">PSE</span>
                   {pseLines.map((l) => (
                     <div key={l.id} className="flex items-center gap-2">
-                      <Switch checked={comparePSE} onCheckedChange={setComparePSE} />
+                      <Switch
+                        checked={!!compareLines[l.id]}
+                        onCheckedChange={(v) => setCompareLines((prev) => ({ ...prev, [l.id]: v }))}
+                      />
                       <span className="text-sm">{getLineLabel(l)}</span>
                     </div>
                   ))}
@@ -624,7 +623,10 @@ const SynthesePage = () => {
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Variantes</span>
                   {varianteLines.map((l) => (
                     <div key={l.id} className="flex items-center gap-2">
-                      <Switch checked={compareVariantes} onCheckedChange={setCompareVariantes} />
+                      <Switch
+                        checked={!!compareLines[l.id]}
+                        onCheckedChange={(v) => setCompareLines((prev) => ({ ...prev, [l.id]: v }))}
+                      />
                       <span className="text-sm">{getLineLabel(l)}</span>
                     </div>
                   ))}
@@ -635,7 +637,10 @@ const SynthesePage = () => {
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tranches Optionnelles</span>
                   {toLines.map((l) => (
                     <div key={l.id} className="flex items-center gap-2">
-                      <Switch checked={compareTO} onCheckedChange={setCompareTO} />
+                      <Switch
+                        checked={!!compareLines[l.id]}
+                        onCheckedChange={(v) => setCompareLines((prev) => ({ ...prev, [l.id]: v }))}
+                      />
                       <span className="text-sm">{getLineLabel(l)}</span>
                     </div>
                   ))}
