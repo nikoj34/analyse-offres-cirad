@@ -7,6 +7,7 @@ import { useAnalysisContext } from "@/hooks/useAnalysisContext";
 import { Lock, AlertTriangle } from "lucide-react";
 import { getCompanyColor } from "@/lib/companyColors";
 import { useWeightingValid } from "@/hooks/useWeightingValid";
+import { LotLine } from "@/types/project";
 
 function getDeviationColor(offer: number, estimation: number): string {
   if (estimation === 0) return "";
@@ -24,6 +25,31 @@ function getDeviationBg(offer: number, estimation: number): string {
   return "bg-red-50";
 }
 
+function getAutoLabel(type: string | null, index: number): string {
+  if (!type) return "";
+  switch (type) {
+    case "PSE": return `PSE ${index}`;
+    case "VARIANTE": return `Variante ${index}`;
+    case "T_OPTIONNELLE": return `TO${index}`;
+    default: return "";
+  }
+}
+
+function buildTypeCounters(lotLines: LotLine[]): Record<number, string> {
+  const counters: Record<string, number> = {};
+  const result: Record<number, string> = {};
+  for (const line of lotLines) {
+    if (line.type) {
+      counters[line.type] = (counters[line.type] ?? 0) + 1;
+      result[line.id] = getAutoLabel(line.type, counters[line.type]);
+    }
+  }
+  return result;
+}
+
+const fmt = (n: number) =>
+  new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
+
 const PrixPage = () => {
   const { project, setPriceEntry, getPriceEntry } = useProjectStore();
   const { activeCompanies, version, isReadOnly, isNego, negoLabel } = useAnalysisContext();
@@ -33,9 +59,10 @@ const PrixPage = () => {
   const activeLotLines = lotLines.filter((l) => l.label.trim() !== "");
   const prixCriterion = weightingCriteria.find((c) => c.id === "prix");
   const prixWeight = prixCriterion?.weight ?? 40;
+  const hasDualDpgf = (project.info.estimationDpgf1 != null && project.info.estimationDpgf1 !== 0) &&
+                       (project.info.estimationDpgf2 != null && project.info.estimationDpgf2 !== 0);
 
-  const fmt = (n: number) =>
-    new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
+  const typeCounters = useMemo(() => buildTypeCounters(lotLines), [lotLines]);
 
   const companyTotals = useMemo(() => {
     if (!version) return {};
@@ -124,6 +151,42 @@ const PrixPage = () => {
     );
   }
 
+  const renderDeviationCell = (offer: number | null, estimation: number) => {
+    const o = offer ?? 0;
+    if (Math.abs(estimation) === 0 || o === 0) return <span className="text-muted-foreground">—</span>;
+    const pct = ((o - estimation) / Math.abs(estimation)) * 100;
+    const color = getDeviationColor(o, estimation);
+    return <span className={`font-medium ${color}`}>{pct.toFixed(0)}%</span>;
+  };
+
+  const renderPriceWithEstimation = (
+    value: number | null,
+    estimation: number | null,
+    disabled: boolean,
+    onChange: (val: number | null) => void
+  ) => {
+    const est = estimation ?? 0;
+    const val = value ?? 0;
+    const devBg = est !== 0 && val !== 0 ? getDeviationBg(val, est) : "";
+    return (
+      <div className={`space-y-0.5 rounded px-1 ${devBg}`}>
+        <Input
+          type="number"
+          className="text-right text-sm"
+          value={value ?? ""}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
+          placeholder="0"
+        />
+        {est !== 0 && (
+          <div className="text-right text-[10px] text-muted-foreground">
+            Est. : {fmt(est)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -177,62 +240,42 @@ const PrixPage = () => {
           {company.status !== "ecartee" && (
             <CardContent>
               <div className="space-y-3">
-                <div className="grid grid-cols-[1fr_120px_120px_120px_120px] gap-2 text-xs font-medium text-muted-foreground px-1">
+                <div className="grid grid-cols-[1fr_160px_80px_160px_80px] gap-2 text-xs font-medium text-muted-foreground px-1">
                   <span>Ligne</span>
-                  <span className="text-right">Estimation (€ HT)</span>
                   <span className="text-right">DPGF 1 (€ HT)</span>
+                  <span className="text-right">Écart</span>
                   <span className="text-right">DPGF 2 (€ HT)</span>
                   <span className="text-right">Écart</span>
                 </div>
                 {/* Base DPGF row */}
                 {(() => {
                   const dpgfEntry = getPriceEntry(company.id, 0);
-                  const estTotal = (project.info.estimationDpgf1 ?? 0) + (project.info.estimationDpgf2 ?? 0);
-                  const offerTotal = (dpgfEntry?.dpgf1 ?? 0) + (dpgfEntry?.dpgf2 ?? 0);
-                  const devColor = estTotal > 0 && offerTotal > 0 ? getDeviationColor(offerTotal, estTotal) : "";
-                  const devBg = estTotal > 0 && offerTotal > 0 ? getDeviationBg(offerTotal, estTotal) : "";
+                  const est1 = project.info.estimationDpgf1 ?? 0;
+                  const est2 = project.info.estimationDpgf2 ?? 0;
                   return (
-                    <div className={`grid grid-cols-[1fr_120px_120px_120px_120px] gap-2 items-center rounded-md border-2 border-primary/30 bg-primary/5 p-2 ${devBg}`}>
-                      <div className="text-sm">
-                        <span className="font-semibold">DPGF (Tranche Ferme)</span>
+                    <div className="grid grid-cols-[1fr_160px_80px_160px_80px] gap-2 items-center rounded-md border-2 border-primary/30 bg-primary/5 p-2">
+                      <div className="text-sm font-semibold">DPGF (Tranche Ferme)</div>
+                      <div>
+                        {renderPriceWithEstimation(
+                          dpgfEntry?.dpgf1 ?? null,
+                          est1 || null,
+                          isReadOnly,
+                          (val) => setPriceEntry(company.id, 0, val, dpgfEntry?.dpgf2 ?? null)
+                        )}
                       </div>
-                      <div className="text-right text-sm text-muted-foreground font-medium">
-                        {estTotal > 0 ? fmt(estTotal) : "—"}
+                      <div className="text-right text-xs">
+                        {renderDeviationCell(dpgfEntry?.dpgf1, est1)}
                       </div>
-                      <Input
-                        type="number"
-                        className="text-right text-sm"
-                        value={dpgfEntry?.dpgf1 ?? ""}
-                        disabled={isReadOnly}
-                        onChange={(e) =>
-                          setPriceEntry(
-                            company.id,
-                            0,
-                            e.target.value ? Number(e.target.value) : null,
-                            dpgfEntry?.dpgf2 ?? null
-                          )
-                        }
-                        placeholder="0"
-                      />
-                      <Input
-                        type="number"
-                        className="text-right text-sm"
-                        value={dpgfEntry?.dpgf2 ?? ""}
-                        disabled={isReadOnly}
-                        onChange={(e) =>
-                          setPriceEntry(
-                            company.id,
-                            0,
-                            dpgfEntry?.dpgf1 ?? null,
-                            e.target.value ? Number(e.target.value) : null
-                          )
-                        }
-                        placeholder="0"
-                      />
-                      <div className={`text-right text-xs font-medium ${devColor}`}>
-                        {estTotal > 0 && offerTotal > 0
-                          ? `${(((offerTotal - estTotal) / Math.abs(estTotal)) * 100).toFixed(0)}%`
-                          : "—"}
+                      <div>
+                        {renderPriceWithEstimation(
+                          dpgfEntry?.dpgf2 ?? null,
+                          est2 || null,
+                          isReadOnly,
+                          (val) => setPriceEntry(company.id, 0, dpgfEntry?.dpgf1 ?? null, val)
+                        )}
+                      </div>
+                      <div className="text-right text-xs">
+                        {renderDeviationCell(dpgfEntry?.dpgf2, est2)}
                       </div>
                     </div>
                   );
@@ -241,77 +284,62 @@ const PrixPage = () => {
                   const entry = getPriceEntry(company.id, line.id);
                   const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
                   const showDpgf2 = line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both";
-                  const estLine = (line.estimationDpgf1 ?? 0) + (line.estimationDpgf2 ?? 0);
-                  const offerLine = (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
-                  const devColor = Math.abs(estLine) > 0 && offerLine !== 0 ? getDeviationColor(offerLine, estLine) : "";
-                  const devBg = Math.abs(estLine) > 0 && offerLine !== 0 ? getDeviationBg(offerLine, estLine) : "";
+                  const autoNum = typeCounters[line.id];
                   return (
                     <div
                       key={line.id}
-                      className={`grid grid-cols-[1fr_120px_120px_120px_120px] gap-2 items-center rounded-md border border-border p-2 ${devBg}`}
+                      className="grid grid-cols-[1fr_160px_80px_160px_80px] gap-2 items-center rounded-md border border-border p-2"
                     >
                       <div className="text-sm">
                         <span className="font-medium">{line.label}</span>
-                        {line.type && (
+                        {autoNum && (
                           <Badge variant="outline" className="ml-2 text-xs">
-                            {line.type === "PSE" ? "PSE" : line.type === "VARIANTE" ? "Variante" : "TO"}
+                            {autoNum}
                           </Badge>
                         )}
                       </div>
-                      <div className={`text-right text-sm font-medium ${estLine < 0 ? "text-muted-foreground/60" : "text-muted-foreground"}`}>
-                        {estLine !== 0 ? fmt(estLine) : "—"}
-                      </div>
                       {showDpgf1 ? (
-                        <Input
-                          type="number"
-                          className="text-right text-sm"
-                          value={entry?.dpgf1 ?? ""}
-                          disabled={isReadOnly}
-                          onChange={(e) =>
-                            setPriceEntry(
-                              company.id,
-                              line.id,
-                              e.target.value ? Number(e.target.value) : null,
-                              entry?.dpgf2 ?? null
-                            )
-                          }
-                          placeholder="0"
-                        />
+                        <div>
+                          {renderPriceWithEstimation(
+                            entry?.dpgf1 ?? null,
+                            line.estimationDpgf1,
+                            isReadOnly,
+                            (val) => setPriceEntry(company.id, line.id, val, entry?.dpgf2 ?? null)
+                          )}
+                        </div>
                       ) : (
                         <span className="text-center text-xs text-muted-foreground">—</span>
                       )}
+                      <div className="text-right text-xs">
+                        {showDpgf1
+                          ? renderDeviationCell(entry?.dpgf1, line.estimationDpgf1 ?? 0)
+                          : <span className="text-muted-foreground">—</span>}
+                      </div>
                       {showDpgf2 ? (
-                        <Input
-                          type="number"
-                          className="text-right text-sm"
-                          value={entry?.dpgf2 ?? ""}
-                          disabled={isReadOnly}
-                          onChange={(e) =>
-                            setPriceEntry(
-                              company.id,
-                              line.id,
-                              entry?.dpgf1 ?? null,
-                              e.target.value ? Number(e.target.value) : null
-                            )
-                          }
-                          placeholder="0"
-                        />
+                        <div>
+                          {renderPriceWithEstimation(
+                            entry?.dpgf2 ?? null,
+                            line.estimationDpgf2,
+                            isReadOnly,
+                            (val) => setPriceEntry(company.id, line.id, entry?.dpgf1 ?? null, val)
+                          )}
+                        </div>
                       ) : (
                         <span className="text-center text-xs text-muted-foreground">—</span>
                       )}
-                      <div className={`text-right text-xs font-medium ${devColor}`}>
-                        {Math.abs(estLine) > 0 && offerLine !== 0
-                          ? `${(((offerLine - estLine) / Math.abs(estLine)) * 100).toFixed(0)}%`
-                          : "—"}
+                      <div className="text-right text-xs">
+                        {showDpgf2
+                          ? renderDeviationCell(entry?.dpgf2, line.estimationDpgf2 ?? 0)
+                          : <span className="text-muted-foreground">—</span>}
                       </div>
                     </div>
                   );
                 })}
                 {companyTotals[company.id] && (
-                  <div className="grid grid-cols-[1fr_120px_120px_120px_120px] gap-2 rounded-md bg-muted/50 p-2 text-sm font-semibold">
+                  <div className="grid grid-cols-[1fr_160px_80px_160px_80px] gap-2 rounded-md bg-muted/50 p-2 text-sm font-semibold">
                     <span>Total</span>
-                    <span></span>
                     <span className="text-right">{fmt(companyTotals[company.id].dpgf1)}</span>
+                    <span></span>
                     <span className="text-right">{fmt(companyTotals[company.id].dpgf2)}</span>
                     <span></span>
                   </div>

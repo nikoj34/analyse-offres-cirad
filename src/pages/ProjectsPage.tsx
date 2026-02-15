@@ -2,8 +2,9 @@ import { useMultiProjectStore } from "@/store/multiProjectStore";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, FolderOpen, Trash2, Download, Upload } from "lucide-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -25,7 +26,6 @@ function getProjectStatus(project: any): { label: string; color: string; detail:
   for (const v of versions) {
     if (v.validated && Object.values(v.negotiationDecisions ?? {}).some((d: string) => d === "attributaire")) {
       const date = v.validatedAt ? new Date(v.validatedAt).toLocaleDateString("fr-FR") : "";
-      // Find attributaire company name
       const attributaireId = Object.entries(v.negotiationDecisions ?? {}).find(([, d]) => d === "attributaire")?.[0];
       const companies = project.companies ?? [];
       const attributaireName = attributaireId
@@ -52,17 +52,39 @@ const ProjectsPage = () => {
   const projects = getProjectList();
   const { projects: allProjects } = useMultiProjectStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const handleExportAll = () => {
-    const data = JSON.stringify(allProjects, null, 2);
-    const blob = new Blob([data], { type: "application/json" });
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selectedIds.size === projects.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(projects.map((p) => p.id)));
+    }
+  };
+
+  const handleExportSelected = () => {
+    const idsToExport = selectedIds.size > 0 ? selectedIds : new Set(projects.map((p) => p.id));
+    const data: Record<string, any> = {};
+    for (const id of idsToExport) {
+      if (allProjects[id]) data[id] = allProjects[id];
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `cirad-analyses-${new Date().toISOString().split("T")[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("Export réussi !");
+    toast.success(`${Object.keys(data).length} analyse(s) exportée(s) !`);
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -73,10 +95,36 @@ const ProjectsPage = () => {
       try {
         const imported = JSON.parse(ev.target?.result as string);
         const store = useMultiProjectStore.getState();
+        const existingNames = new Set(
+          Object.values(store.projects).map((p: any) => p.info?.name?.toLowerCase() ?? "")
+        );
         let count = 0;
-        for (const [id, project] of Object.entries(imported)) {
-          if ((project as any)?.info && (project as any)?.versions) {
-            store.saveCurrentProject(project as any);
+        for (const [, project] of Object.entries(imported)) {
+          const p = project as any;
+          if (p?.info && p?.versions) {
+            // Generate new UUID to avoid overwrite
+            const newId = crypto.randomUUID();
+            const cloned = JSON.parse(JSON.stringify(p));
+            cloned.id = newId;
+
+            // Anti-overwrite: rename if name conflict
+            const originalName = cloned.info.name ?? "";
+            if (existingNames.has(originalName.toLowerCase())) {
+              const dateSuffix = new Date().toLocaleDateString("fr-FR");
+              cloned.info.name = `${originalName} (Importé le ${dateSuffix})`;
+            }
+            existingNames.add(cloned.info.name.toLowerCase());
+
+            // Regenerate version UUIDs
+            for (const v of cloned.versions ?? []) {
+              const oldVid = v.id;
+              v.id = crypto.randomUUID();
+              if (cloned.currentVersionId === oldVid) {
+                cloned.currentVersionId = v.id;
+              }
+            }
+
+            store.saveCurrentProject(cloned);
             count++;
           }
         }
@@ -117,9 +165,9 @@ const ProjectsPage = () => {
               Importer
             </Button>
             {projects.length > 0 && (
-              <Button variant="outline" size="sm" onClick={handleExportAll} className="gap-2">
+              <Button variant="outline" size="sm" onClick={handleExportSelected} className="gap-2">
                 <Download className="h-4 w-4" />
-                Exporter tout
+                {selectedIds.size > 0 ? `Exporter (${selectedIds.size})` : "Exporter tout"}
               </Button>
             )}
             <Button onClick={() => createProject()} className="gap-2">
@@ -141,68 +189,84 @@ const ProjectsPage = () => {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-3">
-            {projects.map((p) => {
-              const fullProject = allProjects[p.id];
-              const status = fullProject ? getProjectStatus(fullProject) : { label: "En cours", color: "bg-blue-500", detail: "" };
-              return (
-                <Card
-                  key={p.id}
-                  className="cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
-                  onClick={() => openProject(p.id)}
-                >
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <CardTitle className="text-base">{p.name}</CardTitle>
-                        <Badge className={`${status.color} text-white`}>
-                          {status.label}
-                        </Badge>
-                        {status.detail && (
-                          <span className="text-xs text-muted-foreground">{status.detail}</span>
-                        )}
-                        {status.attributaire && (
-                          <Badge variant="outline" className="border-green-600 text-green-700">
-                            Attributaire : {status.attributaire}
-                          </Badge>
-                        )}
-                      </div>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+          <div className="space-y-2">
+            {projects.length > 1 && (
+              <div className="flex items-center gap-2 px-1">
+                <Checkbox
+                  checked={selectedIds.size === projects.length}
+                  onCheckedChange={toggleAll}
+                />
+                <span className="text-xs text-muted-foreground">Tout sélectionner</span>
+              </div>
+            )}
+            <div className="grid gap-3">
+              {projects.map((p) => {
+                const fullProject = allProjects[p.id];
+                const status = fullProject ? getProjectStatus(fullProject) : { label: "En cours", color: "bg-blue-500", detail: "" };
+                return (
+                  <Card
+                    key={p.id}
+                    className="cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
+                    onClick={() => openProject(p.id)}
+                  >
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <Checkbox
+                            checked={selectedIds.has(p.id)}
+                            onCheckedChange={() => toggleSelection(p.id)}
                             onClick={(e) => e.stopPropagation()}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Supprimer cette analyse ?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              L'analyse « {p.name} » sera définitivement supprimée. Cette action est irréversible.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Annuler</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => deleteProject(p.id)}>
-                              Supprimer
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                    <CardDescription>
-                      {p.marketRef && `Réf. ${p.marketRef} — `}
-                      {p.lotAnalyzed && `${p.lotAnalyzed} — `}
-                      Mis à jour le {new Date(p.updatedAt).toLocaleDateString("fr-FR")}
-                    </CardDescription>
-                  </CardHeader>
-                </Card>
-              );
-            })}
+                          />
+                          <CardTitle className="text-base">{p.name}</CardTitle>
+                          <Badge className={`${status.color} text-white`}>
+                            {status.label}
+                          </Badge>
+                          {status.detail && (
+                            <span className="text-xs text-muted-foreground">{status.detail}</span>
+                          )}
+                          {status.attributaire && (
+                            <Badge variant="outline" className="border-green-600 text-green-700">
+                              Attributaire : {status.attributaire}
+                            </Badge>
+                          )}
+                        </div>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Supprimer cette analyse ?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                L'analyse « {p.name} » sera définitivement supprimée. Cette action est irréversible.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Annuler</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => deleteProject(p.id)}>
+                                Supprimer
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                      <CardDescription>
+                        {p.marketRef && `Réf. ${p.marketRef} — `}
+                        {p.lotAnalyzed && `${p.lotAnalyzed} — `}
+                        Mis à jour le {new Date(p.updatedAt).toLocaleDateString("fr-FR")}
+                      </CardDescription>
+                    </CardHeader>
+                  </Card>
+                );
+              })}
+            </div>
           </div>
         )}
       </main>
