@@ -280,7 +280,7 @@ function buildPrixSheet(
       // Est. DPGF 1 — grayed out
       const est1Cell = prixSheet.getCell(pRow, col);
       est1Cell.value = est1 || "";
-      est1Cell.numFmt = '#,##0 "€"';
+      est1Cell.numFmt = '#,##0.00 "€"';
       est1Cell.border = thinBorder();
       est1Cell.font = { italic: true, color: { argb: "808080" } };
       est1Cell.fill = lightFill("F0F0F0");
@@ -317,7 +317,7 @@ function buildPrixSheet(
         // Est. DPGF 2 — grayed out
         const est2Cell = prixSheet.getCell(pRow, col);
         est2Cell.value = est2 || "";
-        est2Cell.numFmt = '#,##0 "€"';
+        est2Cell.numFmt = '#,##0.00 "€"';
         est2Cell.border = thinBorder();
         est2Cell.font = { italic: true, color: { argb: "808080" } };
         est2Cell.fill = lightFill("F0F0F0");
@@ -387,7 +387,7 @@ function buildPrixSheet(
     // Est DPGF1 SUM
     const estD1Col = String.fromCharCode(64 + col);
     prixSheet.getCell(pRow, col).value = { formula: `SUM(${estD1Col}${dataStartRow}:${estD1Col}${pRow - 1})` };
-    prixSheet.getCell(pRow, col).numFmt = '#,##0 "€"';
+    prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
     prixSheet.getCell(pRow, col).font = { bold: true, italic: true, color: { argb: "808080" } };
     prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
     prixSheet.getCell(pRow, col).border = thinBorder();
@@ -412,7 +412,7 @@ function buildPrixSheet(
       // Est DPGF2 SUM
       const estD2Col = String.fromCharCode(64 + col);
       prixSheet.getCell(pRow, col).value = { formula: `SUM(${estD2Col}${dataStartRow}:${estD2Col}${pRow - 1})` };
-      prixSheet.getCell(pRow, col).numFmt = '#,##0 "€"';
+      prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
       prixSheet.getCell(pRow, col).font = { bold: true, italic: true, color: { argb: "808080" } };
       prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
       prixSheet.getCell(pRow, col).border = thinBorder();
@@ -1009,7 +1009,7 @@ export async function exportToExcel(project: ProjectData) {
     pgSheet.mergeCells(`C${row}:F${row}`);
     const vc = pgSheet.getCell(`C${row}`);
     vc.value = typeof value === "number" ? value : 0;
-    vc.numFmt = '#,##0 "€"';
+    vc.numFmt = '#,##0.00 "€"';
     vc.border = thinBorder();
     row++;
   }
@@ -1067,9 +1067,9 @@ export async function exportToExcel(project: ProjectData) {
     pgSheet.getCell(`D${row}`).value = line.label;
     pgSheet.getCell(`E${row}`).value = line.dpgfAssignment;
     pgSheet.getCell(`F${row}`).value = line.estimationDpgf1 ?? 0;
-    pgSheet.getCell(`F${row}`).numFmt = '#,##0 "€"';
+    pgSheet.getCell(`F${row}`).numFmt = '#,##0.00 "€"';
     pgSheet.getCell(`G${row}`).value = line.estimationDpgf2 ?? 0;
-    pgSheet.getCell(`G${row}`).numFmt = '#,##0 "€"';
+    pgSheet.getCell(`G${row}`).numFmt = '#,##0.00 "€"';
     ["B", "C", "D", "E", "F", "G"].forEach((col) => {
       pgSheet.getCell(`${col}${row}`).border = thinBorder();
     });

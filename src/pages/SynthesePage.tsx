@@ -301,7 +301,7 @@ const SynthesePage = () => {
   const maxTotal = valueTechWeight + envWeight + planWeight + prixWeight;
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
+    new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
   const pageTitle = isNego ? `Synthèse — ${negoLabel}` : `Synthèse & Classement — ${displayLabel}`;
 
@@ -594,17 +594,16 @@ const SynthesePage = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Scenario configuration */}
+      {/* === PHASE 1: Comparaison visuelle === */}
       {hasScenarioOptions && (
-        <Card>
+        <Card className="border-blue-200">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
+            <CardTitle className="text-sm flex items-center gap-2 text-blue-800">
               <Settings2 className="h-4 w-4" />
-              Configuration du scénario d'analyse
+              Phase 1 — Comparaison visuelle
             </CardTitle>
             <CardDescription className="text-xs">
-              Activez/désactivez les options pour recalculer les montants et le classement en temps réel.
-              Total = Base + Σ(Options actives).
+              Comparez l'impact de chaque option sur le classement. Ces lignes apparaissent en bas du tableau à titre indicatif uniquement.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -614,14 +613,10 @@ const SynthesePage = () => {
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">PSE</span>
                   {pseLines.map((l) => (
                     <div key={l.id} className="flex items-center gap-2">
-                      <Switch checked={!!enabledLines[l.id]} onCheckedChange={() => toggleLine(l.id)} />
+                      <Switch checked={comparePSE} onCheckedChange={setComparePSE} />
                       <span className="text-sm">{getLineLabel(l)}</span>
                     </div>
                   ))}
-                  <div className="flex items-center gap-2 pt-1 border-t border-border">
-                    <Switch checked={comparePSE} onCheckedChange={setComparePSE} />
-                    <span className="text-sm italic">Comparer avec PSE</span>
-                  </div>
                 </div>
               )}
               {hasVariante && (
@@ -629,14 +624,10 @@ const SynthesePage = () => {
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Variantes</span>
                   {varianteLines.map((l) => (
                     <div key={l.id} className="flex items-center gap-2">
-                      <Switch checked={!!enabledLines[l.id]} onCheckedChange={() => toggleLine(l.id)} />
+                      <Switch checked={compareVariantes} onCheckedChange={setCompareVariantes} />
                       <span className="text-sm">{getLineLabel(l)}</span>
                     </div>
                   ))}
-                  <div className="flex items-center gap-2 pt-1 border-t border-border">
-                    <Switch checked={compareVariantes} onCheckedChange={setCompareVariantes} />
-                    <span className="text-sm italic">Comparer avec Variante</span>
-                  </div>
                 </div>
               )}
               {hasTO && (
@@ -644,16 +635,76 @@ const SynthesePage = () => {
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tranches Optionnelles</span>
                   {toLines.map((l) => (
                     <div key={l.id} className="flex items-center gap-2">
-                      <Switch checked={!!enabledLines[l.id]} onCheckedChange={() => toggleLine(l.id)} />
+                      <Switch checked={compareTO} onCheckedChange={setCompareTO} />
                       <span className="text-sm">{getLineLabel(l)}</span>
                     </div>
                   ))}
-                  <div className="flex items-center gap-2 pt-1 border-t border-border">
-                    <Switch checked={compareTO} onCheckedChange={setCompareTO} />
-                    <span className="text-sm italic">Comparer avec TO</span>
-                  </div>
                 </div>
               )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* === PHASE 2: Scénario d'attribution retenu === */}
+      {hasScenarioOptions && (
+        <Card className="border-green-200">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2 text-green-800">
+              <Award className="h-4 w-4" />
+              Phase 2 — Scénario d'attribution retenu
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Décidez quelles options sont retenues pour l'attribution. Le classement officiel et le montant global sont recalculés en temps réel.
+              <span className="block mt-1 font-semibold">Total = Base + Σ(Options retenues)</span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {[...pseLines, ...varianteLines, ...toLines].map((l) => {
+                const enabled = !!enabledLines[l.id];
+                return (
+                  <div
+                    key={l.id}
+                    className={`flex items-center justify-between rounded-lg border p-3 transition-colors ${
+                      enabled
+                        ? "border-green-300 bg-green-50"
+                        : "border-border bg-background"
+                    }`}
+                  >
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium">{getLineLabel(l)}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {l.type === "PSE" ? "Plus-value" : l.type === "VARIANTE" ? "Variante" : "Tranche optionnelle"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        variant={enabled ? "default" : "outline"}
+                        className={`cursor-pointer select-none text-xs px-3 py-1 ${
+                          enabled
+                            ? "bg-green-600 hover:bg-green-700"
+                            : "hover:bg-muted"
+                        }`}
+                        onClick={() => !isReadOnly && !isValidated && toggleLine(l.id)}
+                      >
+                        {enabled ? "OUI" : "NON"}
+                      </Badge>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Résumé du scénario */}
+            <div className="mt-4 rounded-md border border-border bg-muted/30 p-3 text-sm">
+              <span className="font-semibold">Scénario actuel : </span>
+              <span className="text-muted-foreground">
+                Solution de Base
+                {[...pseLines, ...varianteLines, ...toLines]
+                  .filter((l) => enabledLines[l.id])
+                  .map((l) => ` + ${getLineLabel(l)}`)
+                  .join("")}
+              </span>
             </div>
           </CardContent>
         </Card>
