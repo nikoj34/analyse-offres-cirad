@@ -6,6 +6,7 @@ import { useMemo } from "react";
 export function EstimationForm() {
   const { project, updateInfo } = useProjectStore();
   const { info, lotLines } = project;
+  const hasDualDpgf = info.hasDualDpgf ?? false;
 
   const computed = useMemo(() => {
     const lotEstimations = lotLines.filter((l) => l.label.trim() !== "");
@@ -48,7 +49,7 @@ export function EstimationForm() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className={`grid grid-cols-1 gap-4 ${hasDualDpgf ? "sm:grid-cols-2" : "sm:grid-cols-1"}`}>
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-foreground">
               Estimation DPGF 1 (€ HT)
@@ -64,21 +65,23 @@ export function EstimationForm() {
               placeholder="0"
             />
           </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-foreground">
-              Estimation DPGF 2 (€ HT)
-            </label>
-            <Input
-              type="number"
-              value={info.estimationDpgf2 ?? ""}
-              onChange={(e) =>
-                updateInfo({
-                  estimationDpgf2: e.target.value ? Number(e.target.value) : null,
-                })
-              }
-              placeholder="0"
-            />
-          </div>
+          {hasDualDpgf && (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground">
+                Estimation DPGF 2 (€ HT)
+              </label>
+              <Input
+                type="number"
+                value={info.estimationDpgf2 ?? ""}
+                onChange={(e) =>
+                  updateInfo({
+                    estimationDpgf2: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
+                placeholder="0"
+              />
+            </div>
+          )}
         </div>
 
         <div className="rounded-md border border-border bg-muted/50 p-4">

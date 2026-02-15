@@ -422,7 +422,7 @@ export const useProjectStore = create<ProjectStore>()(
     }),
     {
       name: "procure-analyze-project",
-      version: 3,
+      version: 4,
       migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as any;
         if (state?.project) {
@@ -450,6 +450,12 @@ export const useProjectStore = create<ProjectStore>()(
               validated: v.validated ?? false,
               validatedAt: v.validatedAt ?? null,
             }));
+          }
+          // Migration to v4: add hasDualDpgf
+          if (state.project.info && state.project.info.hasDualDpgf === undefined) {
+            // Auto-detect based on existing data
+            const hasEst2 = (state.project.info.estimationDpgf2 ?? 0) !== 0;
+            state.project.info.hasDualDpgf = hasEst2;
           }
         }
         return state;

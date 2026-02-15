@@ -1,6 +1,7 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useProjectStore } from "@/store/projectStore";
 
 export function ProjectInfoForm() {
@@ -67,6 +68,19 @@ export function ProjectInfoForm() {
               onChange={(e) => updateInfo({ author: e.target.value })}
               placeholder="Ex : Jean Dupont"
             />
+          </div>
+          <div className="col-span-full flex items-center gap-3 rounded-md border border-border p-3 bg-muted/30">
+            <Checkbox
+              id="dual-dpgf"
+              checked={info.hasDualDpgf ?? false}
+              onCheckedChange={(checked) => updateInfo({ hasDualDpgf: !!checked })}
+            />
+            <div>
+              <Label htmlFor="dual-dpgf" className="cursor-pointer font-medium">Projet à 2 DPGF</Label>
+              <p className="text-xs text-muted-foreground">
+                Active la saisie d'un second DPGF (DPGF 2) pour les estimations et les prix.
+              </p>
+            </div>
           </div>
         </div>
       </CardContent>

@@ -59,8 +59,7 @@ const PrixPage = () => {
   const activeLotLines = lotLines.filter((l) => l.label.trim() !== "");
   const prixCriterion = weightingCriteria.find((c) => c.id === "prix");
   const prixWeight = prixCriterion?.weight ?? 40;
-  const hasDualDpgf = (project.info.estimationDpgf1 != null && project.info.estimationDpgf1 !== 0) &&
-                       (project.info.estimationDpgf2 != null && project.info.estimationDpgf2 !== 0);
+  const hasDualDpgf = project.info.hasDualDpgf ?? false;
 
   const typeCounters = useMemo(() => buildTypeCounters(lotLines), [lotLines]);
 
@@ -156,7 +155,7 @@ const PrixPage = () => {
     if (Math.abs(estimation) === 0 || o === 0) return <span className="text-muted-foreground">—</span>;
     const pct = ((o - estimation) / Math.abs(estimation)) * 100;
     const color = getDeviationColor(o, estimation);
-    return <span className={`font-medium ${color}`}>{pct.toFixed(0)}%</span>;
+    return <span className={`font-medium ${color}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(2)}%</span>;
   };
 
   const renderPriceWithEstimation = (
@@ -240,12 +239,12 @@ const PrixPage = () => {
           {company.status !== "ecartee" && (
             <CardContent>
               <div className="space-y-3">
-                <div className="grid grid-cols-[1fr_160px_80px_160px_80px] gap-2 text-xs font-medium text-muted-foreground px-1">
+                <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 text-xs font-medium text-muted-foreground px-1`}>
                   <span>Ligne</span>
                   <span className="text-right">DPGF 1 (€ HT)</span>
                   <span className="text-right">Écart</span>
-                  <span className="text-right">DPGF 2 (€ HT)</span>
-                  <span className="text-right">Écart</span>
+                  {hasDualDpgf && <span className="text-right">DPGF 2 (€ HT)</span>}
+                  {hasDualDpgf && <span className="text-right">Écart</span>}
                 </div>
                 {/* Base DPGF row */}
                 {(() => {
@@ -253,7 +252,7 @@ const PrixPage = () => {
                   const est1 = project.info.estimationDpgf1 ?? 0;
                   const est2 = project.info.estimationDpgf2 ?? 0;
                   return (
-                    <div className="grid grid-cols-[1fr_160px_80px_160px_80px] gap-2 items-center rounded-md border-2 border-primary/30 bg-primary/5 p-2">
+                    <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 items-center rounded-md border-2 border-primary/30 bg-primary/5 p-2`}>
                       <div className="text-sm font-semibold">DPGF (Tranche Ferme)</div>
                       <div>
                         {renderPriceWithEstimation(
@@ -266,29 +265,33 @@ const PrixPage = () => {
                       <div className="text-right text-xs">
                         {renderDeviationCell(dpgfEntry?.dpgf1, est1)}
                       </div>
-                      <div>
-                        {renderPriceWithEstimation(
-                          dpgfEntry?.dpgf2 ?? null,
-                          est2 || null,
-                          isReadOnly,
-                          (val) => setPriceEntry(company.id, 0, dpgfEntry?.dpgf1 ?? null, val)
-                        )}
-                      </div>
-                      <div className="text-right text-xs">
-                        {renderDeviationCell(dpgfEntry?.dpgf2, est2)}
-                      </div>
+                      {hasDualDpgf && (
+                        <div>
+                          {renderPriceWithEstimation(
+                            dpgfEntry?.dpgf2 ?? null,
+                            est2 || null,
+                            isReadOnly,
+                            (val) => setPriceEntry(company.id, 0, dpgfEntry?.dpgf1 ?? null, val)
+                          )}
+                        </div>
+                      )}
+                      {hasDualDpgf && (
+                        <div className="text-right text-xs">
+                          {renderDeviationCell(dpgfEntry?.dpgf2, est2)}
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
                 {activeLotLines.map((line) => {
                   const entry = getPriceEntry(company.id, line.id);
                   const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
-                  const showDpgf2 = line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both";
+                  const showDpgf2 = hasDualDpgf && (line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both");
                   const autoNum = typeCounters[line.id];
                   return (
                     <div
                       key={line.id}
-                      className="grid grid-cols-[1fr_160px_80px_160px_80px] gap-2 items-center rounded-md border border-border p-2"
+                      className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 items-center rounded-md border border-border p-2`}
                     >
                       <div className="text-sm">
                         <span className="font-medium">{line.label}</span>
@@ -315,7 +318,7 @@ const PrixPage = () => {
                           ? renderDeviationCell(entry?.dpgf1, line.estimationDpgf1 ?? 0)
                           : <span className="text-muted-foreground">—</span>}
                       </div>
-                      {showDpgf2 ? (
+                      {hasDualDpgf && (showDpgf2 ? (
                         <div>
                           {renderPriceWithEstimation(
                             entry?.dpgf2 ?? null,
@@ -326,22 +329,24 @@ const PrixPage = () => {
                         </div>
                       ) : (
                         <span className="text-center text-xs text-muted-foreground">—</span>
+                      ))}
+                      {hasDualDpgf && (
+                        <div className="text-right text-xs">
+                          {showDpgf2
+                            ? renderDeviationCell(entry?.dpgf2, line.estimationDpgf2 ?? 0)
+                            : <span className="text-muted-foreground">—</span>}
+                        </div>
                       )}
-                      <div className="text-right text-xs">
-                        {showDpgf2
-                          ? renderDeviationCell(entry?.dpgf2, line.estimationDpgf2 ?? 0)
-                          : <span className="text-muted-foreground">—</span>}
-                      </div>
                     </div>
                   );
                 })}
                 {companyTotals[company.id] && (
-                  <div className="grid grid-cols-[1fr_160px_80px_160px_80px] gap-2 rounded-md bg-muted/50 p-2 text-sm font-semibold">
+                  <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 rounded-md bg-muted/50 p-2 text-sm font-semibold`}>
                     <span>Total</span>
                     <span className="text-right">{fmt(companyTotals[company.id].dpgf1)}</span>
                     <span></span>
-                    <span className="text-right">{fmt(companyTotals[company.id].dpgf2)}</span>
-                    <span></span>
+                    {hasDualDpgf && <span className="text-right">{fmt(companyTotals[company.id].dpgf2)}</span>}
+                    {hasDualDpgf && <span></span>}
                   </div>
                 )}
               </div>
