@@ -44,6 +44,11 @@ function ProjectSync() {
 const App = () => {
   const { currentProjectId } = useMultiProjectStore();
 
+  // Always start on projects page on app load/refresh
+  useEffect(() => {
+    useMultiProjectStore.getState().closeProject();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>

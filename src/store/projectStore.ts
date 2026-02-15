@@ -43,6 +43,9 @@ interface ProjectStore {
   setNegotiationDecision: (companyId: number, decision: NegotiationDecision) => void;
   getNegotiationDecision: (companyId: number) => NegotiationDecision;
 
+  setDocumentsToVerify: (companyId: number, text: string) => void;
+  getDocumentsToVerify: (companyId: number) => string;
+
   createVersion: (label: string, analysisDate: string) => void;
   switchVersion: (versionId: string) => void;
   freezeVersion: (versionId: string) => void;
@@ -69,7 +72,7 @@ export const useProjectStore = create<ProjectStore>()(
 
       addCompany: () =>
         set((state) => {
-          if (state.project.companies.length >= 16) return state;
+          if (state.project.companies.length >= 30) return state;
           const nextId = state.project.companies.length + 1;
           return {
             project: {
@@ -272,6 +275,27 @@ export const useProjectStore = create<ProjectStore>()(
         return version?.negotiationDecisions?.[companyId] ?? "non_defini";
       },
 
+      setDocumentsToVerify: (companyId, text) =>
+        set((state) => {
+          const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
+          if (!version) return state;
+          const docs = { ...(version.documentsToVerify ?? {}), [companyId]: text };
+          return {
+            project: {
+              ...state.project,
+              versions: state.project.versions.map((v) =>
+                v.id === state.project.currentVersionId ? { ...v, documentsToVerify: docs } : v
+              ),
+            },
+          };
+        }),
+
+      getDocumentsToVerify: (companyId) => {
+        const state = get();
+        const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
+        return version?.documentsToVerify?.[companyId] ?? "";
+      },
+
       hasAttributaire: (versionId) => {
         const state = get();
         const version = state.project.versions.find((v) => v.id === versionId);
@@ -322,6 +346,7 @@ export const useProjectStore = create<ProjectStore>()(
             validated: false,
             validatedAt: null,
             negotiationDecisions: {},
+            documentsToVerify: {},
           };
           
           // Freeze current version

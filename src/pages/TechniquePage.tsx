@@ -7,13 +7,12 @@ import { NOTATION_LABELS, NOTATION_VALUES, NotationLevel, WeightingCriterion } f
 import { useMemo } from "react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
 import { Lock } from "lucide-react";
+import { getCompanyColor } from "@/lib/companyColors";
 
 const NOTATION_OPTIONS: NotationLevel[] = ["tres_bien", "bien", "moyen", "passable", "insuffisant"];
 
-// No longer clean/strip spaces — allow natural text input including spaces and newlines
-
 const TechniquePage = () => {
-  const { project, setTechnicalNote, getTechnicalNote } = useProjectStore();
+  const { project, setTechnicalNote, getTechnicalNote, setDocumentsToVerify, getDocumentsToVerify } = useProjectStore();
   const { activeCompanies, version, isReadOnly, isNego, negoLabel } = useAnalysisContext();
   const { weightingCriteria } = project;
 
@@ -102,8 +101,12 @@ const TechniquePage = () => {
         </p>
       </div>
 
-      {activeCompanies.map((company) => (
-        <Card key={company.id} className={company.status === "ecartee" ? "opacity-60" : ""}>
+      {activeCompanies.map((company, companyIndex) => (
+        <Card
+          key={company.id}
+          className={company.status === "ecartee" ? "opacity-60" : ""}
+          style={{ borderLeft: `4px solid ${getCompanyColor(companyIndex)}` }}
+        >
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">
@@ -158,6 +161,20 @@ const TechniquePage = () => {
                   />
                 </div>
               )}
+
+              {/* Documents à vérifier */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-bold text-foreground border-b border-border pb-2">Documents à vérifier</h3>
+                <Textarea
+                  disabled={isReadOnly}
+                  className="min-h-[80px] text-sm"
+                  rows={4}
+                  value={getDocumentsToVerify(company.id)}
+                  onChange={(e) => setDocumentsToVerify(company.id, e.target.value)}
+                  placeholder="Lister les documents à vérifier pour cette entreprise..."
+                  maxLength={3000}
+                />
+              </div>
             </CardContent>
           )}
         </Card>
