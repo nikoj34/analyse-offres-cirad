@@ -179,11 +179,10 @@ const SynthesePage = () => {
       const missing: string[] = [];
 
       for (const line of activeLotLines) {
-        if (enabledLines[line.id]) {
+        if (line.type && enabledLines[line.id]) {
           const lineTotal = getLinePrice(company.id, line.id);
           scenarioTotal += lineTotal;
-          // Check for missing price on enabled option
-          if (line.type && !hasPrice(company.id, line.id)) {
+          if (!hasPrice(company.id, line.id)) {
             missing.push(getLineLabel(line));
           }
         }
