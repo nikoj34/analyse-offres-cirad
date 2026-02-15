@@ -4,13 +4,31 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useMemo } from "react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
-import { Lock } from "lucide-react";
+import { Lock, AlertTriangle } from "lucide-react";
 import { getCompanyColor } from "@/lib/companyColors";
+import { useWeightingValid } from "@/hooks/useWeightingValid";
+
+function getDeviationColor(offer: number, estimation: number): string {
+  if (estimation === 0) return "";
+  const ratio = (offer - estimation) / Math.abs(estimation);
+  if (ratio <= 0.10) return "text-green-600";
+  if (ratio <= 0.20) return "text-orange-500";
+  return "text-red-600";
+}
+
+function getDeviationBg(offer: number, estimation: number): string {
+  if (estimation === 0) return "";
+  const ratio = (offer - estimation) / Math.abs(estimation);
+  if (ratio <= 0.10) return "bg-green-50";
+  if (ratio <= 0.20) return "bg-orange-50";
+  return "bg-red-50";
+}
 
 const PrixPage = () => {
   const { project, setPriceEntry, getPriceEntry } = useProjectStore();
   const { activeCompanies, version, isReadOnly, isNego, negoLabel } = useAnalysisContext();
   const { lotLines, weightingCriteria } = project;
+  const { isValid: weightingValid, total: weightingTotal } = useWeightingValid();
 
   const activeLotLines = lotLines.filter((l) => l.label.trim() !== "");
   const prixCriterion = weightingCriteria.find((c) => c.id === "prix");
@@ -59,7 +77,24 @@ const PrixPage = () => {
     return result;
   }, [companyTotals, prixWeight]);
 
-  const pageTitle = isNego ? `Module Prix — ${negoLabel}` : "Module Prix";
+  const pageTitle = isNego ? `Analyse des prix — ${negoLabel}` : "Analyse des prix";
+
+  if (!weightingValid) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">{pageTitle}</h1>
+          <div className="mt-4 rounded-md border border-destructive bg-destructive/10 p-4 flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
+            <p className="text-sm text-destructive font-medium">
+              Le total des pondérations doit être de 100% (Actuel : {weightingTotal}%). 
+              Veuillez corriger dans « Données du projet » avant de continuer.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (activeCompanies.length === 0) {
     return (
@@ -69,7 +104,7 @@ const PrixPage = () => {
           <p className="text-sm text-muted-foreground">
             {isNego
               ? "Aucune entreprise retenue pour cette phase de négociation."
-              : "Veuillez d'abord saisir des entreprises dans la Page de Garde."}
+              : "Veuillez d'abord saisir des entreprises dans « Données du projet »."}
           </p>
         </div>
       </div>
@@ -82,7 +117,7 @@ const PrixPage = () => {
         <div>
           <h1 className="text-2xl font-bold text-foreground">{pageTitle}</h1>
           <p className="text-sm text-muted-foreground">
-            Veuillez d'abord saisir des lignes de lot dans la Page de Garde.
+            Veuillez d'abord saisir des lignes de lot dans « Données du projet ».
           </p>
         </div>
       </div>
@@ -102,6 +137,11 @@ const PrixPage = () => {
         </h1>
         <p className="text-sm text-muted-foreground">
           Saisie des prix par entreprise et par ligne de lot. Note prix pondérée sur {prixWeight} pts.
+          <span className="ml-2 inline-flex items-center gap-3 text-xs">
+            <span className="inline-block w-3 h-3 rounded bg-green-100 border border-green-300" /> ≤ +10%
+            <span className="inline-block w-3 h-3 rounded bg-orange-100 border border-orange-300" /> +10-20%
+            <span className="inline-block w-3 h-3 rounded bg-red-100 border border-red-300" /> &gt; +20%
+          </span>
         </p>
       </div>
 
@@ -137,18 +177,22 @@ const PrixPage = () => {
           {company.status !== "ecartee" && (
             <CardContent>
               <div className="space-y-3">
-                <div className="grid grid-cols-[1fr_120px_120px_120px] gap-2 text-xs font-medium text-muted-foreground px-1">
+                <div className="grid grid-cols-[1fr_120px_120px_120px_120px] gap-2 text-xs font-medium text-muted-foreground px-1">
                   <span>Ligne</span>
                   <span className="text-right">Estimation (€ HT)</span>
                   <span className="text-right">DPGF 1 (€ HT)</span>
                   <span className="text-right">DPGF 2 (€ HT)</span>
+                  <span className="text-right">Écart</span>
                 </div>
                 {/* Base DPGF row */}
                 {(() => {
                   const dpgfEntry = getPriceEntry(company.id, 0);
                   const estTotal = (project.info.estimationDpgf1 ?? 0) + (project.info.estimationDpgf2 ?? 0);
+                  const offerTotal = (dpgfEntry?.dpgf1 ?? 0) + (dpgfEntry?.dpgf2 ?? 0);
+                  const devColor = estTotal > 0 && offerTotal > 0 ? getDeviationColor(offerTotal, estTotal) : "";
+                  const devBg = estTotal > 0 && offerTotal > 0 ? getDeviationBg(offerTotal, estTotal) : "";
                   return (
-                    <div className="grid grid-cols-[1fr_120px_120px_120px] gap-2 items-center rounded-md border-2 border-primary/30 bg-primary/5 p-2">
+                    <div className={`grid grid-cols-[1fr_120px_120px_120px_120px] gap-2 items-center rounded-md border-2 border-primary/30 bg-primary/5 p-2 ${devBg}`}>
                       <div className="text-sm">
                         <span className="font-semibold">DPGF (Tranche Ferme)</span>
                       </div>
@@ -185,6 +229,11 @@ const PrixPage = () => {
                         }
                         placeholder="0"
                       />
+                      <div className={`text-right text-xs font-medium ${devColor}`}>
+                        {estTotal > 0 && offerTotal > 0
+                          ? `${(((offerTotal - estTotal) / Math.abs(estTotal)) * 100).toFixed(0)}%`
+                          : "—"}
+                      </div>
                     </div>
                   );
                 })()}
@@ -193,10 +242,13 @@ const PrixPage = () => {
                   const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
                   const showDpgf2 = line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both";
                   const estLine = (line.estimationDpgf1 ?? 0) + (line.estimationDpgf2 ?? 0);
+                  const offerLine = (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
+                  const devColor = Math.abs(estLine) > 0 && offerLine !== 0 ? getDeviationColor(offerLine, estLine) : "";
+                  const devBg = Math.abs(estLine) > 0 && offerLine !== 0 ? getDeviationBg(offerLine, estLine) : "";
                   return (
                     <div
                       key={line.id}
-                      className="grid grid-cols-[1fr_120px_120px_120px] gap-2 items-center rounded-md border border-border p-2"
+                      className={`grid grid-cols-[1fr_120px_120px_120px_120px] gap-2 items-center rounded-md border border-border p-2 ${devBg}`}
                     >
                       <div className="text-sm">
                         <span className="font-medium">{line.label}</span>
@@ -206,8 +258,8 @@ const PrixPage = () => {
                           </Badge>
                         )}
                       </div>
-                      <div className="text-right text-sm text-muted-foreground font-medium">
-                        {estLine > 0 ? fmt(estLine) : "—"}
+                      <div className={`text-right text-sm font-medium ${estLine < 0 ? "text-muted-foreground/60" : "text-muted-foreground"}`}>
+                        {estLine !== 0 ? fmt(estLine) : "—"}
                       </div>
                       {showDpgf1 ? (
                         <Input
@@ -247,15 +299,21 @@ const PrixPage = () => {
                       ) : (
                         <span className="text-center text-xs text-muted-foreground">—</span>
                       )}
+                      <div className={`text-right text-xs font-medium ${devColor}`}>
+                        {Math.abs(estLine) > 0 && offerLine !== 0
+                          ? `${(((offerLine - estLine) / Math.abs(estLine)) * 100).toFixed(0)}%`
+                          : "—"}
+                      </div>
                     </div>
                   );
                 })}
                 {companyTotals[company.id] && (
-                  <div className="grid grid-cols-[1fr_120px_120px_120px] gap-2 rounded-md bg-muted/50 p-2 text-sm font-semibold">
+                  <div className="grid grid-cols-[1fr_120px_120px_120px_120px] gap-2 rounded-md bg-muted/50 p-2 text-sm font-semibold">
                     <span>Total</span>
                     <span></span>
                     <span className="text-right">{fmt(companyTotals[company.id].dpgf1)}</span>
                     <span className="text-right">{fmt(companyTotals[company.id].dpgf2)}</span>
+                    <span></span>
                   </div>
                 )}
               </div>

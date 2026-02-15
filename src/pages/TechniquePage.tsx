@@ -6,8 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { NOTATION_LABELS, NOTATION_VALUES, NotationLevel, WeightingCriterion } from "@/types/project";
 import { useMemo } from "react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
-import { Lock } from "lucide-react";
+import { Lock, AlertTriangle } from "lucide-react";
 import { getCompanyColor } from "@/lib/companyColors";
+import { useWeightingValid } from "@/hooks/useWeightingValid";
 
 const NOTATION_OPTIONS: NotationLevel[] = ["tres_bien", "bien", "moyen", "passable", "insuffisant"];
 
@@ -66,6 +67,27 @@ const TechniquePage = () => {
     return result;
   }, [activeCompanies, allTechnicalCriteria, version]);
 
+  const { isValid: weightingValid, total: weightingTotal } = useWeightingValid();
+
+  if (!weightingValid) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">
+            {isNego ? `Analyse Technique — ${negoLabel}` : "Analyse Technique"}
+          </h1>
+          <div className="mt-4 rounded-md border border-destructive bg-destructive/10 p-4 flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
+            <p className="text-sm text-destructive font-medium">
+              Le total des pondérations doit être de 100% (Actuel : {weightingTotal}%). 
+              Veuillez corriger dans « Données du projet » avant de continuer.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (activeCompanies.length === 0) {
     return (
       <div className="space-y-6">
@@ -76,7 +98,7 @@ const TechniquePage = () => {
           <p className="text-sm text-muted-foreground">
             {isNego
               ? "Aucune entreprise retenue pour cette phase de négociation."
-              : "Veuillez d'abord saisir des entreprises dans la Page de Garde."}
+              : "Veuillez d'abord saisir des entreprises dans « Données du projet »."}
           </p>
         </div>
       </div>

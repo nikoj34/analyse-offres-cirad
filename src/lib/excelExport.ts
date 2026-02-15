@@ -42,10 +42,7 @@ function lightFill(color: string): ExcelJS.Fill {
   return { type: "pattern", pattern: "solid", fgColor: { argb: color } };
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(n);
-
-// =============== Shared helpers to build technique/prix/synthese sheets ===============
+// =============== Shared helpers ===============
 
 function buildTechSheet(
   wb: ExcelJS.Workbook,
@@ -69,7 +66,6 @@ function buildTechSheet(
   techTitle.border = thinBorder();
   tRow++;
 
-  // Date d'analyse and validation date
   techSheet.getCell(`B${tRow}`).value = `Date d'analyse : ${version.analysisDate || "—"}`;
   techSheet.getCell(`B${tRow}`).font = { italic: true, size: 9 };
   if (version.validated && version.validatedAt) {
@@ -199,7 +195,8 @@ function buildPrixSheet(
   const hasDpgf2 = activeLotLines.some((l) => l.dpgfAssignment === "DPGF_2" || l.dpgfAssignment === "both");
 
   let pRow = 2;
-  prixSheet.mergeCells(`B${pRow}:${hasDpgf2 ? "H" : "F"}${pRow}`);
+  const endCol = hasDpgf2 ? "I" : "G";
+  prixSheet.mergeCells(`B${pRow}:${endCol}${pRow}`);
   const prixTitle = prixSheet.getCell(`B${pRow}`);
   prixTitle.value = `${project.info.name || "Projet"} — Lot n° ${project.info.lotNumber || ""} — ${sheetName}`;
   prixTitle.font = { bold: true, size: 12, color: { argb: COLORS.darkText } };
@@ -207,7 +204,6 @@ function buildPrixSheet(
   prixTitle.border = thinBorder();
   pRow++;
 
-  // Date d'analyse and validation date
   prixSheet.getCell(`B${pRow}`).value = `Date d'analyse : ${version.analysisDate || "—"}`;
   prixSheet.getCell(`B${pRow}`).font = { italic: true, size: 9 };
   if (version.validated && version.validatedAt) {
@@ -219,7 +215,7 @@ function buildPrixSheet(
   for (const company of companies) {
     const isExcluded = company.status === "ecartee";
 
-    prixSheet.mergeCells(`B${pRow}:${hasDpgf2 ? "H" : "F"}${pRow}`);
+    prixSheet.mergeCells(`B${pRow}:${endCol}${pRow}`);
     const compHeader = prixSheet.getCell(`B${pRow}`);
     compHeader.value = `${company.id}. ${company.name}${isExcluded ? " (ÉCARTÉE)" : ""}`;
     compHeader.font = { bold: true, size: 11, color: { argb: isExcluded ? COLORS.excluded : COLORS.headerFont } };
@@ -234,13 +230,12 @@ function buildPrixSheet(
       continue;
     }
 
-    const cols = ["Ligne", "DPGF 1 (€ HT)"];
+    const cols = ["Ligne", "Estimation (€)", "DPGF 1 (€ HT)"];
     if (hasDpgf2) cols.push("DPGF 2 (€ HT)");
-    cols.push("Total (€ HT)");
+    cols.push("Total (€ HT)", "Écart (%)");
 
     cols.forEach((label, i) => {
-      const colLetter = String.fromCharCode(66 + i);
-      const c = prixSheet.getCell(`${colLetter}${pRow}`);
+      const c = prixSheet.getCell(pRow, i + 2);
       c.value = label;
       c.font = { bold: true, size: 9 };
       c.fill = lightFill(COLORS.lightBlue);
@@ -257,61 +252,95 @@ function buildPrixSheet(
       );
       const d1 = entry?.dpgf1 ?? 0;
       const d2 = entry?.dpgf2 ?? 0;
+      const est = (line.estimationDpgf1 ?? 0) + (line.estimationDpgf2 ?? 0);
+      const offerTotal = d1 + d2;
       totalDpgf1 += d1;
       totalDpgf2 += d2;
 
-      let col = 1;
-      prixSheet.getCell(pRow, col + 1).value = `${line.label}${line.type ? ` (${line.type})` : ""}`;
-      prixSheet.getCell(pRow, col + 1).border = thinBorder();
+      let col = 2;
+      prixSheet.getCell(pRow, col).value = `${line.label}${line.type ? ` (${line.type})` : ""}`;
+      prixSheet.getCell(pRow, col).border = thinBorder();
       col++;
 
-      prixSheet.getCell(pRow, col + 1).value = d1 || "";
-      prixSheet.getCell(pRow, col + 1).numFmt = '#,##0.00 "€"';
-      prixSheet.getCell(pRow, col + 1).border = thinBorder();
+      prixSheet.getCell(pRow, col).value = est || "";
+      prixSheet.getCell(pRow, col).numFmt = '#,##0 "€"';
+      prixSheet.getCell(pRow, col).border = thinBorder();
+      col++;
+
+      prixSheet.getCell(pRow, col).value = d1 || "";
+      prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
+      prixSheet.getCell(pRow, col).border = thinBorder();
       col++;
 
       if (hasDpgf2) {
-        prixSheet.getCell(pRow, col + 1).value = d2 || "";
-        prixSheet.getCell(pRow, col + 1).numFmt = '#,##0.00 "€"';
-        prixSheet.getCell(pRow, col + 1).border = thinBorder();
+        prixSheet.getCell(pRow, col).value = d2 || "";
+        prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
+        prixSheet.getCell(pRow, col).border = thinBorder();
         col++;
       }
 
-      prixSheet.getCell(pRow, col + 1).value = d1 + d2;
-      prixSheet.getCell(pRow, col + 1).numFmt = '#,##0.00 "€"';
-      prixSheet.getCell(pRow, col + 1).font = { bold: true };
-      prixSheet.getCell(pRow, col + 1).border = thinBorder();
+      prixSheet.getCell(pRow, col).value = offerTotal;
+      prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
+      prixSheet.getCell(pRow, col).font = { bold: true };
+      prixSheet.getCell(pRow, col).border = thinBorder();
+      col++;
+
+      // Deviation %
+      if (est !== 0 && offerTotal !== 0) {
+        const dev = ((offerTotal - est) / Math.abs(est)) * 100;
+        const devCell = prixSheet.getCell(pRow, col);
+        devCell.value = Number(dev.toFixed(0));
+        devCell.numFmt = '0"%"';
+        devCell.border = thinBorder();
+        if (dev <= 10) devCell.font = { color: { argb: "2E7D32" } };
+        else if (dev <= 20) devCell.font = { color: { argb: "E65100" } };
+        else devCell.font = { color: { argb: "C62828" } };
+      } else {
+        prixSheet.getCell(pRow, col).value = "—";
+        prixSheet.getCell(pRow, col).border = thinBorder();
+      }
+
       pRow++;
     }
 
-    let col = 1;
-    prixSheet.getCell(pRow, col + 1).value = "TOTAL";
-    prixSheet.getCell(pRow, col + 1).font = { bold: true };
-    prixSheet.getCell(pRow, col + 1).fill = lightFill(COLORS.lightGreen);
-    prixSheet.getCell(pRow, col + 1).border = thinBorder();
+    // Total row with SUM formulas
+    const dataStartRow = pRow - activeLotLines.length;
+    let col = 2;
+    prixSheet.getCell(pRow, col).value = "TOTAL";
+    prixSheet.getCell(pRow, col).font = { bold: true };
+    prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
+    prixSheet.getCell(pRow, col).border = thinBorder();
+    col++; // skip estimation col
+    prixSheet.getCell(pRow, col).value = "";
+    prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
+    prixSheet.getCell(pRow, col).border = thinBorder();
     col++;
 
-    prixSheet.getCell(pRow, col + 1).value = totalDpgf1;
-    prixSheet.getCell(pRow, col + 1).numFmt = '#,##0.00 "€"';
-    prixSheet.getCell(pRow, col + 1).font = { bold: true };
-    prixSheet.getCell(pRow, col + 1).fill = lightFill(COLORS.lightGreen);
-    prixSheet.getCell(pRow, col + 1).border = thinBorder();
+    // DPGF1 SUM formula
+    const d1Col = String.fromCharCode(64 + col);
+    prixSheet.getCell(pRow, col).value = { formula: `SUM(${d1Col}${dataStartRow}:${d1Col}${pRow - 1})` };
+    prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
+    prixSheet.getCell(pRow, col).font = { bold: true };
+    prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
+    prixSheet.getCell(pRow, col).border = thinBorder();
     col++;
 
     if (hasDpgf2) {
-      prixSheet.getCell(pRow, col + 1).value = totalDpgf2;
-      prixSheet.getCell(pRow, col + 1).numFmt = '#,##0.00 "€"';
-      prixSheet.getCell(pRow, col + 1).font = { bold: true };
-      prixSheet.getCell(pRow, col + 1).fill = lightFill(COLORS.lightGreen);
-      prixSheet.getCell(pRow, col + 1).border = thinBorder();
+      const d2Col = String.fromCharCode(64 + col);
+      prixSheet.getCell(pRow, col).value = { formula: `SUM(${d2Col}${dataStartRow}:${d2Col}${pRow - 1})` };
+      prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
+      prixSheet.getCell(pRow, col).font = { bold: true };
+      prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
+      prixSheet.getCell(pRow, col).border = thinBorder();
       col++;
     }
 
-    prixSheet.getCell(pRow, col + 1).value = totalDpgf1 + totalDpgf2;
-    prixSheet.getCell(pRow, col + 1).numFmt = '#,##0.00 "€"';
-    prixSheet.getCell(pRow, col + 1).font = { bold: true };
-    prixSheet.getCell(pRow, col + 1).fill = lightFill(COLORS.lightGreen);
-    prixSheet.getCell(pRow, col + 1).border = thinBorder();
+    const totCol = String.fromCharCode(64 + col);
+    prixSheet.getCell(pRow, col).value = { formula: `SUM(${totCol}${dataStartRow}:${totCol}${pRow - 1})` };
+    prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
+    prixSheet.getCell(pRow, col).font = { bold: true };
+    prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
+    prixSheet.getCell(pRow, col).border = thinBorder();
 
     pRow += 2;
   }
@@ -321,6 +350,9 @@ function buildPrixSheet(
   prixSheet.getColumn("D").width = 18;
   prixSheet.getColumn("E").width = 18;
   prixSheet.getColumn("F").width = 18;
+  prixSheet.getColumn("G").width = 12;
+  prixSheet.getColumn("H").width = 18;
+  prixSheet.getColumn("I").width = 12;
 }
 
 function buildSyntheseSheet(
@@ -356,7 +388,6 @@ function buildSyntheseSheet(
   synthTitle.border = thinBorder();
   sRow++;
 
-  // Date d'analyse and validation date
   synthSheet.getCell(`B${sRow}`).value = `Date d'analyse : ${version.analysisDate || "—"}`;
   synthSheet.getCell(`B${sRow}`).font = { italic: true, size: 9 };
   if (version.validated && version.validatedAt) {
@@ -406,9 +437,7 @@ function buildSyntheseSheet(
       continue;
     }
 
-    let techScore = 0;
-    let envScore = 0;
-    let planScore = 0;
+    let techScore = 0, envScore = 0, planScore = 0;
 
     for (const criterion of technicalCriteria) {
       let criterionScore = 0;
@@ -551,6 +580,180 @@ function buildSyntheseSheet(
   }
 }
 
+function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
+  const methSheet = wb.addWorksheet("METHODOLOGIE");
+  methSheet.properties.defaultRowHeight = 18;
+
+  let row = 2;
+  methSheet.mergeCells(`B${row}:H${row}`);
+  const title = methSheet.getCell(`B${row}`);
+  title.value = "MÉTHODOLOGIE DE NOTATION ET D'ANALYSE";
+  title.font = { bold: true, size: 14, color: { argb: COLORS.darkText } };
+  title.fill = lightFill(COLORS.lightBlue);
+  title.border = thinBorder();
+  row += 2;
+
+  // Price methodology
+  methSheet.mergeCells(`B${row}:H${row}`);
+  const priceTitle = methSheet.getCell(`B${row}`);
+  priceTitle.value = "1. Critère Prix";
+  priceTitle.font = { bold: true, size: 12, color: { argb: COLORS.headerFont } };
+  priceTitle.fill = headerFill();
+  priceTitle.border = thinBorder();
+  row++;
+
+  methSheet.getCell(`B${row}`).value = "Formule : Note = (Montant le plus bas / Montant candidat) × Pondération Prix";
+  methSheet.getCell(`B${row}`).font = { italic: true, size: 10 };
+  row++;
+  methSheet.getCell(`B${row}`).value = "Le candidat le moins-disant obtient la note maximale. Les autres sont notés proportionnellement.";
+  methSheet.getCell(`B${row}`).font = { size: 10 };
+  row += 2;
+
+  // Technical methodology
+  methSheet.mergeCells(`B${row}:H${row}`);
+  const techTitle = methSheet.getCell(`B${row}`);
+  techTitle.value = "2. Critères Techniques (Valeur Technique, Environnemental, Planning)";
+  techTitle.font = { bold: true, size: 12, color: { argb: COLORS.headerFont } };
+  techTitle.fill = headerFill();
+  techTitle.border = thinBorder();
+  row++;
+
+  methSheet.getCell(`B${row}`).value = "Chaque critère est noté sur une échelle de 1 à 5, puis pondéré selon le barème suivant :";
+  methSheet.getCell(`B${row}`).font = { size: 10 };
+  row += 2;
+
+  // Notation scale table
+  const techCriteria = project.weightingCriteria.filter((c) => c.id !== "prix");
+  const notationHeaders = ["Appréciation", "Note / 5"];
+  for (const c of techCriteria) {
+    notationHeaders.push(`Sur ${c.weight} pts`);
+  }
+  notationHeaders.forEach((h, i) => {
+    const cell = methSheet.getCell(row, i + 2);
+    cell.value = h;
+    cell.font = { bold: true, size: 9 };
+    cell.fill = lightFill(COLORS.lightBlue);
+    cell.border = thinBorder();
+    cell.alignment = { horizontal: "center" };
+  });
+  row++;
+
+  const notationScale: [string, number][] = [
+    ["Très bien", 5],
+    ["Bien", 4],
+    ["Moyen", 3],
+    ["Passable", 2],
+    ["Insuffisant", 1],
+  ];
+  for (const [label, value] of notationScale) {
+    methSheet.getCell(row, 2).value = label;
+    methSheet.getCell(row, 2).border = thinBorder();
+    methSheet.getCell(row, 2).font = { bold: true };
+
+    methSheet.getCell(row, 3).value = `${value} / 5`;
+    methSheet.getCell(row, 3).border = thinBorder();
+    methSheet.getCell(row, 3).alignment = { horizontal: "center" };
+
+    let col = 4;
+    for (const c of techCriteria) {
+      const weighted = (value / 5) * c.weight;
+      const wCell = methSheet.getCell(row, col);
+      wCell.value = Number(weighted.toFixed(1));
+      wCell.border = thinBorder();
+      wCell.alignment = { horizontal: "center" };
+      col++;
+    }
+    row++;
+  }
+  row += 2;
+
+  // Scenario table
+  methSheet.mergeCells(`B${row}:H${row}`);
+  const scenTitle = methSheet.getCell(`B${row}`);
+  scenTitle.value = "3. Tableau des Scénarios Possibles";
+  scenTitle.font = { bold: true, size: 12, color: { argb: COLORS.headerFont } };
+  scenTitle.fill = headerFill();
+  scenTitle.border = thinBorder();
+  row++;
+
+  const activeLotLines = project.lotLines.filter((l) => l.label.trim() !== "");
+  const typedLines = activeLotLines.filter((l) => l.type);
+
+  if (typedLines.length === 0) {
+    methSheet.getCell(`B${row}`).value = "Aucune PSE, Variante ou Tranche Optionnelle configurée.";
+    methSheet.getCell(`B${row}`).font = { italic: true, size: 10 };
+    row++;
+  } else {
+    ["Scénario", "Composition", "Description"].forEach((h, i) => {
+      const cell = methSheet.getCell(row, i + 2);
+      cell.value = h;
+      cell.font = { bold: true, size: 9 };
+      cell.fill = lightFill(COLORS.lightBlue);
+      cell.border = thinBorder();
+    });
+    row++;
+
+    // Base scenario
+    methSheet.getCell(row, 2).value = "Base seule";
+    methSheet.getCell(row, 2).border = thinBorder();
+    methSheet.getCell(row, 3).value = "Tranche Ferme (DPGF)";
+    methSheet.getCell(row, 3).border = thinBorder();
+    methSheet.getCell(row, 4).value = "Solution de base uniquement";
+    methSheet.getCell(row, 4).border = thinBorder();
+    row++;
+
+    // Generate combinations
+    const pseLines = typedLines.filter((l) => l.type === "PSE");
+    const varianteLines = typedLines.filter((l) => l.type === "VARIANTE");
+    const toLines = typedLines.filter((l) => l.type === "T_OPTIONNELLE");
+
+    if (pseLines.length > 0) {
+      methSheet.getCell(row, 2).value = "Base + PSE";
+      methSheet.getCell(row, 2).border = thinBorder();
+      methSheet.getCell(row, 3).value = `TF + ${pseLines.map((l) => l.label).join(", ")}`;
+      methSheet.getCell(row, 3).border = thinBorder();
+      methSheet.getCell(row, 4).value = "Solution de base avec toutes les PSE";
+      methSheet.getCell(row, 4).border = thinBorder();
+      row++;
+    }
+    if (varianteLines.length > 0) {
+      methSheet.getCell(row, 2).value = "Base + Variantes";
+      methSheet.getCell(row, 2).border = thinBorder();
+      methSheet.getCell(row, 3).value = `TF + ${varianteLines.map((l) => l.label).join(", ")}`;
+      methSheet.getCell(row, 3).border = thinBorder();
+      methSheet.getCell(row, 4).value = "Solution de base avec toutes les Variantes";
+      methSheet.getCell(row, 4).border = thinBorder();
+      row++;
+    }
+    if (toLines.length > 0) {
+      methSheet.getCell(row, 2).value = "Base + TO";
+      methSheet.getCell(row, 2).border = thinBorder();
+      methSheet.getCell(row, 3).value = `TF + ${toLines.map((l) => l.label).join(", ")}`;
+      methSheet.getCell(row, 3).border = thinBorder();
+      methSheet.getCell(row, 4).value = "Solution de base avec toutes les Tranches Optionnelles";
+      methSheet.getCell(row, 4).border = thinBorder();
+      row++;
+    }
+    if (pseLines.length > 0 && toLines.length > 0) {
+      methSheet.getCell(row, 2).value = "Base + PSE + TO";
+      methSheet.getCell(row, 2).border = thinBorder();
+      methSheet.getCell(row, 3).value = `TF + ${[...pseLines, ...toLines].map((l) => l.label).join(", ")}`;
+      methSheet.getCell(row, 3).border = thinBorder();
+      methSheet.getCell(row, 4).value = "Combinaison complète";
+      methSheet.getCell(row, 4).border = thinBorder();
+      row++;
+    }
+  }
+
+  methSheet.getColumn("B").width = 25;
+  methSheet.getColumn("C").width = 20;
+  methSheet.getColumn("D").width = 40;
+  methSheet.getColumn("E").width = 15;
+  methSheet.getColumn("F").width = 15;
+  methSheet.getColumn("G").width = 15;
+  methSheet.getColumn("H").width = 15;
+}
+
 // =============== Main export function ===============
 
 export async function exportToExcel(project: ProjectData) {
@@ -563,8 +766,8 @@ export async function exportToExcel(project: ProjectData) {
   const v0 = project.versions[0];
   if (!v0) return;
 
-  // =========== PAGE DE GARDE ===========
-  const pgSheet = wb.addWorksheet("PAGE_DE_GARDE");
+  // =========== DONNÉES DU PROJET ===========
+  const pgSheet = wb.addWorksheet("DONNEES_DU_PROJET");
   pgSheet.properties.defaultRowHeight = 18;
 
   pgSheet.mergeCells("B2:K2");
@@ -721,67 +924,6 @@ export async function exportToExcel(project: ProjectData) {
     row++;
   }
 
-  // Notation methodology table
-  row += 1;
-  pgSheet.mergeCells(`B${row}:F${row}`);
-  const notationTitle = pgSheet.getCell(`B${row}`);
-  notationTitle.value = "MÉTHODOLOGIE DE NOTATION";
-  notationTitle.font = headerFont();
-  notationTitle.fill = headerFill();
-  notationTitle.border = thinBorder();
-  row++;
-
-  // Header row
-  const notationHeaders = ["Appréciation", "Note / 5"];
-  // Add weighted columns for each technical criterion
-  const techCriteria = project.weightingCriteria.filter((c) => c.id !== "prix");
-  for (const c of techCriteria) {
-    notationHeaders.push(`Sur ${c.weight} pts`);
-  }
-  notationHeaders.forEach((h, i) => {
-    const col = String.fromCharCode(66 + i);
-    const cell = pgSheet.getCell(`${col}${row}`);
-    cell.value = h;
-    cell.font = { bold: true, size: 9 };
-    cell.fill = lightFill(COLORS.lightBlue);
-    cell.border = thinBorder();
-    cell.alignment = { horizontal: "center" };
-  });
-  row++;
-
-  // Notation rows
-  const notationScale: [string, number][] = [
-    ["Très bien", 5],
-    ["Bien", 4],
-    ["Moyen", 3],
-    ["Passable", 2],
-    ["Insuffisant", 1],
-  ];
-  for (const [label, value] of notationScale) {
-    let col = 1;
-    const labelCell = pgSheet.getCell(row, col + 1);
-    labelCell.value = label;
-    labelCell.border = thinBorder();
-    labelCell.font = { bold: true };
-    col++;
-
-    const noteCell = pgSheet.getCell(row, col + 1);
-    noteCell.value = `${value} / 5`;
-    noteCell.border = thinBorder();
-    noteCell.alignment = { horizontal: "center" };
-    col++;
-
-    for (const c of techCriteria) {
-      const weighted = (value / 5) * c.weight;
-      const wCell = pgSheet.getCell(row, col + 1);
-      wCell.value = Number(weighted.toFixed(1));
-      wCell.border = thinBorder();
-      wCell.alignment = { horizontal: "center" };
-      col++;
-    }
-    row++;
-  }
-
   pgSheet.getColumn("B").width = 25;
   pgSheet.getColumn("C").width = 15;
   pgSheet.getColumn("D").width = 30;
@@ -790,17 +932,19 @@ export async function exportToExcel(project: ProjectData) {
   pgSheet.getColumn("G").width = 20;
   pgSheet.getColumn("H").width = 15;
 
-  // =========== V0 Sheets: Analyse initiale ===========
+  // =========== V0 Sheets ===========
   buildTechSheet(wb, "ANALYSE_TECHNIQUE", project, v0, activeCompanies);
-  buildPrixSheet(wb, "PRIX", project, v0, activeCompanies);
+  buildPrixSheet(wb, "ANALYSE_DES_PRIX", project, v0, activeCompanies);
   buildSyntheseSheet(wb, "SYNTHESE", project, v0, activeCompanies);
+
+  // =========== Methodology ===========
+  buildMethodologySheet(wb, project);
 
   // =========== Nego sheets for V1, V2 ===========
   for (let i = 1; i < project.versions.length; i++) {
     const negoVersion = project.versions[i];
     const negoRound = i;
 
-    // Get retained companies from previous version
     const prevVersion = project.versions[i - 1];
     const prevDecisions = prevVersion.negotiationDecisions ?? {};
     const retainedIds = Object.entries(prevDecisions)
@@ -811,7 +955,7 @@ export async function exportToExcel(project: ProjectData) {
 
     if (negoCompanies.length > 0) {
       buildTechSheet(wb, `Négo ${negoRound} Analyse technique`, project, negoVersion, negoCompanies);
-      buildPrixSheet(wb, `Négo ${negoRound} Analyse Prix`, project, negoVersion, negoCompanies);
+      buildPrixSheet(wb, `Négo ${negoRound} Analyse des prix`, project, negoVersion, negoCompanies);
       buildSyntheseSheet(wb, `Négo ${negoRound} Synthèse`, project, negoVersion, negoCompanies);
     }
   }

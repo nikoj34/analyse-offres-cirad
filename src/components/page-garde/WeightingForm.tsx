@@ -6,7 +6,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { Plus, Trash2, AlertTriangle } from "lucide-react";
 
 function isValidWeight(value: number): boolean {
-  return value >= 5 && value <= 70 && value % 5 === 0;
+  return value >= 0.5 && value <= 99.5 && (value * 2) % 1 === 0;
 }
 
 export function WeightingForm() {
@@ -30,8 +30,14 @@ export function WeightingForm() {
           <div>
             <CardTitle className="text-lg">Pondérations des critères</CardTitle>
             <CardDescription>
-              Multiples de 5 uniquement, entre 5% et 70%. Total = 100%.
+              Pas de 0,5 — entre 0,5% et 99,5%. Total = 100%.
             </CardDescription>
+            {!isValidTotal && (
+              <div className="mt-2 rounded-md border border-destructive bg-destructive/10 p-2 text-sm text-destructive font-medium flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                Le total des pondérations doit être de 100% (Actuel : {totalWeight}%)
+              </div>
+            )}
           </div>
           <Badge variant={isValidTotal ? "default" : "destructive"}>
             Total : {totalWeight}%
@@ -55,11 +61,11 @@ export function WeightingForm() {
                       type="number"
                       className="w-20 text-center"
                       value={criterion.weight}
-                      min={5}
-                      max={70}
-                      step={5}
+                      min={0.5}
+                      max={99.5}
+                      step={0.5}
                       onChange={(e) => {
-                        const val = parseInt(e.target.value) || 0;
+                        const val = parseFloat(e.target.value) || 0;
                         updateCriterionWeight(criterion.id, val);
                       }}
                     />
