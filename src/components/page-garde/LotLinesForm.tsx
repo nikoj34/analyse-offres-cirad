@@ -3,10 +3,33 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { useProjectStore } from "@/store/projectStore";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LotType, DpgfAssignment } from "@/types/project";
+import { useMemo } from "react";
+
+function getAutoLabel(type: LotType | null, index: number): string {
+  if (!type) return "";
+  switch (type) {
+    case "PSE": return `PSE ${index}`;
+    case "VARIANTE": return `Variante ${index}`;
+    case "T_OPTIONNELLE": return `TO${index}`;
+  }
+}
 
 export function LotLinesForm() {
   const { project, updateLotLine } = useProjectStore();
   const { lotLines } = project;
+
+  // Compute auto-numbering per type
+  const typeCounters = useMemo(() => {
+    const counters: Record<string, number> = {};
+    const result: Record<number, string> = {};
+    for (const line of lotLines) {
+      if (line.type) {
+        counters[line.type] = (counters[line.type] ?? 0) + 1;
+        result[line.id] = getAutoLabel(line.type, counters[line.type]);
+      }
+    }
+    return result;
+  }, [lotLines]);
 
   return (
     <Card>
@@ -14,14 +37,15 @@ export function LotLinesForm() {
         <CardTitle className="text-lg">PSE / Variantes / Tranches Optionnelles</CardTitle>
         <CardDescription>
           Système en cascade : la ligne suivante apparaît quand la précédente est remplie (max. 12).
-          Choisissez l'affectation DPGF et saisissez les estimations correspondantes.
+          Numérotation automatique par catégorie (PSE 1, PSE 2…, Variante 1…, TO1…).
         </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
           {/* Header */}
-          <div className="grid grid-cols-[28px_1fr_160px_140px_120px_120px] gap-2 text-xs font-medium text-muted-foreground px-1">
+          <div className="grid grid-cols-[28px_80px_1fr_160px_140px_120px_120px] gap-2 text-xs font-medium text-muted-foreground px-1">
             <span></span>
+            <span>Auto N°</span>
             <span>Intitulé</span>
             <span>Type</span>
             <span>Affectation</span>
@@ -32,15 +56,17 @@ export function LotLinesForm() {
           {lotLines.map((line) => {
             const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
             const showDpgf2 = line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both";
+            const autoNum = typeCounters[line.id] ?? "";
 
             return (
               <div
                 key={line.id}
-                className="grid grid-cols-[28px_1fr_160px_140px_120px_120px] gap-2 items-center"
+                className="grid grid-cols-[28px_80px_1fr_160px_140px_120px_120px] gap-2 items-center"
               >
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
                   {line.id}
                 </span>
+                <span className="text-xs font-medium text-muted-foreground truncate">{autoNum}</span>
                 <Input
                   value={line.label}
                   onChange={(e) => updateLotLine(line.id, { label: e.target.value })}

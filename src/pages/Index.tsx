@@ -8,7 +8,7 @@ const Index = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Page de Garde</h1>
+        <h1 className="text-2xl font-bold text-foreground">Données du projet</h1>
         <p className="text-sm text-muted-foreground">
           Saisissez les informations générales du projet, les entreprises candidates et les pondérations.
         </p>

@@ -32,7 +32,7 @@ const ExportPage = () => {
       <div>
         <h1 className="text-2xl font-bold text-foreground">Export Excel</h1>
         <p className="text-sm text-muted-foreground">
-          Génération .xlsx fidèle au modèle CIRAD — 4 onglets : Page de Garde, Prix, Analyse Technique, Synthèse.
+          Génération .xlsx — Onglets : Données du projet, Analyse des prix, Analyse Technique, Synthèse, Méthodologie.
         </p>
       </div>
 

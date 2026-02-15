@@ -4,51 +4,33 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getVersionDisplayLabel, LotType } from "@/types/project";
+import { Textarea } from "@/components/ui/textarea";
+import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getVersionDisplayLabel } from "@/types/project";
 import { useMemo, useState } from "react";
 import { Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle, Award, Settings2 } from "lucide-react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
+import { useWeightingValid } from "@/hooks/useWeightingValid";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 
 const DECISION_OPTIONS: NegotiationDecision[] = ["non_defini", "retenue", "non_retenue", "attributaire"];
 
 const SynthesePage = () => {
   const {
-    project,
-    setNegotiationDecision,
-    getNegotiationDecision,
-    validateVersion,
-    unvalidateVersion,
-    hasAttributaire,
+    project, setNegotiationDecision, getNegotiationDecision,
+    validateVersion, unvalidateVersion, hasAttributaire,
   } = useProjectStore();
   const { activeCompanies, version, isReadOnly, isNego, negoLabel } = useAnalysisContext();
+  const { isValid: weightingValid, total: weightingTotal } = useWeightingValid();
   const { weightingCriteria, lotLines } = project;
 
   const technicalCriteria = weightingCriteria.filter((c) => c.id !== "prix");
@@ -68,14 +50,16 @@ const SynthesePage = () => {
   const [enabledLines, setEnabledLines] = useState<Record<number, boolean>>(() => {
     const init: Record<number, boolean> = {};
     for (const l of activeLotLines) {
-      // Base lines (no type) are always included; typed lines default off
       init[l.id] = !l.type;
     }
     return init;
   });
 
   const [compareVariantes, setCompareVariantes] = useState(false);
+  const [comparePSE, setComparePSE] = useState(false);
   const [attributaireDialogOpen, setAttributaireDialogOpen] = useState(false);
+  const [validationComment, setValidationComment] = useState("");
+  const [validationDialogOpen, setValidationDialogOpen] = useState(false);
 
   const toggleLine = (id: number) => {
     setEnabledLines((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -90,14 +74,32 @@ const SynthesePage = () => {
   const isValidated = version?.validated ?? false;
   const displayLabel = version ? getVersionDisplayLabel(version.label) : "";
 
+  // Attribution exclusivity checks
+  const decisions = useMemo(() => {
+    if (!version) return {};
+    return version.negotiationDecisions ?? {};
+  }, [version]);
+
+  const hasAnyAttributaire = useMemo(() =>
+    Object.values(decisions).some((d) => d === "attributaire"), [decisions]);
+  const hasAnyRetenue = useMemo(() =>
+    Object.values(decisions).some((d) => d === "retenue"), [decisions]);
+
   const allDecided = useMemo(() => {
     const eligibleCompanies = activeCompanies.filter((c) => c.status !== "ecartee");
     if (eligibleCompanies.length === 0) return false;
     return eligibleCompanies.every((c) => {
-      const d = version?.negotiationDecisions?.[c.id];
+      const d = decisions[c.id];
       return d && d !== "non_defini";
     });
-  }, [activeCompanies, version]);
+  }, [activeCompanies, decisions]);
+
+  // Check if nobody is retained (all non_retenue + no attributaire)
+  const nobodyRetained = useMemo(() => {
+    const eligibleCompanies = activeCompanies.filter((c) => c.status !== "ecartee");
+    if (eligibleCompanies.length === 0) return false;
+    return allDecided && !hasAnyAttributaire && !hasAnyRetenue;
+  }, [activeCompanies, allDecided, hasAnyAttributaire, hasAnyRetenue]);
 
   const results = useMemo(() => {
     if (!version) return [];
@@ -108,10 +110,7 @@ const SynthesePage = () => {
         techScores[company.id] = { total: 0, technique: 0, env: 0, planning: 0 };
         continue;
       }
-      let total = 0;
-      let technique = 0;
-      let env = 0;
-      let planning = 0;
+      let total = 0, technique = 0, env = 0, planning = 0;
 
       for (const criterion of technicalCriteria) {
         let criterionScore = 0;
@@ -145,20 +144,16 @@ const SynthesePage = () => {
       techScores[company.id] = { total, technique, env, planning };
     }
 
-    // Price totals based on scenario toggles
     const companyPriceTotals: Record<number, number> = {};
     const companySubNotes: Record<number, { tf: number; tfPse: number; tfVariante: number; tfTo: number }> = {};
 
     for (const company of activeCompanies) {
       if (company.status === "ecartee") continue;
-
       const baseDpgf = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === 0);
       const tf = (baseDpgf?.dpgf1 ?? 0) + (baseDpgf?.dpgf2 ?? 0);
 
       let scenarioTotal = tf;
-      let pseSum = 0;
-      let varianteSum = 0;
-      let toSum = 0;
+      let pseSum = 0, varianteSum = 0, toSum = 0;
 
       for (const line of activeLotLines) {
         const entry = version.priceEntries.find(
@@ -170,19 +165,11 @@ const SynthesePage = () => {
         else if (line.type === "VARIANTE") varianteSum += lineTotal;
         else if (line.type === "T_OPTIONNELLE") toSum += lineTotal;
 
-        // Only include line in scenario total if toggled on
-        if (enabledLines[line.id]) {
-          scenarioTotal += lineTotal;
-        }
+        if (enabledLines[line.id]) scenarioTotal += lineTotal;
       }
 
       companyPriceTotals[company.id] = scenarioTotal;
-      companySubNotes[company.id] = {
-        tf,
-        tfPse: tf + pseSum,
-        tfVariante: tf + varianteSum,
-        tfTo: tf + toSum,
-      };
+      companySubNotes[company.id] = { tf, tfPse: tf + pseSum, tfVariante: tf + varianteSum, tfTo: tf + toSum };
     }
 
     const validPrices = Object.values(companyPriceTotals).filter((v) => v > 0);
@@ -201,15 +188,9 @@ const SynthesePage = () => {
       const globalScore = ts.total + priceScore;
 
       return {
-        company,
-        techScore: ts.total,
-        techniqueScore: ts.technique,
-        envScore: ts.env,
-        planningScore: ts.planning,
-        priceScore,
-        priceTotal,
-        globalScore,
-        subNotes,
+        company, techScore: ts.total, techniqueScore: ts.technique,
+        envScore: ts.env, planningScore: ts.planning,
+        priceScore, priceTotal, globalScore, subNotes,
       };
     });
   }, [activeCompanies, technicalCriteria, version, prixWeight, activeLotLines, enabledLines]);
@@ -232,7 +213,6 @@ const SynthesePage = () => {
 
   const pageTitle = isNego ? `Synthèse — ${negoLabel}` : `Synthèse & Classement — ${displayLabel}`;
 
-  // Find attributaire info for declaration
   const attributaireResult = sorted.find(
     (r) => r.company.status !== "ecartee" && getNegotiationDecision(r.company.id) === "attributaire"
   );
@@ -245,6 +225,36 @@ const SynthesePage = () => {
     return `L'entreprise ${attributaireResult.company.name} est retenue pour un montant de ${fmt(attributaireResult.priceTotal)} HT, incluant la Solution de Base${enabledOptions ? ` + ${enabledOptions}` : ""}.`;
   }, [attributaireResult, activeLotLines, enabledLines]);
 
+  // Get available decision options based on exclusivity rules
+  const getAvailableDecisions = (companyId: number): NegotiationDecision[] => {
+    const currentDecision = decisions[companyId] ?? "non_defini";
+    return DECISION_OPTIONS.filter((d) => {
+      // If someone else is attributaire, can't set another to attributaire or retenue
+      if (d === "attributaire" && hasAnyAttributaire && currentDecision !== "attributaire") return false;
+      if (d === "retenue" && hasAnyAttributaire && currentDecision !== "attributaire") return false;
+      // If someone is retenue/en négociation, can't set attributaire
+      if (d === "attributaire" && hasAnyRetenue && currentDecision !== "retenue") return false;
+      return true;
+    });
+  };
+
+  if (!weightingValid) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">{pageTitle}</h1>
+          <div className="mt-4 rounded-md border border-destructive bg-destructive/10 p-4 flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
+            <p className="text-sm text-destructive font-medium">
+              Le total des pondérations doit être de 100% (Actuel : {weightingTotal}%). 
+              Veuillez corriger dans « Données du projet » avant de continuer.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (activeCompanies.length === 0) {
     return (
       <div className="space-y-6">
@@ -253,7 +263,7 @@ const SynthesePage = () => {
           <p className="text-sm text-muted-foreground">
             {isNego
               ? "Aucune entreprise retenue pour cette phase de négociation."
-              : "Veuillez d'abord saisir des entreprises dans la Page de Garde."}
+              : "Veuillez d'abord saisir des entreprises dans « Données du projet »."}
           </p>
         </div>
       </div>
@@ -287,45 +297,16 @@ const SynthesePage = () => {
         </p>
       </div>
 
-      {/* Validate / Unvalidate buttons */}
+      {/* Action buttons */}
       <div className="flex items-center gap-3 flex-wrap">
         {version && allDecided && !isValidated && !isReadOnly && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button className="gap-2 bg-green-600 hover:bg-green-700">
-                <CheckCircle className="h-4 w-4" />
-                {versionHasAttributaire ? "Valider l'analyse — Attribuer" : "Valider l'analyse"}
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle className="flex items-center gap-2">
-                  <ShieldCheck className="h-5 w-5 text-green-600" />
-                  Valider l'analyse ?
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  {versionHasAttributaire ? (
-                    <>
-                      Une entreprise est <strong>attributaire</strong>. Valider l'analyse va figer définitivement
-                      cette phase. Aucune négociation supplémentaire ne pourra être créée.
-                    </>
-                  ) : (
-                    <>
-                      La validation va figer cette phase. Les entreprises « Retenue pour négociation » 
-                      pourront passer en phase de négociation suivante.
-                    </>
-                  )}
-                  {" "}Vous pourrez débloquer si nécessaire.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Annuler</AlertDialogCancel>
-                <AlertDialogAction onClick={() => validateVersion(version.id)}>
-                  Confirmer la validation
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <Button
+            className="gap-2 bg-green-600 hover:bg-green-700"
+            onClick={() => setValidationDialogOpen(true)}
+          >
+            <CheckCircle className="h-4 w-4" />
+            {versionHasAttributaire ? "Valider l'analyse — Attribuer" : "Valider l'analyse"}
+          </Button>
         )}
 
         {version && isValidated && (
@@ -357,18 +338,83 @@ const SynthesePage = () => {
           </AlertDialog>
         )}
 
-        {/* Declare attributaire button */}
         {attributaireResult && (
-          <Button
-            className="gap-2"
-            variant="default"
-            onClick={() => setAttributaireDialogOpen(true)}
-          >
+          <Button className="gap-2" variant="default" onClick={() => setAttributaireDialogOpen(true)}>
             <Award className="h-4 w-4" />
             Déclarer l'attributaire
           </Button>
         )}
       </div>
+
+      {/* Non-attribution warning */}
+      {nobodyRetained && !isValidated && (
+        <div className="rounded-md border border-orange-300 bg-orange-50 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="h-4 w-4 text-orange-600" />
+            <span className="text-sm font-semibold text-orange-800">Aucune entreprise retenue ni attributaire</span>
+          </div>
+          <p className="text-xs text-orange-700 mb-2">Un motif de non-attribution est obligatoire pour valider.</p>
+          <Textarea
+            className="text-sm"
+            rows={2}
+            placeholder="Motif de non-attribution..."
+            value={validationComment}
+            onChange={(e) => setValidationComment(e.target.value)}
+            maxLength={2000}
+          />
+        </div>
+      )}
+
+      {/* Validation modal */}
+      <Dialog open={validationDialogOpen} onOpenChange={setValidationDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-green-600" />
+              Valider l'analyse
+            </DialogTitle>
+            <DialogDescription>
+              {versionHasAttributaire
+                ? "L'entreprise attributaire sera confirmée et cette phase sera figée."
+                : "La validation va figer cette phase."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {attributaireResult && (
+            <div className="rounded-md border border-border bg-muted/30 p-4 text-sm leading-relaxed">
+              <p className="font-semibold mb-1">Attributaire au Rang 1 :</p>
+              <p>{scenarioDescription}</p>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Commentaire technique (optionnel)</label>
+            <Textarea
+              className="text-sm"
+              rows={3}
+              placeholder="Commentaire libre sur la décision..."
+              value={validationComment}
+              onChange={(e) => setValidationComment(e.target.value)}
+              maxLength={3000}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setValidationDialogOpen(false)}>Annuler</Button>
+            <Button
+              onClick={() => {
+                if (version) {
+                  validateVersion(version.id);
+                  setValidationDialogOpen(false);
+                }
+              }}
+              disabled={nobodyRetained && !validationComment.trim()}
+            >
+              Confirmer la validation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Attributaire declaration dialog */}
       <Dialog open={attributaireDialogOpen} onOpenChange={setAttributaireDialogOpen}>
@@ -378,17 +424,13 @@ const SynthesePage = () => {
               <Award className="h-5 w-5 text-green-600" />
               Déclaration de l'attributaire
             </DialogTitle>
-            <DialogDescription>
-              Récapitulatif du scénario retenu
-            </DialogDescription>
+            <DialogDescription>Récapitulatif du scénario retenu</DialogDescription>
           </DialogHeader>
           <div className="rounded-md border border-border bg-muted/30 p-4 text-sm leading-relaxed">
             {scenarioDescription}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAttributaireDialogOpen(false)}>
-              Fermer
-            </Button>
+            <Button variant="outline" onClick={() => setAttributaireDialogOpen(false)}>Fermer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -412,13 +454,14 @@ const SynthesePage = () => {
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">PSE</span>
                   {pseLines.map((l) => (
                     <div key={l.id} className="flex items-center gap-2">
-                      <Switch
-                        checked={!!enabledLines[l.id]}
-                        onCheckedChange={() => toggleLine(l.id)}
-                      />
+                      <Switch checked={!!enabledLines[l.id]} onCheckedChange={() => toggleLine(l.id)} />
                       <span className="text-sm">{l.label}</span>
                     </div>
                   ))}
+                  <div className="flex items-center gap-2 pt-1 border-t border-border">
+                    <Switch checked={comparePSE} onCheckedChange={setComparePSE} />
+                    <span className="text-sm italic">Comparer avec PSE</span>
+                  </div>
                 </div>
               )}
               {hasVariante && (
@@ -426,18 +469,12 @@ const SynthesePage = () => {
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Variantes</span>
                   {varianteLines.map((l) => (
                     <div key={l.id} className="flex items-center gap-2">
-                      <Switch
-                        checked={!!enabledLines[l.id]}
-                        onCheckedChange={() => toggleLine(l.id)}
-                      />
+                      <Switch checked={!!enabledLines[l.id]} onCheckedChange={() => toggleLine(l.id)} />
                       <span className="text-sm">{l.label}</span>
                     </div>
                   ))}
                   <div className="flex items-center gap-2 pt-1 border-t border-border">
-                    <Switch
-                      checked={compareVariantes}
-                      onCheckedChange={setCompareVariantes}
-                    />
+                    <Switch checked={compareVariantes} onCheckedChange={setCompareVariantes} />
                     <span className="text-sm italic">Comparer avec Variante</span>
                   </div>
                 </div>
@@ -447,10 +484,7 @@ const SynthesePage = () => {
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tranches Optionnelles</span>
                   {toLines.map((l) => (
                     <div key={l.id} className="flex items-center gap-2">
-                      <Switch
-                        checked={!!enabledLines[l.id]}
-                        onCheckedChange={() => toggleLine(l.id)}
-                      />
+                      <Switch checked={!!enabledLines[l.id]} onCheckedChange={() => toggleLine(l.id)} />
                       <span className="text-sm">{l.label}</span>
                     </div>
                   ))}
@@ -489,51 +523,30 @@ const SynthesePage = () => {
                 const isExcluded = row.company.status === "ecartee";
                 if (!isExcluded) rank++;
                 const decision = getNegotiationDecision(row.company.id);
+                const availableDecisions = getAvailableDecisions(row.company.id);
                 return (
                   <TableRow key={row.company.id} className={isExcluded ? "opacity-50" : ""}>
-                    <TableCell className="font-semibold">
-                      {isExcluded ? "—" : rank}
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {row.company.id}. {row.company.name}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {isExcluded ? "—" : row.techniqueScore.toFixed(1)}
-                    </TableCell>
+                    <TableCell className="font-semibold">{isExcluded ? "—" : rank}</TableCell>
+                    <TableCell className="font-medium">{row.company.id}. {row.company.name}</TableCell>
+                    <TableCell className="text-right">{isExcluded ? "—" : row.techniqueScore.toFixed(1)}</TableCell>
                     {envWeight > 0 && (
-                      <TableCell className="text-right">
-                        {isExcluded ? "—" : row.envScore.toFixed(1)}
-                      </TableCell>
+                      <TableCell className="text-right">{isExcluded ? "—" : row.envScore.toFixed(1)}</TableCell>
                     )}
                     {planWeight > 0 && (
-                      <TableCell className="text-right">
-                        {isExcluded ? "—" : row.planningScore.toFixed(1)}
-                      </TableCell>
+                      <TableCell className="text-right">{isExcluded ? "—" : row.planningScore.toFixed(1)}</TableCell>
                     )}
-                    <TableCell className="text-right">
-                      {isExcluded ? "—" : row.priceScore.toFixed(1)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {isExcluded ? "—" : fmt(row.priceTotal)}
-                    </TableCell>
+                    <TableCell className="text-right">{isExcluded ? "—" : row.priceScore.toFixed(1)}</TableCell>
+                    <TableCell className="text-right">{isExcluded ? "—" : fmt(row.priceTotal)}</TableCell>
                     {hasPSE && (
-                      <TableCell className="text-right">
-                        {isExcluded ? "—" : fmt(row.subNotes.tfPse)}
-                      </TableCell>
+                      <TableCell className="text-right">{isExcluded ? "—" : fmt(row.subNotes.tfPse)}</TableCell>
                     )}
                     {hasVariante && (
-                      <TableCell className="text-right">
-                        {isExcluded ? "—" : fmt(row.subNotes.tfVariante)}
-                      </TableCell>
+                      <TableCell className="text-right">{isExcluded ? "—" : fmt(row.subNotes.tfVariante)}</TableCell>
                     )}
                     {hasTO && (
-                      <TableCell className="text-right">
-                        {isExcluded ? "—" : fmt(row.subNotes.tfTo)}
-                      </TableCell>
+                      <TableCell className="text-right">{isExcluded ? "—" : fmt(row.subNotes.tfTo)}</TableCell>
                     )}
-                    <TableCell className="text-right font-bold">
-                      {isExcluded ? "—" : row.globalScore.toFixed(1)}
-                    </TableCell>
+                    <TableCell className="text-right font-bold">{isExcluded ? "—" : row.globalScore.toFixed(1)}</TableCell>
                     <TableCell className="text-center">
                       {isExcluded ? (
                         <HoverCard>
@@ -559,7 +572,7 @@ const SynthesePage = () => {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {DECISION_OPTIONS.map((d) => (
+                            {availableDecisions.map((d) => (
                               <SelectItem key={d} value={d}>
                                 {NEGOTIATION_DECISION_LABELS[d]}
                               </SelectItem>
@@ -571,6 +584,33 @@ const SynthesePage = () => {
                   </TableRow>
                 );
               })}
+              {/* PSE comparison rows */}
+              {comparePSE && pseLines.some((l) => enabledLines[l.id]) && sorted
+                .filter((r) => r.company.status !== "ecartee")
+                .map((row) => {
+                  const pseTotal = row.subNotes.tfPse;
+                  if (pseTotal <= 0) return null;
+                  return (
+                    <TableRow key={`pse-${row.company.id}`} className="bg-muted/30 italic">
+                      <TableCell className="font-semibold text-muted-foreground">—</TableCell>
+                      <TableCell className="font-medium text-muted-foreground">
+                        {row.company.id}. {row.company.name} — PSE
+                      </TableCell>
+                      <TableCell className="text-right">{row.techniqueScore.toFixed(1)}</TableCell>
+                      {envWeight > 0 && <TableCell className="text-right">{row.envScore.toFixed(1)}</TableCell>}
+                      {planWeight > 0 && <TableCell className="text-right">{row.planningScore.toFixed(1)}</TableCell>}
+                      <TableCell className="text-right">—</TableCell>
+                      <TableCell className="text-right">{fmt(pseTotal)}</TableCell>
+                      {hasPSE && <TableCell className="text-right">{fmt(pseTotal)}</TableCell>}
+                      {hasVariante && <TableCell className="text-right">—</TableCell>}
+                      {hasTO && <TableCell className="text-right">—</TableCell>}
+                      <TableCell className="text-right">—</TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="outline" className="text-xs">Comparaison</Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               {/* Variante comparison rows */}
               {compareVariantes && varianteLines.some((l) => enabledLines[l.id]) && sorted
                 .filter((r) => r.company.status !== "ecartee")

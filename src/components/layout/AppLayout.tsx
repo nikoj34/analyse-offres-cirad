@@ -75,9 +75,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
             </button>
           </div>
           <nav className="flex flex-col gap-1 p-3">
-            <SidebarLink to="/" icon={FileText} label="Page de Garde" />
+            <SidebarLink to="/" icon={FileText} label="Données du projet" />
             <SidebarLink to="/technique" icon={Wrench} label="Analyse Technique" />
-            <SidebarLink to="/prix" icon={Euro} label="Prix" />
+            <SidebarLink to="/prix" icon={Euro} label="Analyse des prix" />
             <SidebarLink to="/synthese" icon={BarChart3} label="Synthèse" />
 
             <Collapsible open={negoOpen} onOpenChange={setNegoOpen}>
