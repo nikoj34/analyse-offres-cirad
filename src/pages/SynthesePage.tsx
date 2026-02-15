@@ -3,10 +3,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getVersionDisplayLabel, LotType } from "@/types/project";
-import { useMemo } from "react";
-import { Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle, Award, Settings2 } from "lucide-react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,6 +20,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -50,10 +60,31 @@ const SynthesePage = () => {
   const envCriterion = technicalCriteria.find((c) => c.id === "environnemental");
   const planCriterion = technicalCriteria.find((c) => c.id === "planning");
 
-  // Check which sub-note types exist
-  const hasPSE = activeLotLines.some((l) => l.type === "PSE");
-  const hasVariante = activeLotLines.some((l) => l.type === "VARIANTE");
-  const hasTO = activeLotLines.some((l) => l.type === "T_OPTIONNELLE");
+  // Scenario toggles
+  const pseLines = activeLotLines.filter((l) => l.type === "PSE");
+  const varianteLines = activeLotLines.filter((l) => l.type === "VARIANTE");
+  const toLines = activeLotLines.filter((l) => l.type === "T_OPTIONNELLE");
+
+  const [enabledLines, setEnabledLines] = useState<Record<number, boolean>>(() => {
+    const init: Record<number, boolean> = {};
+    for (const l of activeLotLines) {
+      // Base lines (no type) are always included; typed lines default off
+      init[l.id] = !l.type;
+    }
+    return init;
+  });
+
+  const [compareVariantes, setCompareVariantes] = useState(false);
+  const [attributaireDialogOpen, setAttributaireDialogOpen] = useState(false);
+
+  const toggleLine = (id: number) => {
+    setEnabledLines((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const hasPSE = pseLines.length > 0;
+  const hasVariante = varianteLines.length > 0;
+  const hasTO = toLines.length > 0;
+  const hasScenarioOptions = hasPSE || hasVariante || hasTO;
 
   const versionHasAttributaire = version ? hasAttributaire(version.id) : false;
   const isValidated = version?.validated ?? false;
@@ -114,35 +145,38 @@ const SynthesePage = () => {
       techScores[company.id] = { total, technique, env, planning };
     }
 
-    // Price totals and sub-notes
+    // Price totals based on scenario toggles
     const companyPriceTotals: Record<number, number> = {};
     const companySubNotes: Record<number, { tf: number; tfPse: number; tfVariante: number; tfTo: number }> = {};
 
     for (const company of activeCompanies) {
       if (company.status === "ecartee") continue;
 
-      // TF = base DPGF (lotLineId=0)
       const baseDpgf = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === 0);
       const tf = (baseDpgf?.dpgf1 ?? 0) + (baseDpgf?.dpgf2 ?? 0);
 
+      let scenarioTotal = tf;
       let pseSum = 0;
       let varianteSum = 0;
       let toSum = 0;
-      let totalLines = 0;
 
       for (const line of activeLotLines) {
         const entry = version.priceEntries.find(
           (e) => e.companyId === company.id && e.lotLineId === line.id
         );
         const lineTotal = (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
-        totalLines += lineTotal;
 
         if (line.type === "PSE") pseSum += lineTotal;
         else if (line.type === "VARIANTE") varianteSum += lineTotal;
         else if (line.type === "T_OPTIONNELLE") toSum += lineTotal;
+
+        // Only include line in scenario total if toggled on
+        if (enabledLines[line.id]) {
+          scenarioTotal += lineTotal;
+        }
       }
 
-      companyPriceTotals[company.id] = tf + totalLines;
+      companyPriceTotals[company.id] = scenarioTotal;
       companySubNotes[company.id] = {
         tf,
         tfPse: tf + pseSum,
@@ -178,7 +212,7 @@ const SynthesePage = () => {
         subNotes,
       };
     });
-  }, [activeCompanies, technicalCriteria, version, prixWeight, activeLotLines]);
+  }, [activeCompanies, technicalCriteria, version, prixWeight, activeLotLines, enabledLines]);
 
   const sorted = useMemo(() => {
     return [...results].sort((a, b) => {
@@ -197,6 +231,19 @@ const SynthesePage = () => {
     new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
 
   const pageTitle = isNego ? `Synthèse — ${negoLabel}` : `Synthèse & Classement — ${displayLabel}`;
+
+  // Find attributaire info for declaration
+  const attributaireResult = sorted.find(
+    (r) => r.company.status !== "ecartee" && getNegotiationDecision(r.company.id) === "attributaire"
+  );
+  const scenarioDescription = useMemo(() => {
+    if (!attributaireResult) return "";
+    const enabledOptions = activeLotLines
+      .filter((l) => l.type && enabledLines[l.id])
+      .map((l) => `${l.label} (${l.type === "PSE" ? "PSE" : l.type === "VARIANTE" ? "Variante" : "T. Optionnelle"})`)
+      .join(", ");
+    return `L'entreprise ${attributaireResult.company.name} est retenue pour un montant de ${fmt(attributaireResult.priceTotal)} HT, incluant la Solution de Base${enabledOptions ? ` + ${enabledOptions}` : ""}.`;
+  }, [attributaireResult, activeLotLines, enabledLines]);
 
   if (activeCompanies.length === 0) {
     return (
@@ -241,72 +288,177 @@ const SynthesePage = () => {
       </div>
 
       {/* Validate / Unvalidate buttons */}
-      {version && allDecided && !isValidated && !isReadOnly && (
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button className="gap-2 bg-green-600 hover:bg-green-700">
-              <CheckCircle className="h-4 w-4" />
-              {versionHasAttributaire ? "Valider l'analyse — Attribuer" : "Valider l'analyse"}
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-green-600" />
-                Valider l'analyse ?
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                {versionHasAttributaire ? (
-                  <>
-                    Une entreprise est <strong>attributaire</strong>. Valider l'analyse va figer définitivement
-                    cette phase. Aucune négociation supplémentaire ne pourra être créée.
-                  </>
-                ) : (
-                  <>
-                    La validation va figer cette phase. Les entreprises « Retenue pour négociation » 
-                    pourront passer en phase de négociation suivante.
-                  </>
-                )}
-                {" "}Vous pourrez débloquer si nécessaire.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Annuler</AlertDialogCancel>
-              <AlertDialogAction onClick={() => validateVersion(version.id)}>
-                Confirmer la validation
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      )}
+      <div className="flex items-center gap-3 flex-wrap">
+        {version && allDecided && !isValidated && !isReadOnly && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button className="gap-2 bg-green-600 hover:bg-green-700">
+                <CheckCircle className="h-4 w-4" />
+                {versionHasAttributaire ? "Valider l'analyse — Attribuer" : "Valider l'analyse"}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2">
+                  <ShieldCheck className="h-5 w-5 text-green-600" />
+                  Valider l'analyse ?
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {versionHasAttributaire ? (
+                    <>
+                      Une entreprise est <strong>attributaire</strong>. Valider l'analyse va figer définitivement
+                      cette phase. Aucune négociation supplémentaire ne pourra être créée.
+                    </>
+                  ) : (
+                    <>
+                      La validation va figer cette phase. Les entreprises « Retenue pour négociation » 
+                      pourront passer en phase de négociation suivante.
+                    </>
+                  )}
+                  {" "}Vous pourrez débloquer si nécessaire.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Annuler</AlertDialogCancel>
+                <AlertDialogAction onClick={() => validateVersion(version.id)}>
+                  Confirmer la validation
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
 
-      {version && isValidated && (
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button variant="outline" className="gap-2">
-              <Unlock className="h-4 w-4" />
-              Débloquer l'analyse
+        {version && isValidated && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Unlock className="h-4 w-4" />
+                Débloquer l'analyse
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                  Débloquer l'analyse ?
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  L'analyse sera déverrouillée. Vous pourrez modifier les données et éventuellement créer
+                  une nouvelle phase de négociation.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Annuler</AlertDialogCancel>
+                <AlertDialogAction onClick={() => unvalidateVersion(version.id)}>
+                  Confirmer le déblocage
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+
+        {/* Declare attributaire button */}
+        {attributaireResult && (
+          <Button
+            className="gap-2"
+            variant="default"
+            onClick={() => setAttributaireDialogOpen(true)}
+          >
+            <Award className="h-4 w-4" />
+            Déclarer l'attributaire
+          </Button>
+        )}
+      </div>
+
+      {/* Attributaire declaration dialog */}
+      <Dialog open={attributaireDialogOpen} onOpenChange={setAttributaireDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Award className="h-5 w-5 text-green-600" />
+              Déclaration de l'attributaire
+            </DialogTitle>
+            <DialogDescription>
+              Récapitulatif du scénario retenu
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-border bg-muted/30 p-4 text-sm leading-relaxed">
+            {scenarioDescription}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAttributaireDialogOpen(false)}>
+              Fermer
             </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle className="flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-destructive" />
-                Débloquer l'analyse ?
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                L'analyse sera déverrouillée. Vous pourrez modifier les données et éventuellement créer
-                une nouvelle phase de négociation.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Annuler</AlertDialogCancel>
-              <AlertDialogAction onClick={() => unvalidateVersion(version.id)}>
-                Confirmer le déblocage
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Scenario configuration */}
+      {hasScenarioOptions && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Settings2 className="h-4 w-4" />
+              Configuration du scénario d'analyse
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Activez/désactivez les options pour recalculer les montants et le classement en temps réel.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-4">
+              {hasPSE && (
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">PSE</span>
+                  {pseLines.map((l) => (
+                    <div key={l.id} className="flex items-center gap-2">
+                      <Switch
+                        checked={!!enabledLines[l.id]}
+                        onCheckedChange={() => toggleLine(l.id)}
+                      />
+                      <span className="text-sm">{l.label}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {hasVariante && (
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Variantes</span>
+                  {varianteLines.map((l) => (
+                    <div key={l.id} className="flex items-center gap-2">
+                      <Switch
+                        checked={!!enabledLines[l.id]}
+                        onCheckedChange={() => toggleLine(l.id)}
+                      />
+                      <span className="text-sm">{l.label}</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-2 pt-1 border-t border-border">
+                    <Switch
+                      checked={compareVariantes}
+                      onCheckedChange={setCompareVariantes}
+                    />
+                    <span className="text-sm italic">Comparer avec Variante</span>
+                  </div>
+                </div>
+              )}
+              {hasTO && (
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tranches Optionnelles</span>
+                  {toLines.map((l) => (
+                    <div key={l.id} className="flex items-center gap-2">
+                      <Switch
+                        checked={!!enabledLines[l.id]}
+                        onCheckedChange={() => toggleLine(l.id)}
+                      />
+                      <span className="text-sm">{l.label}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <Card>
@@ -324,13 +476,12 @@ const SynthesePage = () => {
                 {envWeight > 0 && <TableHead className="text-right">Enviro. / {envWeight}</TableHead>}
                 {planWeight > 0 && <TableHead className="text-right">Planning / {planWeight}</TableHead>}
                 <TableHead className="text-right">Prix / {prixWeight}</TableHead>
-                <TableHead className="text-right">Montant Total</TableHead>
+                <TableHead className="text-right">Montant Scénario</TableHead>
                 {hasPSE && <TableHead className="text-right">TF + PSE</TableHead>}
                 {hasVariante && <TableHead className="text-right">TF + Variantes</TableHead>}
                 {hasTO && <TableHead className="text-right">TF + TO</TableHead>}
                 <TableHead className="text-right">Globale / {maxTotal}</TableHead>
-                <TableHead className="text-center">Statut</TableHead>
-                <TableHead className="text-center">Décision</TableHead>
+                <TableHead className="text-center">Statut / Décision</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -385,16 +536,19 @@ const SynthesePage = () => {
                     </TableCell>
                     <TableCell className="text-center">
                       {isExcluded ? (
-                        <Badge variant="destructive">
-                          Écartée{row.company.exclusionReason ? ` — ${row.company.exclusionReason}` : ""}
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary">—</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {isExcluded ? (
-                        <span className="text-xs text-muted-foreground">—</span>
+                        <HoverCard>
+                          <HoverCardTrigger asChild>
+                            <Badge variant="destructive" className="cursor-help max-w-[180px] truncate">
+                              Écartée{row.company.exclusionReason ? ` — ${row.company.exclusionReason.substring(0, 20)}${row.company.exclusionReason.length > 20 ? "…" : ""}` : ""}
+                            </Badge>
+                          </HoverCardTrigger>
+                          {row.company.exclusionReason && (
+                            <HoverCardContent className="text-sm">
+                              <p className="font-semibold mb-1">Motif d'éviction :</p>
+                              <p>{row.company.exclusionReason}</p>
+                            </HoverCardContent>
+                          )}
+                        </HoverCard>
                       ) : (
                         <Select
                           value={decision}
@@ -417,6 +571,33 @@ const SynthesePage = () => {
                   </TableRow>
                 );
               })}
+              {/* Variante comparison rows */}
+              {compareVariantes && varianteLines.some((l) => enabledLines[l.id]) && sorted
+                .filter((r) => r.company.status !== "ecartee")
+                .map((row) => {
+                  const varianteTotal = row.subNotes.tfVariante;
+                  if (varianteTotal <= 0) return null;
+                  return (
+                    <TableRow key={`variante-${row.company.id}`} className="bg-muted/30 italic">
+                      <TableCell className="font-semibold text-muted-foreground">—</TableCell>
+                      <TableCell className="font-medium text-muted-foreground">
+                        {row.company.id}. {row.company.name} — Variante
+                      </TableCell>
+                      <TableCell className="text-right">{row.techniqueScore.toFixed(1)}</TableCell>
+                      {envWeight > 0 && <TableCell className="text-right">{row.envScore.toFixed(1)}</TableCell>}
+                      {planWeight > 0 && <TableCell className="text-right">{row.planningScore.toFixed(1)}</TableCell>}
+                      <TableCell className="text-right">—</TableCell>
+                      <TableCell className="text-right">{fmt(varianteTotal)}</TableCell>
+                      {hasPSE && <TableCell className="text-right">—</TableCell>}
+                      {hasVariante && <TableCell className="text-right">{fmt(varianteTotal)}</TableCell>}
+                      {hasTO && <TableCell className="text-right">—</TableCell>}
+                      <TableCell className="text-right">—</TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="outline" className="text-xs">Comparaison</Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
             </TableBody>
           </Table>
         </CardContent>
