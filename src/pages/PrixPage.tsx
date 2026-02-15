@@ -137,18 +137,23 @@ const PrixPage = () => {
           {company.status !== "ecartee" && (
             <CardContent>
               <div className="space-y-3">
-                <div className="grid grid-cols-[1fr_120px_120px] gap-2 text-xs font-medium text-muted-foreground px-1">
+                <div className="grid grid-cols-[1fr_120px_120px_120px] gap-2 text-xs font-medium text-muted-foreground px-1">
                   <span>Ligne</span>
+                  <span className="text-right">Estimation (€ HT)</span>
                   <span className="text-right">DPGF 1 (€ HT)</span>
                   <span className="text-right">DPGF 2 (€ HT)</span>
                 </div>
                 {/* Base DPGF row */}
                 {(() => {
                   const dpgfEntry = getPriceEntry(company.id, 0);
+                  const estTotal = (project.info.estimationDpgf1 ?? 0) + (project.info.estimationDpgf2 ?? 0);
                   return (
-                    <div className="grid grid-cols-[1fr_120px_120px] gap-2 items-center rounded-md border-2 border-primary/30 bg-primary/5 p-2">
+                    <div className="grid grid-cols-[1fr_120px_120px_120px] gap-2 items-center rounded-md border-2 border-primary/30 bg-primary/5 p-2">
                       <div className="text-sm">
                         <span className="font-semibold">DPGF (Tranche Ferme)</span>
+                      </div>
+                      <div className="text-right text-sm text-muted-foreground font-medium">
+                        {estTotal > 0 ? fmt(estTotal) : "—"}
                       </div>
                       <Input
                         type="number"
@@ -187,10 +192,11 @@ const PrixPage = () => {
                   const entry = getPriceEntry(company.id, line.id);
                   const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
                   const showDpgf2 = line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both";
+                  const estLine = (line.estimationDpgf1 ?? 0) + (line.estimationDpgf2 ?? 0);
                   return (
                     <div
                       key={line.id}
-                      className="grid grid-cols-[1fr_120px_120px] gap-2 items-center rounded-md border border-border p-2"
+                      className="grid grid-cols-[1fr_120px_120px_120px] gap-2 items-center rounded-md border border-border p-2"
                     >
                       <div className="text-sm">
                         <span className="font-medium">{line.label}</span>
@@ -199,6 +205,9 @@ const PrixPage = () => {
                             {line.type === "PSE" ? "PSE" : line.type === "VARIANTE" ? "Variante" : "TO"}
                           </Badge>
                         )}
+                      </div>
+                      <div className="text-right text-sm text-muted-foreground font-medium">
+                        {estLine > 0 ? fmt(estLine) : "—"}
                       </div>
                       {showDpgf1 ? (
                         <Input
@@ -242,8 +251,9 @@ const PrixPage = () => {
                   );
                 })}
                 {companyTotals[company.id] && (
-                  <div className="grid grid-cols-[1fr_120px_120px] gap-2 rounded-md bg-muted/50 p-2 text-sm font-semibold">
+                  <div className="grid grid-cols-[1fr_120px_120px_120px] gap-2 rounded-md bg-muted/50 p-2 text-sm font-semibold">
                     <span>Total</span>
+                    <span></span>
                     <span className="text-right">{fmt(companyTotals[company.id].dpgf1)}</span>
                     <span className="text-right">{fmt(companyTotals[company.id].dpgf2)}</span>
                   </div>
