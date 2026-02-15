@@ -1014,7 +1014,77 @@ function buildComparaisonsSheet(
   cmpSheet.getCell(`B${row}`).font = { italic: true, size: 9 };
   row += 2;
 
-  // For each typed line, show a comparison table
+  // === Tranche Ferme seule (obligatoire) ===
+  {
+    cmpSheet.mergeCells(`B${row}:J${row}`);
+    const tfTitle = cmpSheet.getCell(`B${row}`);
+    tfTitle.value = "Scénario : Tranche Ferme (Base seule)";
+    tfTitle.font = { bold: true, size: 11, color: { argb: COLORS.headerFont } };
+    tfTitle.fill = headerFill();
+    tfTitle.border = thinBorder();
+    row++;
+
+    const tfHeaders = ["Entreprise", "Prix Base (€ HT)", `Note Tech (/${vtWeight + envW + planW})`, `Note Prix (/${prixWeight})`, `Note Globale (/${maxGlobal})`, "Classement"];
+    tfHeaders.forEach((h, i) => {
+      const c = cmpSheet.getCell(row, i + 2);
+      c.value = h;
+      c.font = { bold: true, size: 9 };
+      c.fill = lightFill(COLORS.lightBlue);
+      c.border = thinBorder();
+      c.alignment = { horizontal: "center", wrapText: true };
+    });
+    row++;
+
+    const baseTotals: { name: string; basePrice: number; techTotal: number }[] = [];
+    for (const company of eligibleCompanies) {
+      const baseDpgf = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === 0);
+      let basePrice = (baseDpgf?.dpgf1 ?? 0) + (baseDpgf?.dpgf2 ?? 0);
+      if (basePrice === 0) {
+        const baseLines = activeLotLines.filter((l) => !l.type);
+        for (const bl of baseLines) {
+          const e = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === bl.id);
+          basePrice += (e?.dpgf1 ?? 0) + (e?.dpgf2 ?? 0);
+        }
+      }
+      const ts = techScores[company.id] ?? { tech: 0, env: 0, plan: 0, total: 0 };
+      baseTotals.push({ name: `${company.id}. ${company.name}`, basePrice, techTotal: ts.total });
+    }
+
+    const validBasePrices = baseTotals.filter((t) => t.basePrice > 0).map((t) => t.basePrice);
+    const minBasePrice = validBasePrices.length > 0 ? Math.min(...validBasePrices) : 0;
+
+    const scoredBase = baseTotals.map((t) => {
+      const priceScore = t.basePrice > 0 ? (minBasePrice / t.basePrice) * prixWeight : 0;
+      return { ...t, priceScore, globalScore: t.techTotal + priceScore };
+    }).sort((a, b) => b.globalScore - a.globalScore);
+
+    scoredBase.forEach((s, idx) => {
+      cmpSheet.getCell(row, 2).value = s.name;
+      cmpSheet.getCell(row, 2).border = thinBorder();
+      cmpSheet.getCell(row, 3).value = s.basePrice;
+      cmpSheet.getCell(row, 3).numFmt = '#,##0.00 "€"';
+      cmpSheet.getCell(row, 3).font = { bold: true };
+      cmpSheet.getCell(row, 3).border = thinBorder();
+      cmpSheet.getCell(row, 4).value = Number(s.techTotal.toFixed(1));
+      cmpSheet.getCell(row, 4).border = thinBorder();
+      cmpSheet.getCell(row, 4).alignment = { horizontal: "center" };
+      cmpSheet.getCell(row, 5).value = Number(s.priceScore.toFixed(2));
+      cmpSheet.getCell(row, 5).border = thinBorder();
+      cmpSheet.getCell(row, 5).alignment = { horizontal: "center" };
+      cmpSheet.getCell(row, 6).value = Number(s.globalScore.toFixed(2));
+      cmpSheet.getCell(row, 6).font = { bold: true };
+      cmpSheet.getCell(row, 6).border = thinBorder();
+      cmpSheet.getCell(row, 6).alignment = { horizontal: "center" };
+      cmpSheet.getCell(row, 7).value = idx + 1;
+      cmpSheet.getCell(row, 7).font = { bold: true };
+      cmpSheet.getCell(row, 7).border = thinBorder();
+      cmpSheet.getCell(row, 7).alignment = { horizontal: "center" };
+      row++;
+    });
+    row += 1;
+  }
+
+  // For each typed line, show a comparison table (Base + option)
   for (const line of typedLines) {
     const label = getLineLabel(line);
 
