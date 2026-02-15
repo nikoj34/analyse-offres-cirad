@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,14 +8,14 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { useMultiProjectStore } from "@/store/multiProjectStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useEffect } from "react";
-import Index from "./pages/Index";
-import TechniquePage from "./pages/TechniquePage";
-import PrixPage from "./pages/PrixPage";
-import SynthesePage from "./pages/SynthesePage";
-import VersionsPage from "./pages/VersionsPage";
-import ExportPage from "./pages/ExportPage";
-import ProjectsPage from "./pages/ProjectsPage";
-import NotFound from "./pages/NotFound";
+
+const Index = lazy(() => import("./pages/Index"));
+const TechniquePage = lazy(() => import("./pages/TechniquePage"));
+const PrixPage = lazy(() => import("./pages/PrixPage"));
+const SynthesePage = lazy(() => import("./pages/SynthesePage"));
+const VersionsPage = lazy(() => import("./pages/VersionsPage"));
+const ExportPage = lazy(() => import("./pages/ExportPage"));
+const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
 
 const queryClient = new QueryClient();
 
@@ -56,6 +57,7 @@ const App = () => {
         <Sonner />
         <ProjectSync />
         <BrowserRouter>
+          <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Chargement…</div>}>
           {currentProjectId ? (
             <AppLayout>
               <Routes>
@@ -76,6 +78,7 @@ const App = () => {
               <Route path="*" element={<ProjectsPage />} />
             </Routes>
           )}
+          </Suspense>
         </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>
