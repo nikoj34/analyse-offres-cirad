@@ -18,17 +18,27 @@ import {
 } from "@/components/ui/alert-dialog";
 import ciradLogo from "@/assets/cirad-logo.png";
 import { getVersionDisplayLabel } from "@/types/project";
+import { Footer } from "@/components/Footer";
 
-function getProjectStatus(project: any): { label: string; color: string; detail: string } {
+function getProjectStatus(project: any): { label: string; color: string; detail: string; attributaire?: string } {
   const versions = project.versions ?? [];
-  // Check if any version has attributaire validated
   for (const v of versions) {
     if (v.validated && Object.values(v.negotiationDecisions ?? {}).some((d: string) => d === "attributaire")) {
       const date = v.validatedAt ? new Date(v.validatedAt).toLocaleDateString("fr-FR") : "";
-      return { label: "Terminé", color: "bg-green-600", detail: date ? `Validé le ${date}` : "" };
+      // Find attributaire company name
+      const attributaireId = Object.entries(v.negotiationDecisions ?? {}).find(([, d]) => d === "attributaire")?.[0];
+      const companies = project.companies ?? [];
+      const attributaireName = attributaireId
+        ? companies.find((c: any) => c.id === Number(attributaireId))?.name ?? ""
+        : "";
+      return {
+        label: "Terminé",
+        color: "bg-green-600",
+        detail: date ? `Validé le ${date}` : "",
+        attributaire: attributaireName,
+      };
     }
   }
-  // In progress - find current phase
   const lastVersion = versions[versions.length - 1];
   if (lastVersion) {
     const displayLabel = getVersionDisplayLabel(lastVersion.label);
@@ -143,13 +153,18 @@ const ProjectsPage = () => {
                 >
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 flex-wrap">
                         <CardTitle className="text-base">{p.name}</CardTitle>
                         <Badge className={`${status.color} text-white`}>
                           {status.label}
                         </Badge>
                         {status.detail && (
                           <span className="text-xs text-muted-foreground">{status.detail}</span>
+                        )}
+                        {status.attributaire && (
+                          <Badge variant="outline" className="border-green-600 text-green-700">
+                            Attributaire : {status.attributaire}
+                          </Badge>
                         )}
                       </div>
                       <AlertDialog>
@@ -191,6 +206,7 @@ const ProjectsPage = () => {
           </div>
         )}
       </main>
+      <Footer />
     </div>
   );
 };

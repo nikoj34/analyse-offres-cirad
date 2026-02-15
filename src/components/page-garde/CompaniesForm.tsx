@@ -29,13 +29,13 @@ export function CompaniesForm() {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-lg">Entreprises</CardTitle>
-            <CardDescription>{companies.length}/16 entreprises</CardDescription>
+            <CardDescription>{companies.length}/30 entreprises</CardDescription>
           </div>
           <Button
             variant="outline"
             size="sm"
             onClick={addCompany}
-            disabled={companies.length >= 16}
+            disabled={companies.length >= 30}
           >
             <Plus className="mr-1 h-4 w-4" />
             Ajouter

@@ -3,7 +3,7 @@
 export type CompanyStatus = "retenue" | "ecartee" | "non_defini";
 
 export interface Company {
-  id: number; // 1-16
+  id: number; // 1-30
   name: string;
   status: CompanyStatus;
   exclusionReason: string;
@@ -109,6 +109,7 @@ export interface NegotiationVersion {
   validated: boolean; // true when attributaire confirmed
   validatedAt: string | null; // ISO date string of validation
   negotiationDecisions: Record<number, NegotiationDecision>;
+  documentsToVerify: Record<number, string>;
 }
 
 export interface ProjectData {
@@ -165,6 +166,7 @@ export function createDefaultProject(): ProjectData {
         validated: false,
         validatedAt: null,
         negotiationDecisions: {},
+        documentsToVerify: {},
       },
     ],
     currentVersionId: versionId,

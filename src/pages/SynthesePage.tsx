@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getVersionDisplayLabel } from "@/types/project";
+import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getVersionDisplayLabel, LotType } from "@/types/project";
 import { useMemo } from "react";
 import { Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle } from "lucide-react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
@@ -50,11 +50,15 @@ const SynthesePage = () => {
   const envCriterion = technicalCriteria.find((c) => c.id === "environnemental");
   const planCriterion = technicalCriteria.find((c) => c.id === "planning");
 
+  // Check which sub-note types exist
+  const hasPSE = activeLotLines.some((l) => l.type === "PSE");
+  const hasVariante = activeLotLines.some((l) => l.type === "VARIANTE");
+  const hasTO = activeLotLines.some((l) => l.type === "T_OPTIONNELLE");
+
   const versionHasAttributaire = version ? hasAttributaire(version.id) : false;
   const isValidated = version?.validated ?? false;
   const displayLabel = version ? getVersionDisplayLabel(version.label) : "";
 
-  // Check if all non-excluded companies have a decision (not "non_defini")
   const allDecided = useMemo(() => {
     const eligibleCompanies = activeCompanies.filter((c) => c.status !== "ecartee");
     if (eligibleCompanies.length === 0) return false;
@@ -110,17 +114,41 @@ const SynthesePage = () => {
       techScores[company.id] = { total, technique, env, planning };
     }
 
+    // Price totals and sub-notes
     const companyPriceTotals: Record<number, number> = {};
+    const companySubNotes: Record<number, { tf: number; tfPse: number; tfVariante: number; tfTo: number }> = {};
+
     for (const company of activeCompanies) {
       if (company.status === "ecartee") continue;
-      let sum = 0;
+
+      // TF = base DPGF (lotLineId=0)
+      const baseDpgf = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === 0);
+      const tf = (baseDpgf?.dpgf1 ?? 0) + (baseDpgf?.dpgf2 ?? 0);
+
+      let pseSum = 0;
+      let varianteSum = 0;
+      let toSum = 0;
+      let totalLines = 0;
+
       for (const line of activeLotLines) {
         const entry = version.priceEntries.find(
           (e) => e.companyId === company.id && e.lotLineId === line.id
         );
-        sum += (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
+        const lineTotal = (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
+        totalLines += lineTotal;
+
+        if (line.type === "PSE") pseSum += lineTotal;
+        else if (line.type === "VARIANTE") varianteSum += lineTotal;
+        else if (line.type === "T_OPTIONNELLE") toSum += lineTotal;
       }
-      companyPriceTotals[company.id] = sum;
+
+      companyPriceTotals[company.id] = tf + totalLines;
+      companySubNotes[company.id] = {
+        tf,
+        tfPse: tf + pseSum,
+        tfVariante: tf + varianteSum,
+        tfTo: tf + toSum,
+      };
     }
 
     const validPrices = Object.values(companyPriceTotals).filter((v) => v > 0);
@@ -135,6 +163,7 @@ const SynthesePage = () => {
       const ts = techScores[company.id] ?? { total: 0, technique: 0, env: 0, planning: 0 };
       const priceScore = company.status === "ecartee" ? 0 : (priceScores[company.id] ?? 0);
       const priceTotal = company.status === "ecartee" ? 0 : (companyPriceTotals[company.id] ?? 0);
+      const subNotes = companySubNotes[company.id] ?? { tf: 0, tfPse: 0, tfVariante: 0, tfTo: 0 };
       const globalScore = ts.total + priceScore;
 
       return {
@@ -146,6 +175,7 @@ const SynthesePage = () => {
         priceScore,
         priceTotal,
         globalScore,
+        subNotes,
       };
     });
   }, [activeCompanies, technicalCriteria, version, prixWeight, activeLotLines]);
@@ -210,7 +240,7 @@ const SynthesePage = () => {
         </p>
       </div>
 
-      {/* Validate button: shown when ALL companies have a decision and not yet validated */}
+      {/* Validate / Unvalidate buttons */}
       {version && allDecided && !isValidated && !isReadOnly && (
         <AlertDialog>
           <AlertDialogTrigger asChild>
@@ -295,6 +325,9 @@ const SynthesePage = () => {
                 {planWeight > 0 && <TableHead className="text-right">Planning / {planWeight}</TableHead>}
                 <TableHead className="text-right">Prix / {prixWeight}</TableHead>
                 <TableHead className="text-right">Montant Total</TableHead>
+                {hasPSE && <TableHead className="text-right">TF + PSE</TableHead>}
+                {hasVariante && <TableHead className="text-right">TF + Variantes</TableHead>}
+                {hasTO && <TableHead className="text-right">TF + TO</TableHead>}
                 <TableHead className="text-right">Globale / {maxTotal}</TableHead>
                 <TableHead className="text-center">Statut</TableHead>
                 <TableHead className="text-center">Décision</TableHead>
@@ -332,6 +365,21 @@ const SynthesePage = () => {
                     <TableCell className="text-right">
                       {isExcluded ? "—" : fmt(row.priceTotal)}
                     </TableCell>
+                    {hasPSE && (
+                      <TableCell className="text-right">
+                        {isExcluded ? "—" : fmt(row.subNotes.tfPse)}
+                      </TableCell>
+                    )}
+                    {hasVariante && (
+                      <TableCell className="text-right">
+                        {isExcluded ? "—" : fmt(row.subNotes.tfVariante)}
+                      </TableCell>
+                    )}
+                    {hasTO && (
+                      <TableCell className="text-right">
+                        {isExcluded ? "—" : fmt(row.subNotes.tfTo)}
+                      </TableCell>
+                    )}
                     <TableCell className="text-right font-bold">
                       {isExcluded ? "—" : row.globalScore.toFixed(1)}
                     </TableCell>

@@ -721,12 +721,74 @@ export async function exportToExcel(project: ProjectData) {
     row++;
   }
 
+  // Notation methodology table
+  row += 1;
+  pgSheet.mergeCells(`B${row}:F${row}`);
+  const notationTitle = pgSheet.getCell(`B${row}`);
+  notationTitle.value = "MÉTHODOLOGIE DE NOTATION";
+  notationTitle.font = headerFont();
+  notationTitle.fill = headerFill();
+  notationTitle.border = thinBorder();
+  row++;
+
+  // Header row
+  const notationHeaders = ["Appréciation", "Note / 5"];
+  // Add weighted columns for each technical criterion
+  const techCriteria = project.weightingCriteria.filter((c) => c.id !== "prix");
+  for (const c of techCriteria) {
+    notationHeaders.push(`Sur ${c.weight} pts`);
+  }
+  notationHeaders.forEach((h, i) => {
+    const col = String.fromCharCode(66 + i);
+    const cell = pgSheet.getCell(`${col}${row}`);
+    cell.value = h;
+    cell.font = { bold: true, size: 9 };
+    cell.fill = lightFill(COLORS.lightBlue);
+    cell.border = thinBorder();
+    cell.alignment = { horizontal: "center" };
+  });
+  row++;
+
+  // Notation rows
+  const notationScale: [string, number][] = [
+    ["Très bien", 5],
+    ["Bien", 4],
+    ["Moyen", 3],
+    ["Passable", 2],
+    ["Insuffisant", 1],
+  ];
+  for (const [label, value] of notationScale) {
+    let col = 1;
+    const labelCell = pgSheet.getCell(row, col + 1);
+    labelCell.value = label;
+    labelCell.border = thinBorder();
+    labelCell.font = { bold: true };
+    col++;
+
+    const noteCell = pgSheet.getCell(row, col + 1);
+    noteCell.value = `${value} / 5`;
+    noteCell.border = thinBorder();
+    noteCell.alignment = { horizontal: "center" };
+    col++;
+
+    for (const c of techCriteria) {
+      const weighted = (value / 5) * c.weight;
+      const wCell = pgSheet.getCell(row, col + 1);
+      wCell.value = Number(weighted.toFixed(1));
+      wCell.border = thinBorder();
+      wCell.alignment = { horizontal: "center" };
+      col++;
+    }
+    row++;
+  }
+
   pgSheet.getColumn("B").width = 25;
   pgSheet.getColumn("C").width = 15;
   pgSheet.getColumn("D").width = 30;
   pgSheet.getColumn("E").width = 15;
   pgSheet.getColumn("F").width = 20;
   pgSheet.getColumn("G").width = 20;
+  pgSheet.getColumn("H").width = 15;
 
   // =========== V0 Sheets: Analyse initiale ===========
   buildTechSheet(wb, "ANALYSE_TECHNIQUE", project, v0, activeCompanies);

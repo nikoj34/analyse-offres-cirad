@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { useMemo } from "react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
 import { Lock } from "lucide-react";
+import { getCompanyColor } from "@/lib/companyColors";
 
 const PrixPage = () => {
   const { project, setPriceEntry, getPriceEntry } = useProjectStore();
@@ -24,7 +25,6 @@ const PrixPage = () => {
 
     for (const company of activeCompanies) {
       if (company.status === "ecartee") continue;
-      // Base DPGF entry (lotLineId = 0)
       const baseDpgf = version.priceEntries.find(
         (e) => e.companyId === company.id && e.lotLineId === 0
       );
@@ -105,8 +105,12 @@ const PrixPage = () => {
         </p>
       </div>
 
-      {activeCompanies.map((company) => (
-        <Card key={company.id} className={company.status === "ecartee" ? "opacity-60" : ""}>
+      {activeCompanies.map((company, companyIndex) => (
+        <Card
+          key={company.id}
+          className={company.status === "ecartee" ? "opacity-60" : ""}
+          style={{ borderLeft: `4px solid ${getCompanyColor(companyIndex)}` }}
+        >
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">
