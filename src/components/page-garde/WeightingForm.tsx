@@ -18,7 +18,8 @@ export function WeightingForm() {
     removeSubCriterion,
     updateSubCriterion,
   } = useProjectStore();
-  const { weightingCriteria } = project;
+  const lot = project.lots[project.currentLotIndex];
+  const { weightingCriteria } = lot;
 
   const totalWeight = weightingCriteria.reduce((sum, c) => sum + c.weight, 0);
   const isValidTotal = totalWeight === 100;

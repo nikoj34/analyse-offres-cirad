@@ -5,8 +5,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useProjectStore } from "@/store/projectStore";
 
 export function ProjectInfoForm() {
-  const { project, updateInfo } = useProjectStore();
+  const { project, updateInfo, updateLotInfo } = useProjectStore();
   const { info } = project;
+  const lot = project.lots[project.currentLotIndex];
 
   return (
     <Card>
@@ -37,8 +38,8 @@ export function ProjectInfoForm() {
             <Label htmlFor="lot-analyzed">Lot analysé</Label>
             <Input
               id="lot-analyzed"
-              value={info.lotAnalyzed}
-              onChange={(e) => updateInfo({ lotAnalyzed: e.target.value })}
+              value={lot.lotAnalyzed}
+              onChange={(e) => updateLotInfo({ lotAnalyzed: e.target.value })}
               placeholder="Ex : Gros œuvre"
             />
           </div>
@@ -46,8 +47,8 @@ export function ProjectInfoForm() {
             <Label htmlFor="lot-number">N° de lot</Label>
             <Input
               id="lot-number"
-              value={info.lotNumber}
-              onChange={(e) => updateInfo({ lotNumber: e.target.value })}
+              value={lot.lotNumber}
+              onChange={(e) => updateLotInfo({ lotNumber: e.target.value })}
               placeholder="Ex : 01"
             />
           </div>
@@ -72,8 +73,8 @@ export function ProjectInfoForm() {
           <div className="col-span-full flex items-center gap-3 rounded-md border border-border p-3 bg-muted/30">
             <Checkbox
               id="dual-dpgf"
-              checked={info.hasDualDpgf ?? false}
-              onCheckedChange={(checked) => updateInfo({ hasDualDpgf: !!checked })}
+              checked={lot.hasDualDpgf ?? false}
+              onCheckedChange={(checked) => updateLotInfo({ hasDualDpgf: !!checked })}
             />
             <div>
               <Label htmlFor="dual-dpgf" className="cursor-pointer font-medium">Projet à 2 DPGF</Label>

@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 import {
-  ProjectData,
+  LegacyProjectView,
   NOTATION_LABELS,
   NOTATION_VALUES,
   NotationLevel,
@@ -10,6 +10,8 @@ import {
   NegotiationVersion,
   getVersionDisplayLabel,
 } from "@/types/project";
+
+type ProjectData = LegacyProjectView;
 
 const COLORS = {
   headerBg: "1F4E79",

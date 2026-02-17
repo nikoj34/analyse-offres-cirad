@@ -21,7 +21,8 @@ const STATUS_COLORS: Record<CompanyStatus, string> = {
 
 export function CompaniesForm() {
   const { project, addCompany, removeCompany, updateCompany, setCompanyStatus } = useProjectStore();
-  const { companies } = project;
+  const lot = project.lots[project.currentLotIndex];
+  const { companies } = lot;
 
   return (
     <Card>

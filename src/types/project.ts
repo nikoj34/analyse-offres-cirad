@@ -3,7 +3,7 @@
 export type CompanyStatus = "retenue" | "ecartee" | "non_defini";
 
 export interface Company {
-  id: number; // 1-30
+  id: number;
   name: string;
   status: CompanyStatus;
   exclusionReason: string;
@@ -14,7 +14,7 @@ export type LotType = "PSE" | "VARIANTE" | "T_OPTIONNELLE";
 export type DpgfAssignment = "DPGF_1" | "DPGF_2" | "both";
 
 export interface LotLine {
-  id: number; // 1-12
+  id: number;
   label: string;
   type: LotType | null;
   dpgfAssignment: DpgfAssignment;
@@ -56,13 +56,9 @@ export interface SubCriterion {
 export interface ProjectInfo {
   name: string;
   marketRef: string;
-  lotAnalyzed: string;
-  lotNumber: string;
   analysisDate: string;
   author: string;
-  hasDualDpgf: boolean;
-  estimationDpgf1: number | null;
-  estimationDpgf2: number | null;
+  numberOfLots: number;
 }
 
 export interface TechnicalNote {
@@ -103,27 +99,78 @@ export function getVersionDisplayLabel(label: string): string {
 
 export interface NegotiationVersion {
   id: string;
-  label: string; // V0, V1, V2
+  label: string;
   createdAt: string;
-  analysisDate: string; // date of analysis for this version
+  analysisDate: string;
   technicalNotes: TechnicalNote[];
   priceEntries: PriceEntry[];
   frozen: boolean;
-  validated: boolean; // true when attributaire confirmed
-  validatedAt: string | null; // ISO date string of validation
+  validated: boolean;
+  validatedAt: string | null;
   negotiationDecisions: Record<number, NegotiationDecision>;
   documentsToVerify: Record<number, string>;
 }
 
-export interface ProjectData {
+// === Multi-Lot Types ===
+
+export interface LotData {
   id: string;
-  info: ProjectInfo;
+  label: string;
+  lotNumber: string;
+  lotAnalyzed: string;
+  hasDualDpgf: boolean;
+  estimationDpgf1: number | null;
+  estimationDpgf2: number | null;
   companies: Company[];
   lotLines: LotLine[];
   weightingCriteria: WeightingCriterion[];
   versions: NegotiationVersion[];
   currentVersionId: string;
 }
+
+export interface ProjectData {
+  id: string;
+  info: ProjectInfo;
+  lots: LotData[];
+  currentLotIndex: number;
+}
+
+// === Legacy view for backward compatibility (export, etc.) ===
+
+export interface LegacyProjectView {
+  info: ProjectInfo & {
+    lotNumber: string;
+    lotAnalyzed: string;
+    hasDualDpgf: boolean;
+    estimationDpgf1: number | null;
+    estimationDpgf2: number | null;
+  };
+  companies: Company[];
+  lotLines: LotLine[];
+  weightingCriteria: WeightingCriterion[];
+  versions: NegotiationVersion[];
+  currentVersionId: string;
+}
+
+export function buildLotView(project: ProjectData, lot: LotData): LegacyProjectView {
+  return {
+    info: {
+      ...project.info,
+      lotNumber: lot.lotNumber,
+      lotAnalyzed: lot.lotAnalyzed,
+      hasDualDpgf: lot.hasDualDpgf,
+      estimationDpgf1: lot.estimationDpgf1,
+      estimationDpgf2: lot.estimationDpgf2,
+    },
+    companies: lot.companies,
+    lotLines: lot.lotLines,
+    weightingCriteria: lot.weightingCriteria,
+    versions: lot.versions,
+    currentVersionId: lot.currentVersionId,
+  };
+}
+
+// === Defaults ===
 
 export const DEFAULT_CRITERIA: WeightingCriterion[] = [
   { id: "prix", label: "Prix", weight: 40, subCriteria: [] },
@@ -140,21 +187,16 @@ export const DEFAULT_CRITERIA: WeightingCriterion[] = [
   { id: "planning", label: "Planning", weight: 10, subCriteria: [] },
 ];
 
-export function createDefaultProject(): ProjectData {
+export function createDefaultLot(label: string = "Lot 1"): LotData {
   const versionId = crypto.randomUUID();
   return {
     id: crypto.randomUUID(),
-    info: {
-      name: "",
-      marketRef: "",
-      lotAnalyzed: "",
-      lotNumber: "",
-      analysisDate: new Date().toISOString().split("T")[0],
-      author: "",
-      hasDualDpgf: false,
-      estimationDpgf1: null,
-      estimationDpgf2: null,
-    },
+    label,
+    lotNumber: "",
+    lotAnalyzed: "",
+    hasDualDpgf: false,
+    estimationDpgf1: null,
+    estimationDpgf2: null,
     companies: [{ id: 1, name: "", status: "non_defini", exclusionReason: "" }],
     lotLines: [{ id: 1, label: "", type: null, dpgfAssignment: "both", estimationDpgf1: null, estimationDpgf2: null }],
     weightingCriteria: DEFAULT_CRITERIA,
@@ -174,5 +216,96 @@ export function createDefaultProject(): ProjectData {
       },
     ],
     currentVersionId: versionId,
+  };
+}
+
+export function createDefaultProject(): ProjectData {
+  return {
+    id: crypto.randomUUID(),
+    info: {
+      name: "",
+      marketRef: "",
+      analysisDate: new Date().toISOString().split("T")[0],
+      author: "",
+      numberOfLots: 1,
+    },
+    lots: [createDefaultLot()],
+    currentLotIndex: 0,
+  };
+}
+
+// === Migration helper ===
+
+export function migrateToMultiLot(data: any): ProjectData {
+  if (data?.lots && Array.isArray(data.lots)) return data as ProjectData;
+
+  // Migrate v5 tech notes
+  const migrateVersions = (versions: any[]) =>
+    (versions ?? []).map((v: any) => ({
+      ...v,
+      analysisDate: v.analysisDate ?? data?.info?.analysisDate ?? new Date().toISOString().split("T")[0],
+      validated: v.validated ?? false,
+      validatedAt: v.validatedAt ?? null,
+      negotiationDecisions: v.negotiationDecisions ??
+        Object.fromEntries((v.negotiationRetained ?? []).map((id: number) => [id, "retenue" as const])),
+      documentsToVerify: v.documentsToVerify ?? {},
+      technicalNotes: (v.technicalNotes ?? []).map((n: any) => ({
+        ...n,
+        commentPositif: n.commentPositif ?? "",
+        commentNegatif: n.commentNegatif ?? "",
+      })),
+    }));
+
+  const versions = migrateVersions(data?.versions ?? []);
+  const versionId = versions[0]?.id ?? crypto.randomUUID();
+
+  // Migrate lot lines
+  const lotLines = (data?.lotLines ?? [{ id: 1, label: "", type: null, dpgfAssignment: "both", estimationDpgf1: null, estimationDpgf2: null }])
+    .map((l: any) => ({
+      ...l,
+      estimationDpgf1: l.estimationDpgf1 ?? l.estimation ?? null,
+      estimationDpgf2: l.estimationDpgf2 ?? null,
+    }));
+
+  const hasEst2 = (data?.info?.estimationDpgf2 ?? 0) !== 0;
+
+  const lot: LotData = {
+    id: crypto.randomUUID(),
+    label: "Lot 1",
+    lotNumber: data?.info?.lotNumber ?? "",
+    lotAnalyzed: data?.info?.lotAnalyzed ?? "",
+    hasDualDpgf: data?.info?.hasDualDpgf ?? hasEst2,
+    estimationDpgf1: data?.info?.estimationDpgf1 ?? null,
+    estimationDpgf2: data?.info?.estimationDpgf2 ?? null,
+    companies: data?.companies ?? [{ id: 1, name: "", status: "non_defini", exclusionReason: "" }],
+    lotLines,
+    weightingCriteria: data?.weightingCriteria ?? DEFAULT_CRITERIA,
+    versions: versions.length > 0 ? versions : [{
+      id: versionId,
+      label: "V0",
+      createdAt: new Date().toISOString(),
+      analysisDate: new Date().toISOString().split("T")[0],
+      technicalNotes: [],
+      priceEntries: [],
+      frozen: false,
+      validated: false,
+      validatedAt: null,
+      negotiationDecisions: {},
+      documentsToVerify: {},
+    }],
+    currentVersionId: data?.currentVersionId ?? versionId,
+  };
+
+  return {
+    id: data?.id ?? crypto.randomUUID(),
+    info: {
+      name: data?.info?.name ?? "",
+      marketRef: data?.info?.marketRef ?? "",
+      analysisDate: data?.info?.analysisDate ?? new Date().toISOString().split("T")[0],
+      author: data?.info?.author ?? "",
+      numberOfLots: 1,
+    },
+    lots: [lot],
+    currentLotIndex: 0,
   };
 }

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, FolderOpen, Trash2, Download, Upload, Lock } from "lucide-react";
+import { Plus, FolderOpen, Trash2, Download, Upload, Lock, Package } from "lucide-react";
 import { useRef, useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
@@ -18,35 +18,50 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ciradLogo from "@/assets/cirad-logo.png";
-import { getVersionDisplayLabel } from "@/types/project";
+import { getVersionDisplayLabel, migrateToMultiLot, type ProjectData } from "@/types/project";
 import { Footer } from "@/components/Footer";
 import { ImportedProjectSchema } from "@/lib/projectValidation";
 import { getRepository } from "@/lib/storageRepository";
 
-function getProjectStatus(project: any): { label: string; color: string; detail: string; attributaire?: string } {
-  const versions = project.versions ?? [];
-  for (const v of versions) {
-    if (v.validated && Object.values(v.negotiationDecisions ?? {}).some((d: string) => d === "attributaire")) {
-      const date = v.validatedAt ? new Date(v.validatedAt).toLocaleDateString("fr-FR") : "";
-      const attributaireId = Object.entries(v.negotiationDecisions ?? {}).find(([, d]) => d === "attributaire")?.[0];
-      const companies = project.companies ?? [];
-      const attributaireName = attributaireId
-        ? companies.find((c: any) => c.id === Number(attributaireId))?.name ?? ""
-        : "";
-      return {
-        label: "Terminé",
-        color: "bg-green-600",
-        detail: date ? `Validé le ${date}` : "",
-        attributaire: attributaireName,
-      };
+function getProjectStatus(project: ProjectData): { label: string; color: string; detail: string; attributaires: string[] } {
+  const attributaires: string[] = [];
+  let allLotsTerminated = true;
+  let anyLotTerminated = false;
+
+  for (const lot of project.lots ?? []) {
+    let lotTerminated = false;
+    for (const v of lot.versions ?? []) {
+      if (v.validated && Object.values(v.negotiationDecisions ?? {}).some((d: string) => d === "attributaire")) {
+        const attributaireId = Object.entries(v.negotiationDecisions ?? {}).find(([, d]) => d === "attributaire")?.[0];
+        const attributaireName = attributaireId
+          ? lot.companies.find((c) => c.id === Number(attributaireId))?.name ?? ""
+          : "";
+        if (attributaireName) {
+          attributaires.push(`${lot.label}: ${attributaireName}`);
+        }
+        lotTerminated = true;
+        anyLotTerminated = true;
+        break;
+      }
     }
+    if (!lotTerminated) allLotsTerminated = false;
   }
-  const lastVersion = versions[versions.length - 1];
+
+  if (allLotsTerminated && project.lots.length > 0 && anyLotTerminated) {
+    return { label: "Terminé", color: "bg-green-600", detail: "", attributaires };
+  }
+
+  if (anyLotTerminated) {
+    return { label: "En cours", color: "bg-blue-500", detail: `${attributaires.length}/${project.lots.length} lots terminés`, attributaires };
+  }
+
+  const lastLot = project.lots?.[0];
+  const lastVersion = lastLot?.versions?.[lastLot.versions.length - 1];
   if (lastVersion) {
     const displayLabel = getVersionDisplayLabel(lastVersion.label);
-    return { label: "En cours", color: "bg-blue-500", detail: displayLabel };
+    return { label: "En cours", color: "bg-blue-500", detail: displayLabel, attributaires };
   }
-  return { label: "En cours", color: "bg-blue-500", detail: "" };
+  return { label: "En cours", color: "bg-blue-500", detail: "", attributaires: [] };
 }
 
 const ProjectsPage = () => {
@@ -56,7 +71,6 @@ const ProjectsPage = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Refresh locks periodically to detect other users
   useEffect(() => {
     refreshLocks();
     const interval = setInterval(refreshLocks, 10_000);
@@ -122,14 +136,17 @@ const ProjectsPage = () => {
         let count = 0;
         let skipped = 0;
         for (const [, project] of Object.entries(imported)) {
-          const parseResult = ImportedProjectSchema.safeParse(project);
-          if (!parseResult.success) {
+          // Try to migrate and validate
+          let migrated: any;
+          try {
+            migrated = migrateToMultiLot(project);
+          } catch {
             skipped++;
             continue;
           }
 
           const newId = crypto.randomUUID();
-          const cloned = JSON.parse(JSON.stringify(parseResult.data));
+          const cloned = JSON.parse(JSON.stringify(migrated));
           cloned.id = newId;
 
           const originalName = cloned.info.name ?? "";
@@ -139,18 +156,20 @@ const ProjectsPage = () => {
           }
           existingNames.add(cloned.info.name.toLowerCase());
 
-          for (const v of cloned.versions ?? []) {
-            const oldVid = v.id;
-            v.id = crypto.randomUUID();
-            if (cloned.currentVersionId === oldVid) {
-              cloned.currentVersionId = v.id;
+          for (const lot of cloned.lots ?? []) {
+            lot.id = crypto.randomUUID();
+            for (const v of lot.versions ?? []) {
+              const oldVid = v.id;
+              v.id = crypto.randomUUID();
+              if (lot.currentVersionId === oldVid) {
+                lot.currentVersionId = v.id;
+              }
             }
           }
 
           store.saveCurrentProject(cloned);
           count++;
         }
-        // Reload from repository
         store.loadFromRepository();
         const msg = skipped > 0
           ? `${count} analyse(s) importée(s), ${skipped} ignorée(s) (format invalide).`
@@ -229,9 +248,10 @@ const ProjectsPage = () => {
             <div className="grid gap-3">
               {projects.map((p) => {
                 const fullProject = allProjects[p.id];
-                const status = fullProject ? getProjectStatus(fullProject) : { label: "En cours", color: "bg-blue-500", detail: "" };
+                const status = fullProject ? getProjectStatus(fullProject) : { label: "En cours", color: "bg-blue-500", detail: "", attributaires: [] };
                 const locked = isLockedByOther(p.id);
                 const lockInfo = locks[p.id];
+                const lotCount = fullProject?.lots?.length ?? 1;
                 return (
                   <Card
                     key={p.id}
@@ -250,6 +270,12 @@ const ProjectsPage = () => {
                           <Badge className={`${status.color} text-white`}>
                             {status.label}
                           </Badge>
+                          {lotCount > 1 && (
+                            <Badge variant="outline" className="gap-1">
+                              <Package className="h-3 w-3" />
+                              {lotCount} lots
+                            </Badge>
+                          )}
                           {locked && (
                             <Badge variant="outline" className="border-destructive text-destructive gap-1">
                               <Lock className="h-3 w-3" />
@@ -258,11 +284,6 @@ const ProjectsPage = () => {
                           )}
                           {status.detail && (
                             <span className="text-xs text-muted-foreground">{status.detail}</span>
-                          )}
-                          {status.attributaire && (
-                            <Badge variant="outline" className="border-green-600 text-green-700 dark:text-green-400">
-                              Attributaire : {status.attributaire}
-                            </Badge>
                           )}
                         </div>
                         <AlertDialog>
@@ -294,11 +315,21 @@ const ProjectsPage = () => {
                       </div>
                       <CardDescription>
                         {p.marketRef && `Réf. ${p.marketRef} — `}
-                        {p.lotAnalyzed && `${p.lotAnalyzed} — `}
                         {p.author && `Rédacteur : ${p.author} — `}
                         Mis à jour le {new Date(p.updatedAt).toLocaleDateString("fr-FR")}
                       </CardDescription>
                     </CardHeader>
+                    {status.attributaires.length > 0 && (
+                      <CardContent className="pt-0 pb-3">
+                        <div className="flex flex-wrap gap-1.5">
+                          {status.attributaires.map((attr, i) => (
+                            <Badge key={i} variant="outline" className="border-green-600 text-green-700 dark:text-green-400 text-xs">
+                              {attr}
+                            </Badge>
+                          ))}
+                        </div>
+                      </CardContent>
+                    )}
                   </Card>
                 );
               })}

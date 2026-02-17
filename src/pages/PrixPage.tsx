@@ -52,14 +52,15 @@ const fmt = (n: number) =>
 
 const PrixPage = () => {
   const { project, setPriceEntry, getPriceEntry } = useProjectStore();
+  const lot = project.lots[project.currentLotIndex];
   const { activeCompanies, version, isReadOnly, isNego, negoLabel } = useAnalysisContext();
-  const { lotLines, weightingCriteria } = project;
+  const { lotLines, weightingCriteria } = lot;
   const { isValid: weightingValid, total: weightingTotal } = useWeightingValid();
 
   const activeLotLines = lotLines.filter((l) => l.label.trim() !== "");
   const prixCriterion = weightingCriteria.find((c) => c.id === "prix");
   const prixWeight = prixCriterion?.weight ?? 40;
-  const hasDualDpgf = project.info.hasDualDpgf ?? false;
+  const hasDualDpgf = lot.hasDualDpgf ?? false;
 
   const typeCounters = useMemo(() => buildTypeCounters(lotLines), [lotLines]);
 
@@ -242,8 +243,8 @@ const PrixPage = () => {
                 {/* Base DPGF row */}
                 {(() => {
                   const dpgfEntry = getPriceEntry(company.id, 0);
-                  const est1 = project.info.estimationDpgf1 ?? 0;
-                  const est2 = project.info.estimationDpgf2 ?? 0;
+                  const est1 = lot.estimationDpgf1 ?? 0;
+                  const est2 = lot.estimationDpgf2 ?? 0;
                   return (
                     <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 items-center rounded-md border-2 border-primary/30 bg-primary/5 p-2`}>
                       <div className="text-sm font-semibold">DPGF (Tranche Ferme)</div>

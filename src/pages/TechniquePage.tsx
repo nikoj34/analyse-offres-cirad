@@ -14,12 +14,13 @@ const NOTATION_OPTIONS: NotationLevel[] = ["tres_bien", "bien", "moyen", "passab
 
 const TechniquePage = () => {
   const { project, setTechnicalNote, getTechnicalNote, setDocumentsToVerify, getDocumentsToVerify } = useProjectStore();
+  const lot = project.lots[project.currentLotIndex];
   const { activeCompanies, version, isReadOnly, isNego, negoLabel, negoRound } = useAnalysisContext();
-  const { weightingCriteria } = project;
+  const { weightingCriteria } = lot;
 
   // Get previous version for visual diff in nego rounds
   const prevVersion = isNego && negoRound !== null && negoRound > 0
-    ? project.versions[negoRound - 1]
+    ? lot.versions[negoRound - 1]
     : null;
 
   const allTechnicalCriteria = weightingCriteria.filter((c) => c.id !== "prix");

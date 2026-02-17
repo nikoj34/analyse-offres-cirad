@@ -29,7 +29,8 @@ const VersionsPage = () => {
     unvalidateVersion,
     hasAttributaire,
   } = useProjectStore();
-  const { versions, currentVersionId } = project;
+  const lot = project.lots[project.currentLotIndex];
+  const { versions, currentVersionId } = lot;
   const [negoDate, setNegoDate] = useState(new Date().toISOString().split("T")[0]);
 
   const nextIndex = versions.length;
