@@ -80,8 +80,8 @@ const ProjectsPage = () => {
     }
   };
 
-  const handleOpenProject = (id: string) => {
-    const success = openProject(id);
+  const handleOpenProject = async (id: string) => {
+    const success = await openProject(id);
     if (!success) {
       const lock = locks[id];
       toast.error(`Ce projet est verrouillé par ${lock?.lockedBy ?? "un autre utilisateur"}.`);

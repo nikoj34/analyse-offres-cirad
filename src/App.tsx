@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,7 +7,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useMultiProjectStore } from "@/store/multiProjectStore";
 import { useProjectStore } from "@/store/projectStore";
-import { useEffect } from "react";
+import { getRepository, getSessionUser } from "@/lib/storageRepository";
 
 const Index = lazy(() => import("./pages/Index"));
 const TechniquePage = lazy(() => import("./pages/TechniquePage"));
@@ -21,8 +21,7 @@ const queryClient = new QueryClient();
 
 function ProjectSync() {
   const { currentProjectId, projects, saveCurrentProject } = useMultiProjectStore();
-  const { project, resetProject } = useProjectStore();
-  const projectStore = useProjectStore;
+  const { project } = useProjectStore();
 
   // Load project data when switching projects
   useEffect(() => {
@@ -32,18 +31,31 @@ function ProjectSync() {
     }
   }, [currentProjectId]);
 
-  // Auto-save current project
+  // Auto-save current project (debounced)
   useEffect(() => {
     if (currentProjectId && project.id === currentProjectId) {
-      saveCurrentProject(project);
+      const timer = setTimeout(() => {
+        saveCurrentProject(project);
+      }, 500);
+      return () => clearTimeout(timer);
     }
   }, [project, currentProjectId, saveCurrentProject]);
+
+  // Heartbeat to keep lock alive
+  useEffect(() => {
+    if (!currentProjectId) return;
+    const userId = getSessionUser();
+    const interval = setInterval(() => {
+      getRepository().heartbeat(currentProjectId, userId).catch(() => {});
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [currentProjectId]);
 
   return null;
 }
 
 const App = () => {
-  const { currentProjectId } = useMultiProjectStore();
+  const { currentProjectId, ready } = useMultiProjectStore();
 
   // Always start on projects page on app load/refresh
   useEffect(() => {

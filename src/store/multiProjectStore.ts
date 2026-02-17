@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { ProjectData, createDefaultProject } from "@/types/project";
-import { getRepository, getSessionUser, type ProjectLock } from "@/lib/storageRepository";
+import { getRepository, getSessionUser, initRepository, type ProjectLock } from "@/lib/storageRepository";
 
 export interface ProjectSummary {
   id: string;
@@ -14,16 +14,17 @@ interface MultiProjectStore {
   projects: Record<string, ProjectData>;
   currentProjectId: string | null;
   locks: Record<string, ProjectLock>;
+  ready: boolean;
 
   getProjectList: () => ProjectSummary[];
-  createProject: () => string;
-  openProject: (id: string) => boolean;
-  deleteProject: (id: string) => void;
-  closeProject: () => void;
-  saveCurrentProject: (project: ProjectData) => void;
-  refreshLocks: () => void;
+  createProject: () => Promise<string>;
+  openProject: (id: string) => Promise<boolean>;
+  deleteProject: (id: string) => Promise<void>;
+  closeProject: () => Promise<void>;
+  saveCurrentProject: (project: ProjectData) => Promise<void>;
+  refreshLocks: () => Promise<void>;
   isLockedByOther: (id: string) => boolean;
-  loadFromRepository: () => void;
+  loadFromRepository: () => Promise<void>;
 }
 
 export const useMultiProjectStore = create<MultiProjectStore>()(
@@ -31,13 +32,12 @@ export const useMultiProjectStore = create<MultiProjectStore>()(
     projects: {},
     currentProjectId: null,
     locks: {},
+    ready: false,
 
-    loadFromRepository: () => {
-      const repo = getRepository();
-      set({
-        projects: repo.loadAll(),
-        locks: repo.getAllLocks(),
-      });
+    loadFromRepository: async () => {
+      const repo = await initRepository();
+      const [projects, locks] = await Promise.all([repo.loadAll(), repo.getAllLocks()]);
+      set({ projects, locks, ready: true });
     },
 
     getProjectList: () => {
@@ -53,69 +53,72 @@ export const useMultiProjectStore = create<MultiProjectStore>()(
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     },
 
-    createProject: () => {
+    createProject: async () => {
       const repo = getRepository();
       const newProject = createDefaultProject();
-      repo.save(newProject);
       const userId = getSessionUser();
-      repo.acquireLock(newProject.id, userId);
+      await Promise.all([repo.save(newProject), repo.acquireLock(newProject.id, userId)]);
+      const locks = await repo.getAllLocks();
       set((state) => ({
         projects: { ...state.projects, [newProject.id]: newProject },
         currentProjectId: newProject.id,
-        locks: repo.getAllLocks(),
+        locks,
       }));
       return newProject.id;
     },
 
-    openProject: (id) => {
+    openProject: async (id) => {
       const repo = getRepository();
       const userId = getSessionUser();
-      const acquired = repo.acquireLock(id, userId);
+      const acquired = await repo.acquireLock(id, userId);
+      const locks = await repo.getAllLocks();
       if (!acquired) {
-        // Refresh locks so UI shows who locked it
-        set({ locks: repo.getAllLocks() });
+        set({ locks });
         return false;
       }
-      set({ currentProjectId: id, locks: repo.getAllLocks() });
+      set({ currentProjectId: id, locks });
       return true;
     },
 
-    deleteProject: (id) => {
+    deleteProject: async (id) => {
       const repo = getRepository();
-      repo.remove(id);
+      await repo.remove(id);
+      const locks = await repo.getAllLocks();
       set((state) => {
         const { [id]: _, ...rest } = state.projects;
         return {
           projects: rest,
           currentProjectId: state.currentProjectId === id ? null : state.currentProjectId,
-          locks: repo.getAllLocks(),
+          locks,
         };
       });
     },
 
-    closeProject: () => {
+    closeProject: async () => {
       const { currentProjectId } = get();
       if (currentProjectId) {
         const repo = getRepository();
         const userId = getSessionUser();
-        repo.releaseLock(currentProjectId, userId);
-        set({ currentProjectId: null, locks: repo.getAllLocks() });
+        await repo.releaseLock(currentProjectId, userId);
+        const locks = await repo.getAllLocks();
+        set({ currentProjectId: null, locks });
       } else {
         set({ currentProjectId: null });
       }
     },
 
-    saveCurrentProject: (project) => {
+    saveCurrentProject: async (project) => {
       const repo = getRepository();
-      repo.save(project);
+      await repo.save(project);
       set((state) => ({
         projects: { ...state.projects, [project.id]: project },
       }));
     },
 
-    refreshLocks: () => {
+    refreshLocks: async () => {
       const repo = getRepository();
-      set({ locks: repo.getAllLocks() });
+      const locks = await repo.getAllLocks();
+      set({ locks });
     },
 
     isLockedByOther: (id) => {
@@ -124,7 +127,6 @@ export const useMultiProjectStore = create<MultiProjectStore>()(
       if (!lock) return false;
       const userId = getSessionUser();
       if (lock.lockedBy === userId) return false;
-      // Check stale (>30min)
       const elapsed = Date.now() - new Date(lock.lockedAt).getTime();
       return elapsed < 30 * 60 * 1000;
     },
