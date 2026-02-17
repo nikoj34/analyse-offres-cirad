@@ -6,7 +6,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { Plus, Trash2, Package } from "lucide-react";
 
 const Index = () => {
-  const { project, updateInfo, addLot, removeLot, updateLotInfo, switchLot } = useProjectStore();
+  const { project, updateInfo, addLot, removeLot, updateLotInfoByIndex, switchLot } = useProjectStore();
   const { info } = project;
 
   return (
@@ -97,11 +97,11 @@ const Index = () => {
                 <div className="grid flex-1 gap-2 sm:grid-cols-2" onClick={(e) => e.stopPropagation()}>
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">N° de lot</Label>
-                    <Input
+                     <Input
                       value={lot.lotNumber}
                       onChange={(e) => {
-                        switchLot(idx);
-                        setTimeout(() => updateLotInfo({ lotNumber: e.target.value }), 0);
+                        const val = e.target.value;
+                        updateLotInfoByIndex(idx, { lotNumber: val });
                       }}
                       placeholder="01"
                       className="h-8 text-sm"
@@ -112,8 +112,8 @@ const Index = () => {
                     <Input
                       value={lot.lotAnalyzed}
                       onChange={(e) => {
-                        switchLot(idx);
-                        setTimeout(() => updateLotInfo({ lotAnalyzed: e.target.value, label: `Lot ${lot.lotNumber || idx + 1} — ${e.target.value}` }), 0);
+                        const val = e.target.value;
+                        updateLotInfoByIndex(idx, { lotAnalyzed: val, label: `Lot ${lot.lotNumber || idx + 1} — ${val}` });
                       }}
                       placeholder="Ex : Gros-Œuvre"
                       className="h-8 text-sm"
