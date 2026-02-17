@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, FolderOpen, Trash2, Download, Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import { Plus, FolderOpen, Trash2, Download, Upload, Lock } from "lucide-react";
+import { useRef, useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -21,6 +21,7 @@ import ciradLogo from "@/assets/cirad-logo.png";
 import { getVersionDisplayLabel } from "@/types/project";
 import { Footer } from "@/components/Footer";
 import { ImportedProjectSchema } from "@/lib/projectValidation";
+import { getRepository } from "@/lib/storageRepository";
 
 function getProjectStatus(project: any): { label: string; color: string; detail: string; attributaire?: string } {
   const versions = project.versions ?? [];
@@ -49,11 +50,18 @@ function getProjectStatus(project: any): { label: string; color: string; detail:
 }
 
 const ProjectsPage = () => {
-  const { getProjectList, createProject, openProject, deleteProject } = useMultiProjectStore();
+  const { getProjectList, createProject, openProject, deleteProject, refreshLocks, isLockedByOther, locks } = useMultiProjectStore();
   const projects = getProjectList();
   const { projects: allProjects } = useMultiProjectStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Refresh locks periodically to detect other users
+  useEffect(() => {
+    refreshLocks();
+    const interval = setInterval(refreshLocks, 10_000);
+    return () => clearInterval(interval);
+  }, [refreshLocks]);
 
   const toggleSelection = (id: string) => {
     setSelectedIds((prev) => {
@@ -69,6 +77,14 @@ const ProjectsPage = () => {
       setSelectedIds(new Set());
     } else {
       setSelectedIds(new Set(projects.map((p) => p.id)));
+    }
+  };
+
+  const handleOpenProject = (id: string) => {
+    const success = openProject(id);
+    if (!success) {
+      const lock = locks[id];
+      toast.error(`Ce projet est verrouillé par ${lock?.lockedBy ?? "un autre utilisateur"}.`);
     }
   };
 
@@ -112,12 +128,10 @@ const ProjectsPage = () => {
             continue;
           }
 
-          // Generate new UUID to avoid overwrite
           const newId = crypto.randomUUID();
           const cloned = JSON.parse(JSON.stringify(parseResult.data));
           cloned.id = newId;
 
-          // Anti-overwrite: rename if name conflict
           const originalName = cloned.info.name ?? "";
           if (existingNames.has(originalName.toLowerCase())) {
             const dateSuffix = new Date().toLocaleDateString("fr-FR");
@@ -125,7 +139,6 @@ const ProjectsPage = () => {
           }
           existingNames.add(cloned.info.name.toLowerCase());
 
-          // Regenerate version UUIDs
           for (const v of cloned.versions ?? []) {
             const oldVid = v.id;
             v.id = crypto.randomUUID();
@@ -137,6 +150,8 @@ const ProjectsPage = () => {
           store.saveCurrentProject(cloned);
           count++;
         }
+        // Reload from repository
+        store.loadFromRepository();
         const msg = skipped > 0
           ? `${count} analyse(s) importée(s), ${skipped} ignorée(s) (format invalide).`
           : `${count} analyse(s) importée(s) avec succès !`;
@@ -153,7 +168,7 @@ const ProjectsPage = () => {
     <div className="min-h-screen bg-background flex flex-col">
       <header className="border-b border-border bg-card px-6 py-4">
         <div className="mx-auto max-w-4xl flex items-center gap-3">
-          <img src={ciradLogo} alt="CIRAD" className="h-10" />
+          <img src={ciradLogo} alt="CIRAD" className="h-10" width="119" height="40" />
           <div>
             <h1 className="text-xl font-bold text-foreground">Analyse d'offres CIRAD</h1>
             <p className="text-xs text-muted-foreground">Gestion des analyses de marchés publics</p>
@@ -215,11 +230,13 @@ const ProjectsPage = () => {
               {projects.map((p) => {
                 const fullProject = allProjects[p.id];
                 const status = fullProject ? getProjectStatus(fullProject) : { label: "En cours", color: "bg-blue-500", detail: "" };
+                const locked = isLockedByOther(p.id);
+                const lockInfo = locks[p.id];
                 return (
                   <Card
                     key={p.id}
-                    className="cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
-                    onClick={() => openProject(p.id)}
+                    className={`cursor-pointer transition-all ${locked ? "opacity-70 border-destructive/30" : "hover:ring-2 hover:ring-primary/50"}`}
+                    onClick={() => handleOpenProject(p.id)}
                   >
                     <CardHeader className="pb-2">
                       <div className="flex items-center justify-between">
@@ -233,11 +250,17 @@ const ProjectsPage = () => {
                           <Badge className={`${status.color} text-white`}>
                             {status.label}
                           </Badge>
+                          {locked && (
+                            <Badge variant="outline" className="border-destructive text-destructive gap-1">
+                              <Lock className="h-3 w-3" />
+                              Verrouillé par {lockInfo?.lockedBy ?? "?"}
+                            </Badge>
+                          )}
                           {status.detail && (
                             <span className="text-xs text-muted-foreground">{status.detail}</span>
                           )}
                           {status.attributaire && (
-                            <Badge variant="outline" className="border-green-600 text-green-700">
+                            <Badge variant="outline" className="border-green-600 text-green-700 dark:text-green-400">
                               Attributaire : {status.attributaire}
                             </Badge>
                           )}
