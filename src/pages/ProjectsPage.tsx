@@ -295,6 +295,7 @@ const ProjectsPage = () => {
                       <CardDescription>
                         {p.marketRef && `Réf. ${p.marketRef} — `}
                         {p.lotAnalyzed && `${p.lotAnalyzed} — `}
+                        {p.author && `Rédacteur : ${p.author} — `}
                         Mis à jour le {new Date(p.updatedAt).toLocaleDateString("fr-FR")}
                       </CardDescription>
                     </CardHeader>

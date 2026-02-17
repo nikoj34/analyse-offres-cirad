@@ -49,7 +49,8 @@ function buildTechSheet(
   sheetName: string,
   project: ProjectData,
   version: NegotiationVersion,
-  companies: typeof project.companies
+  companies: typeof project.companies,
+  prevVersion?: NegotiationVersion | null
 ) {
   const techSheet = wb.addWorksheet(sheetName);
   techSheet.properties.defaultRowHeight = 18;
@@ -99,7 +100,7 @@ function buildTechSheet(
       continue;
     }
 
-    ["Critère", "Sous-critère", "Pondération", "Notation", "Note", "Commentaire"].forEach((label, i) => {
+    ["Critère", "Sous-critère", "Pondération", "Notation", "Note", "Points Positifs", "Points Négatifs"].forEach((label, i) => {
       const c = techSheet.getCell(tRow, i + 2);
       c.value = label;
       c.font = { bold: true, size: 9 };
@@ -129,10 +130,32 @@ function buildTechSheet(
           techSheet.getCell(tRow, 4).value = `${criterion.weight}%`;
           techSheet.getCell(tRow, 5).value = notationLabel;
           techSheet.getCell(tRow, 6).value = Number(subScore.toFixed(1));
-          techSheet.getCell(tRow, 7).value = note?.comment || "";
+          techSheet.getCell(tRow, 7).value = note?.commentPositif || note?.comment || "";
           techSheet.getCell(tRow, 7).alignment = { wrapText: true, vertical: "top" };
-          for (let i = 2; i <= 7; i++) {
+          techSheet.getCell(tRow, 8).value = note?.commentNegatif || "";
+          techSheet.getCell(tRow, 8).alignment = { wrapText: true, vertical: "top" };
+          for (let i = 2; i <= 8; i++) {
             techSheet.getCell(tRow, i).border = thinBorder();
+          }
+          // Diff coloring for nego versions
+          if (prevVersion) {
+            const prevNote = prevVersion.technicalNotes.find(
+              (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
+            );
+            if (prevNote?.notation !== note?.notation) {
+              techSheet.getCell(tRow, 5).fill = lightFill("FFF9C4"); // yellow highlight for changed notation
+              techSheet.getCell(tRow, 5).font = { bold: true, color: { argb: "E65100" } };
+            }
+            const prevPos = prevNote?.commentPositif || prevNote?.comment || "";
+            const curPos = note?.commentPositif || note?.comment || "";
+            if (prevPos !== curPos && curPos) {
+              techSheet.getCell(tRow, 7).font = { color: { argb: "2E7D32" } }; // green for changed positive
+            }
+            const prevNeg = prevNote?.commentNegatif || "";
+            const curNeg = note?.commentNegatif || "";
+            if (prevNeg !== curNeg && curNeg) {
+              techSheet.getCell(tRow, 8).font = { color: { argb: "C62828" } }; // red for changed negative
+            }
           }
           tRow++;
         }
@@ -151,10 +174,32 @@ function buildTechSheet(
         techSheet.getCell(tRow, 4).value = `${criterion.weight}%`;
         techSheet.getCell(tRow, 5).value = notationLabel;
         techSheet.getCell(tRow, 6).value = Number(score.toFixed(1));
-        techSheet.getCell(tRow, 7).value = note?.comment || "";
+        techSheet.getCell(tRow, 7).value = note?.commentPositif || note?.comment || "";
         techSheet.getCell(tRow, 7).alignment = { wrapText: true, vertical: "top" };
-        for (let i = 2; i <= 7; i++) {
+        techSheet.getCell(tRow, 8).value = note?.commentNegatif || "";
+        techSheet.getCell(tRow, 8).alignment = { wrapText: true, vertical: "top" };
+        for (let i = 2; i <= 8; i++) {
           techSheet.getCell(tRow, i).border = thinBorder();
+        }
+        // Diff coloring for nego versions
+        if (prevVersion) {
+          const prevNote = prevVersion.technicalNotes.find(
+            (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
+          );
+          if (prevNote?.notation !== note?.notation) {
+            techSheet.getCell(tRow, 5).fill = lightFill("FFF9C4");
+            techSheet.getCell(tRow, 5).font = { bold: true, color: { argb: "E65100" } };
+          }
+          const prevPos = prevNote?.commentPositif || prevNote?.comment || "";
+          const curPos = note?.commentPositif || note?.comment || "";
+          if (prevPos !== curPos && curPos) {
+            techSheet.getCell(tRow, 7).font = { color: { argb: "2E7D32" } };
+          }
+          const prevNeg = prevNote?.commentNegatif || "";
+          const curNeg = note?.commentNegatif || "";
+          if (prevNeg !== curNeg && curNeg) {
+            techSheet.getCell(tRow, 8).font = { color: { argb: "C62828" } };
+          }
         }
         tRow++;
       }
@@ -164,7 +209,7 @@ function buildTechSheet(
     techSheet.getCell(tRow, 2).font = { bold: true };
     techSheet.getCell(tRow, 6).value = Number(companyTotal.toFixed(1));
     techSheet.getCell(tRow, 6).font = { bold: true };
-    for (let i = 2; i <= 7; i++) {
+    for (let i = 2; i <= 8; i++) {
       techSheet.getCell(tRow, i).fill = lightFill(COLORS.lightGreen);
       techSheet.getCell(tRow, i).border = thinBorder();
     }
@@ -176,7 +221,8 @@ function buildTechSheet(
   techSheet.getColumn(4).width = 14;
   techSheet.getColumn(5).width = 14;
   techSheet.getColumn(6).width = 10;
-  techSheet.getColumn(7).width = 60;
+  techSheet.getColumn(7).width = 40;
+  techSheet.getColumn(8).width = 40;
 }
 
 function buildPrixSheet(
@@ -459,7 +505,34 @@ function buildPrixSheet(
     scoreTitle.border = thinBorder();
     pRow++;
 
-    ["Entreprise", "Montant Total HT", `Note Prix / ${prixWeight}`].forEach((h, i) => {
+    // Compute tech scores for note finale
+    const technicalCriteria = project.weightingCriteria.filter((c) => c.id !== "prix");
+    const techScoresMap: Record<number, number> = {};
+    for (const company of companies.filter((c) => c.status !== "ecartee")) {
+      let total = 0;
+      for (const criterion of technicalCriteria) {
+        if (criterion.subCriteria.length > 0) {
+          let raw = 0;
+          const subTotal = criterion.subCriteria.reduce((s, sc) => s + sc.weight, 0);
+          for (const sub of criterion.subCriteria) {
+            const note = version.technicalNotes.find(
+              (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
+            );
+            if (note?.notation) raw += NOTATION_VALUES[note.notation] * (subTotal > 0 ? sub.weight / subTotal : 0);
+          }
+          total += (raw / 5) * criterion.weight;
+        } else {
+          const note = version.technicalNotes.find(
+            (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
+          );
+          if (note?.notation) total += (NOTATION_VALUES[note.notation] / 5) * criterion.weight;
+        }
+      }
+      techScoresMap[company.id] = total;
+    }
+    const maxTechWeight = technicalCriteria.reduce((s, c) => s + c.weight, 0);
+
+    ["Entreprise", "Montant Total HT", `Note Prix / ${prixWeight}`, `Note Tech / ${maxTechWeight}`, "Note Globale"].forEach((h, i) => {
       const c = prixSheet.getCell(pRow, i + 2);
       c.value = h;
       c.font = { bold: true, size: 9 };
@@ -497,6 +570,20 @@ function buildPrixSheet(
       prixSheet.getCell(pRow, 4).font = { bold: true };
       prixSheet.getCell(pRow, 4).border = thinBorder();
       prixSheet.getCell(pRow, 4).alignment = { horizontal: "center" };
+
+      // Note Technique
+      const techScore = techScoresMap[company.id] ?? 0;
+      prixSheet.getCell(pRow, 5).value = Number(techScore.toFixed(1));
+      prixSheet.getCell(pRow, 5).numFmt = '0.0';
+      prixSheet.getCell(pRow, 5).border = thinBorder();
+      prixSheet.getCell(pRow, 5).alignment = { horizontal: "center" };
+
+      // Note Globale = Note Prix + Note Tech (formula)
+      prixSheet.getCell(pRow, 6).value = { formula: `D${pRow}+E${pRow}` };
+      prixSheet.getCell(pRow, 6).numFmt = '0.00';
+      prixSheet.getCell(pRow, 6).font = { bold: true };
+      prixSheet.getCell(pRow, 6).border = thinBorder();
+      prixSheet.getCell(pRow, 6).alignment = { horizontal: "center" };
 
       compIdx++;
       pRow++;
@@ -1644,7 +1731,7 @@ export async function exportToExcel(project: ProjectData) {
     const negoCompanies = activeCompanies.filter((c) => retainedIds.includes(c.id));
 
     if (negoCompanies.length > 0) {
-      buildTechSheet(wb, `Négo ${negoRound} Analyse technique`, project, negoVersion, negoCompanies);
+      buildTechSheet(wb, `Négo ${negoRound} Analyse technique`, project, negoVersion, negoCompanies, prevVersion);
       buildPrixSheet(wb, `Négo ${negoRound} Analyse des prix`, project, negoVersion, negoCompanies);
       buildSyntheseSheet(wb, `Négo ${negoRound} Synthèse`, project, negoVersion, negoCompanies);
     }

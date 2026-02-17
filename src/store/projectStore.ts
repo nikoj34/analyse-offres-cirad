@@ -34,7 +34,7 @@ interface ProjectStore {
   removeSubCriterion: (criterionId: string, subId: string) => void;
   updateSubCriterion: (criterionId: string, subId: string, updates: { label?: string; weight?: number }) => void;
 
-  setTechnicalNote: (companyId: number, criterionId: string, subCriterionId: string | undefined, notation: NotationLevel | null, comment: string) => void;
+  setTechnicalNote: (companyId: number, criterionId: string, subCriterionId: string | undefined, notation: NotationLevel | null, comment: string, commentPositif?: string, commentNegatif?: string) => void;
   getTechnicalNote: (companyId: number, criterionId: string, subCriterionId?: string) => TechnicalNote | undefined;
 
   setPriceEntry: (companyId: number, lotLineId: number, dpgf1: number | null, dpgf2: number | null) => void;
@@ -181,7 +181,7 @@ export const useProjectStore = create<ProjectStore>()(
           },
         })),
 
-      setTechnicalNote: (companyId, criterionId, subCriterionId, notation, comment) =>
+      setTechnicalNote: (companyId, criterionId, subCriterionId, notation, comment, commentPositif, commentNegatif) =>
         set((state) => {
           const version = state.project.versions.find((v) => v.id === state.project.currentVersionId);
           if (!version) return state;
@@ -194,7 +194,12 @@ export const useProjectStore = create<ProjectStore>()(
               (n.subCriterionId ?? undefined) === subCriterionId
           );
 
-          const newNote: TechnicalNote = { companyId, criterionId, subCriterionId, notation, comment };
+          const existing = idx >= 0 ? notes[idx] : undefined;
+          const newNote: TechnicalNote = {
+            companyId, criterionId, subCriterionId, notation, comment,
+            commentPositif: commentPositif ?? existing?.commentPositif ?? "",
+            commentNegatif: commentNegatif ?? existing?.commentNegatif ?? "",
+          };
           if (idx >= 0) {
             notes[idx] = newNote;
           } else {
@@ -422,7 +427,7 @@ export const useProjectStore = create<ProjectStore>()(
     }),
     {
       name: "procure-analyze-project",
-      version: 4,
+      version: 5,
       migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as any;
         if (state?.project) {
@@ -456,6 +461,17 @@ export const useProjectStore = create<ProjectStore>()(
             // Auto-detect based on existing data
             const hasEst2 = (state.project.info.estimationDpgf2 ?? 0) !== 0;
             state.project.info.hasDualDpgf = hasEst2;
+          }
+          // Migration to v5: add commentPositif, commentNegatif to technical notes
+          if (state.project.versions) {
+            state.project.versions = state.project.versions.map((v: any) => ({
+              ...v,
+              technicalNotes: (v.technicalNotes ?? []).map((n: any) => ({
+                ...n,
+                commentPositif: n.commentPositif ?? "",
+                commentNegatif: n.commentNegatif ?? "",
+              })),
+            }));
           }
         }
         return state;

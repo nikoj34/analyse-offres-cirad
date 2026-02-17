@@ -7,6 +7,7 @@ export interface ProjectSummary {
   name: string;
   marketRef: string;
   lotAnalyzed: string;
+  author: string;
   updatedAt: string;
 }
 
@@ -48,6 +49,7 @@ export const useMultiProjectStore = create<MultiProjectStore>()(
           name: p.info.name || "Sans titre",
           marketRef: p.info.marketRef,
           lotAnalyzed: p.info.lotAnalyzed,
+          author: p.info.author ?? "",
           updatedAt: p.versions?.[0]?.createdAt ?? new Date().toISOString(),
         }))
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
