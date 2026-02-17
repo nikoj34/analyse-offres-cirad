@@ -11,6 +11,7 @@ import { getRepository, getSessionUser } from "@/lib/storageRepository";
 import { migrateToMultiLot } from "@/types/project";
 
 const Index = lazy(() => import("./pages/Index"));
+const LotConfigPage = lazy(() => import("./pages/LotConfigPage"));
 const TechniquePage = lazy(() => import("./pages/TechniquePage"));
 const PrixPage = lazy(() => import("./pages/PrixPage"));
 const SynthesePage = lazy(() => import("./pages/SynthesePage"));
@@ -75,6 +76,7 @@ const App = () => {
             <AppLayout>
               <Routes>
                 <Route path="/" element={<Index />} />
+                <Route path="/lot" element={<LotConfigPage />} />
                 <Route path="/technique" element={<TechniquePage />} />
                 <Route path="/prix" element={<PrixPage />} />
                 <Route path="/synthese" element={<SynthesePage />} />
