@@ -44,6 +44,21 @@ function lightFill(color: string): ExcelJS.Fill {
   return { type: "pattern", pattern: "solid", fgColor: { argb: color } };
 }
 
+// Helper: build rich text cell with diff (strikethrough old + green new)
+function buildDiffRichText(current: string, prev: string): ExcelJS.CellRichTextValue | string {
+  if (!prev || prev === current) return current;
+  const parts: ExcelJS.RichText[] = [];
+  if (prev) {
+    parts.push({ text: prev, font: { strike: true, color: { argb: "C62828" }, size: 10 } });
+  }
+  if (current && current !== prev) {
+    if (parts.length > 0) parts.push({ text: "\n" });
+    parts.push({ text: current, font: { color: { argb: "2E7D32" }, size: 10 } });
+  }
+  if (parts.length === 0) return current;
+  return { richText: parts };
+}
+
 // =============== Shared helpers ===============
 
 function buildTechSheet(
@@ -132,32 +147,29 @@ function buildTechSheet(
           techSheet.getCell(tRow, 4).value = `${criterion.weight}%`;
           techSheet.getCell(tRow, 5).value = notationLabel;
           techSheet.getCell(tRow, 6).value = Number(subScore.toFixed(1));
-          techSheet.getCell(tRow, 7).value = note?.commentPositif || note?.comment || "";
-          techSheet.getCell(tRow, 7).alignment = { wrapText: true, vertical: "top" };
-          techSheet.getCell(tRow, 8).value = note?.commentNegatif || "";
-          techSheet.getCell(tRow, 8).alignment = { wrapText: true, vertical: "top" };
-          for (let i = 2; i <= 8; i++) {
-            techSheet.getCell(tRow, i).border = thinBorder();
-          }
-          // Diff coloring for nego versions
+          // Comments with diff rich text
           if (prevVersion) {
             const prevNote = prevVersion.technicalNotes.find(
               (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
             );
-            if (prevNote?.notation !== note?.notation) {
-              techSheet.getCell(tRow, 5).fill = lightFill("FFF9C4"); // yellow highlight for changed notation
-              techSheet.getCell(tRow, 5).font = { bold: true, color: { argb: "E65100" } };
-            }
             const prevPos = prevNote?.commentPositif || prevNote?.comment || "";
             const curPos = note?.commentPositif || note?.comment || "";
-            if (prevPos !== curPos && curPos) {
-              techSheet.getCell(tRow, 7).font = { color: { argb: "2E7D32" } }; // green for changed positive
-            }
+            techSheet.getCell(tRow, 7).value = buildDiffRichText(curPos, prevPos);
             const prevNeg = prevNote?.commentNegatif || "";
             const curNeg = note?.commentNegatif || "";
-            if (prevNeg !== curNeg && curNeg) {
-              techSheet.getCell(tRow, 8).font = { color: { argb: "C62828" } }; // red for changed negative
+            techSheet.getCell(tRow, 8).value = buildDiffRichText(curNeg, prevNeg);
+            if (prevNote?.notation !== note?.notation) {
+              techSheet.getCell(tRow, 5).fill = lightFill("FFF9C4");
+              techSheet.getCell(tRow, 5).font = { bold: true, color: { argb: "E65100" } };
             }
+          } else {
+            techSheet.getCell(tRow, 7).value = note?.commentPositif || note?.comment || "";
+            techSheet.getCell(tRow, 8).value = note?.commentNegatif || "";
+          }
+          techSheet.getCell(tRow, 7).alignment = { wrapText: true, vertical: "top" };
+          techSheet.getCell(tRow, 8).alignment = { wrapText: true, vertical: "top" };
+          for (let i = 2; i <= 8; i++) {
+            techSheet.getCell(tRow, i).border = thinBorder();
           }
           tRow++;
         }
@@ -176,32 +188,29 @@ function buildTechSheet(
         techSheet.getCell(tRow, 4).value = `${criterion.weight}%`;
         techSheet.getCell(tRow, 5).value = notationLabel;
         techSheet.getCell(tRow, 6).value = Number(score.toFixed(1));
-        techSheet.getCell(tRow, 7).value = note?.commentPositif || note?.comment || "";
-        techSheet.getCell(tRow, 7).alignment = { wrapText: true, vertical: "top" };
-        techSheet.getCell(tRow, 8).value = note?.commentNegatif || "";
-        techSheet.getCell(tRow, 8).alignment = { wrapText: true, vertical: "top" };
-        for (let i = 2; i <= 8; i++) {
-          techSheet.getCell(tRow, i).border = thinBorder();
-        }
-        // Diff coloring for nego versions
+        // Comments with diff rich text
         if (prevVersion) {
           const prevNote = prevVersion.technicalNotes.find(
             (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
           );
+          const prevPos = prevNote?.commentPositif || prevNote?.comment || "";
+          const curPos = note?.commentPositif || note?.comment || "";
+          techSheet.getCell(tRow, 7).value = buildDiffRichText(curPos, prevPos);
+          const prevNeg = prevNote?.commentNegatif || "";
+          const curNeg = note?.commentNegatif || "";
+          techSheet.getCell(tRow, 8).value = buildDiffRichText(curNeg, prevNeg);
           if (prevNote?.notation !== note?.notation) {
             techSheet.getCell(tRow, 5).fill = lightFill("FFF9C4");
             techSheet.getCell(tRow, 5).font = { bold: true, color: { argb: "E65100" } };
           }
-          const prevPos = prevNote?.commentPositif || prevNote?.comment || "";
-          const curPos = note?.commentPositif || note?.comment || "";
-          if (prevPos !== curPos && curPos) {
-            techSheet.getCell(tRow, 7).font = { color: { argb: "2E7D32" } };
-          }
-          const prevNeg = prevNote?.commentNegatif || "";
-          const curNeg = note?.commentNegatif || "";
-          if (prevNeg !== curNeg && curNeg) {
-            techSheet.getCell(tRow, 8).font = { color: { argb: "C62828" } };
-          }
+        } else {
+          techSheet.getCell(tRow, 7).value = note?.commentPositif || note?.comment || "";
+          techSheet.getCell(tRow, 8).value = note?.commentNegatif || "";
+        }
+        techSheet.getCell(tRow, 7).alignment = { wrapText: true, vertical: "top" };
+        techSheet.getCell(tRow, 8).alignment = { wrapText: true, vertical: "top" };
+        for (let i = 2; i <= 8; i++) {
+          techSheet.getCell(tRow, i).border = thinBorder();
         }
         tRow++;
       }

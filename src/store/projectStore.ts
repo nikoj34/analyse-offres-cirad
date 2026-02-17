@@ -417,6 +417,14 @@ export const useProjectStore = create<ProjectStore>()(
             (e) => retainedIds.includes(e.companyId)
           );
 
+          // Copy documentsToVerify from current version for retained companies
+          const newDocsToVerify: Record<number, string> = {};
+          for (const id of retainedIds) {
+            if (currentVersion.documentsToVerify?.[id]) {
+              newDocsToVerify[id] = currentVersion.documentsToVerify[id];
+            }
+          }
+
           const newVersion: NegotiationVersion = {
             id: newVersionId,
             label,
@@ -428,7 +436,7 @@ export const useProjectStore = create<ProjectStore>()(
             validated: false,
             validatedAt: null,
             negotiationDecisions: {},
-            documentsToVerify: {},
+            documentsToVerify: newDocsToVerify,
           };
 
           const versions = lot.versions.map((v) =>

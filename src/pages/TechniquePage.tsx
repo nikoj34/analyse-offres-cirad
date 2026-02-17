@@ -260,16 +260,22 @@ function CriterionBlock({
     );
   };
 
-  const renderCommentDiff = (currentComment: string, subId?: string) => {
+  const renderFieldDiff = (currentValue: string, prevValue: string, label?: string) => {
     if (!prevVersion) return null;
-    const prev = getPrevNote(subId);
-    const prevComment = prev?.comment ?? "";
-    if (prevComment === currentComment || !prevComment) return null;
+    if (prevValue === currentValue || (!prevValue && !currentValue)) return null;
+    // Deletion: text was removed
+    const hasDeleted = prevValue && prevValue !== currentValue;
+    // Addition: new text added or changed
+    const hasAdded = currentValue && currentValue !== prevValue;
+    if (!hasDeleted && !hasAdded) return null;
     return (
       <div className="mt-1 text-xs rounded border border-border bg-muted/30 p-2 space-y-1">
-        <div><span className="line-through text-destructive">{prevComment}</span></div>
-        {currentComment && currentComment !== prevComment && (
-          <div><span className="text-green-600">{currentComment}</span></div>
+        {label && <span className="font-medium text-muted-foreground">{label}</span>}
+        {hasDeleted && (
+          <div><span className="line-through text-destructive">{prevValue}</span></div>
+        )}
+        {hasAdded && (
+          <div><span className="text-green-600 font-medium">{currentValue}</span></div>
         )}
       </div>
     );
@@ -339,7 +345,8 @@ function CriterionBlock({
                       maxLength={2000}
                     />
                   </div>
-                  {renderCommentDiff(note?.comment ?? "", sub.id)}
+                  {renderFieldDiff(note?.commentPositif ?? "", getPrevNote(sub.id)?.commentPositif ?? "", "Points Positifs")}
+                  {renderFieldDiff(note?.commentNegatif ?? "", getPrevNote(sub.id)?.commentNegatif ?? "", "Points Négatifs")}
                 </div>
               </div>
             </div>
@@ -406,7 +413,8 @@ function CriterionBlock({
               maxLength={2000}
             />
           </div>
-          {renderCommentDiff(note?.comment ?? "")}
+          {renderFieldDiff(note?.commentPositif ?? "", getPrevNote()?.commentPositif ?? "", "Points Positifs")}
+          {renderFieldDiff(note?.commentNegatif ?? "", getPrevNote()?.commentNegatif ?? "", "Points Négatifs")}
         </div>
       </div>
     </div>
