@@ -1,34 +1,117 @@
 /**
  * Storage Repository Abstraction
- * 
- * Provides a pluggable storage interface for project data.
- * Currently backed by localStorage; swap implementation to
- * target a REST API or SQLite backend without changing stores.
+ *
+ * Provides a pluggable async storage interface for project data.
+ * Two implementations:
+ *   - LocalStorageRepository (fallback, single-user)
+ *   - RestApiRepository (multi-user, SQLite backend)
  */
 
 import type { ProjectData } from "@/types/project";
 
 export interface ProjectLock {
-  lockedBy: string;   // username or session id
-  lockedAt: string;   // ISO date
+  lockedBy: string;
+  lockedAt: string;
 }
 
 export interface StorageRepository {
-  /** Load all projects keyed by id */
-  loadAll(): Record<string, ProjectData>;
-  /** Persist a single project */
-  save(project: ProjectData): void;
-  /** Delete a project by id */
-  remove(id: string): void;
+  loadAll(): Promise<Record<string, ProjectData>>;
+  loadOne(id: string): Promise<ProjectData | null>;
+  save(project: ProjectData): Promise<void>;
+  remove(id: string): Promise<void>;
 
-  /** Lock management */
-  acquireLock(projectId: string, userId: string): boolean;
-  releaseLock(projectId: string, userId: string): void;
-  getLock(projectId: string): ProjectLock | null;
-  getAllLocks(): Record<string, ProjectLock>;
+  acquireLock(projectId: string, userId: string): Promise<boolean>;
+  releaseLock(projectId: string, userId: string): Promise<void>;
+  getAllLocks(): Promise<Record<string, ProjectLock>>;
+  heartbeat(projectId: string, userId: string): Promise<void>;
 }
 
-// ---------- localStorage implementation ----------
+// ─── REST API Implementation ──────────────────────────────────────
+
+/**
+ * Detects the API base URL:
+ * - In production build served by the Node server, API is on same origin
+ * - In dev (Vite), proxy or explicit env variable
+ */
+function getApiBase(): string {
+  // Allow override via env
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  // In production the Node server serves both API and static files on same origin
+  return window.location.origin;
+}
+
+export class RestApiRepository implements StorageRepository {
+  private base: string;
+
+  constructor(baseUrl?: string) {
+    this.base = baseUrl ?? getApiBase();
+  }
+
+  async loadAll(): Promise<Record<string, ProjectData>> {
+    const res = await fetch(`${this.base}/api/projects`);
+    if (!res.ok) throw new Error("Erreur chargement projets");
+    const summaries: Array<{ id: string }> = await res.json();
+    // Load full data for each project
+    const entries = await Promise.all(
+      summaries.map(async (s) => {
+        const r = await fetch(`${this.base}/api/projects/${s.id}`);
+        if (!r.ok) return null;
+        const data: ProjectData = await r.json();
+        return [data.id, data] as const;
+      })
+    );
+    return Object.fromEntries(entries.filter(Boolean) as Array<readonly [string, ProjectData]>);
+  }
+
+  async loadOne(id: string): Promise<ProjectData | null> {
+    const res = await fetch(`${this.base}/api/projects/${id}`);
+    if (!res.ok) return null;
+    return res.json();
+  }
+
+  async save(project: ProjectData): Promise<void> {
+    await fetch(`${this.base}/api/projects/${project.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(project),
+    });
+  }
+
+  async remove(id: string): Promise<void> {
+    await fetch(`${this.base}/api/projects/${id}`, { method: "DELETE" });
+  }
+
+  async acquireLock(projectId: string, userId: string): Promise<boolean> {
+    const res = await fetch(`${this.base}/api/locks/${projectId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    });
+    return res.ok;
+  }
+
+  async releaseLock(projectId: string, userId: string): Promise<void> {
+    await fetch(`${this.base}/api/locks/${projectId}?userId=${encodeURIComponent(userId)}`, {
+      method: "DELETE",
+    });
+  }
+
+  async getAllLocks(): Promise<Record<string, ProjectLock>> {
+    const res = await fetch(`${this.base}/api/locks`);
+    if (!res.ok) return {};
+    return res.json();
+  }
+
+  async heartbeat(projectId: string, userId: string): Promise<void> {
+    await fetch(`${this.base}/api/locks/${projectId}/heartbeat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    });
+  }
+}
+
+// ─── LocalStorage Fallback ────────────────────────────────────────
 
 const PROJECTS_KEY = "cirad-multi-projects-data";
 const LOCKS_KEY = "cirad-project-locks";
@@ -47,40 +130,41 @@ function writeJson(key: string, value: unknown) {
 }
 
 export class LocalStorageRepository implements StorageRepository {
-  loadAll(): Record<string, ProjectData> {
-    // Migrate from old zustand persist key if present
+  async loadAll(): Promise<Record<string, ProjectData>> {
     const legacy = localStorage.getItem("cirad-multi-projects");
     if (legacy) {
       try {
         const parsed = JSON.parse(legacy);
         if (parsed?.state?.projects) {
           writeJson(PROJECTS_KEY, parsed.state.projects);
-          // don't delete legacy key to avoid data loss
         }
       } catch { /* ignore */ }
     }
     return readJson<Record<string, ProjectData>>(PROJECTS_KEY, {});
   }
 
-  save(project: ProjectData): void {
-    const all = this.loadAll();
+  async loadOne(id: string): Promise<ProjectData | null> {
+    const all = await this.loadAll();
+    return all[id] ?? null;
+  }
+
+  async save(project: ProjectData): Promise<void> {
+    const all = await this.loadAll();
     all[project.id] = project;
     writeJson(PROJECTS_KEY, all);
   }
 
-  remove(id: string): void {
-    const all = this.loadAll();
+  async remove(id: string): Promise<void> {
+    const all = await this.loadAll();
     delete all[id];
     writeJson(PROJECTS_KEY, all);
-    // Also release lock
-    this.releaseLock(id, "");
+    await this.releaseLock(id, "");
   }
 
-  acquireLock(projectId: string, userId: string): boolean {
+  async acquireLock(projectId: string, userId: string): Promise<boolean> {
     const locks = readJson<Record<string, ProjectLock>>(LOCKS_KEY, {});
     const existing = locks[projectId];
     if (existing && existing.lockedBy !== userId) {
-      // Check if lock is stale (>30 min)
       const elapsed = Date.now() - new Date(existing.lockedAt).getTime();
       if (elapsed < 30 * 60 * 1000) return false;
     }
@@ -89,36 +173,63 @@ export class LocalStorageRepository implements StorageRepository {
     return true;
   }
 
-  releaseLock(projectId: string, _userId: string): void {
+  async releaseLock(projectId: string, _userId: string): Promise<void> {
     const locks = readJson<Record<string, ProjectLock>>(LOCKS_KEY, {});
     delete locks[projectId];
     writeJson(LOCKS_KEY, locks);
   }
 
-  getLock(projectId: string): ProjectLock | null {
-    const locks = readJson<Record<string, ProjectLock>>(LOCKS_KEY, {});
-    return locks[projectId] ?? null;
+  async getAllLocks(): Promise<Record<string, ProjectLock>> {
+    return readJson<Record<string, ProjectLock>>(LOCKS_KEY, {});
   }
 
-  getAllLocks(): Record<string, ProjectLock> {
-    return readJson<Record<string, ProjectLock>>(LOCKS_KEY, {});
+  async heartbeat(_projectId: string, _userId: string): Promise<void> {
+    // No-op for localStorage
   }
 }
 
-// ---------- Singleton ----------
+// ─── Singleton & Auto-detection ───────────────────────────────────
 
-let _repo: StorageRepository = new LocalStorageRepository();
+let _repo: StorageRepository | null = null;
 
-export function getRepository(): StorageRepository {
+/**
+ * Auto-detect: if the API server is reachable, use REST.
+ * Otherwise fall back to localStorage.
+ */
+export async function initRepository(): Promise<StorageRepository> {
+  if (_repo) return _repo;
+
+  try {
+    const base = getApiBase();
+    const res = await fetch(`${base}/api/locks`, { signal: AbortSignal.timeout(2000) });
+    const contentType = res.headers.get("content-type") ?? "";
+    if (res.ok && contentType.includes("application/json")) {
+      _repo = new RestApiRepository(base);
+      console.log("[StorageRepository] Mode serveur REST détecté");
+      return _repo;
+    }
+  } catch {
+    // Server not reachable
+  }
+
+  _repo = new LocalStorageRepository();
+  console.log("[StorageRepository] Mode localStorage (fallback)");
   return _repo;
 }
 
-/** Replace the repository (e.g. for REST API backend) */
+export function getRepository(): StorageRepository {
+  if (!_repo) {
+    // Synchronous fallback before init completes
+    _repo = new LocalStorageRepository();
+  }
+  return _repo;
+}
+
 export function setRepository(repo: StorageRepository): void {
   _repo = repo;
 }
 
-// ---------- Session user (simulated) ----------
+// ─── Session user ─────────────────────────────────────────────────
 
 const SESSION_KEY = "cirad-session-user";
 
@@ -129,4 +240,8 @@ export function getSessionUser(): string {
     sessionStorage.setItem(SESSION_KEY, user);
   }
   return user;
+}
+
+export function setSessionUser(name: string): void {
+  sessionStorage.setItem(SESSION_KEY, name);
 }
