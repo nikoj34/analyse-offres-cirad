@@ -1,12 +1,12 @@
 import { create } from "zustand";
-import { ProjectData, createDefaultProject } from "@/types/project";
+import { ProjectData, createDefaultProject, migrateToMultiLot } from "@/types/project";
 import { getRepository, getSessionUser, initRepository, type ProjectLock } from "@/lib/storageRepository";
 
 export interface ProjectSummary {
   id: string;
   name: string;
   marketRef: string;
-  lotAnalyzed: string;
+  lotCount: number;
   author: string;
   updatedAt: string;
 }
@@ -37,7 +37,11 @@ export const useMultiProjectStore = create<MultiProjectStore>()(
 
     loadFromRepository: async () => {
       const repo = await initRepository();
-      const [projects, locks] = await Promise.all([repo.loadAll(), repo.getAllLocks()]);
+      const [raw, locks] = await Promise.all([repo.loadAll(), repo.getAllLocks()]);
+      const projects: Record<string, ProjectData> = {};
+      for (const [id, data] of Object.entries(raw)) {
+        projects[id] = migrateToMultiLot(data);
+      }
       set({ projects, locks, ready: true });
     },
 
@@ -48,9 +52,9 @@ export const useMultiProjectStore = create<MultiProjectStore>()(
           id: p.id,
           name: p.info.name || "Sans titre",
           marketRef: p.info.marketRef,
-          lotAnalyzed: p.info.lotAnalyzed,
+          lotCount: p.lots?.length ?? 1,
           author: p.info.author ?? "",
-          updatedAt: p.versions?.[0]?.createdAt ?? new Date().toISOString(),
+          updatedAt: p.lots?.[0]?.versions?.[0]?.createdAt ?? new Date().toISOString(),
         }))
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     },

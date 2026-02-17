@@ -29,9 +29,10 @@ const SynthesePage = () => {
     project, setNegotiationDecision, getNegotiationDecision,
     validateVersion, unvalidateVersion, hasAttributaire,
   } = useProjectStore();
+  const lot = project.lots[project.currentLotIndex];
   const { activeCompanies, version, isReadOnly, isNego, negoLabel } = useAnalysisContext();
   const { isValid: weightingValid, total: weightingTotal } = useWeightingValid();
-  const { weightingCriteria, lotLines } = project;
+  const { weightingCriteria, lotLines } = lot;
 
   const technicalCriteria = weightingCriteria.filter((c) => c.id !== "prix");
   const prixCriterion = weightingCriteria.find((c) => c.id === "prix");

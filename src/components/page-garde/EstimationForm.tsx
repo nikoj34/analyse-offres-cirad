@@ -4,12 +4,12 @@ import { useProjectStore } from "@/store/projectStore";
 import { useMemo } from "react";
 
 export function EstimationForm() {
-  const { project, updateInfo } = useProjectStore();
-  const { info, lotLines } = project;
-  const hasDualDpgf = info.hasDualDpgf ?? false;
+  const { project, updateLotInfo } = useProjectStore();
+  const lot = project.lots[project.currentLotIndex];
+  const hasDualDpgf = lot.hasDualDpgf ?? false;
 
   const computed = useMemo(() => {
-    const lotEstimations = lotLines.filter((l) => l.label.trim() !== "");
+    const lotEstimations = lot.lotLines.filter((l) => l.label.trim() !== "");
 
     const sumDpgf1 = (lines: typeof lotEstimations) =>
       lines.reduce((s, l) => s + (l.estimationDpgf1 ?? 0), 0);
@@ -20,8 +20,8 @@ export function EstimationForm() {
     const variante = lotEstimations.filter((l) => l.type === "VARIANTE");
     const to = lotEstimations.filter((l) => l.type === "T_OPTIONNELLE");
 
-    const estDpgf1 = info.estimationDpgf1 ?? 0;
-    const estDpgf2 = info.estimationDpgf2 ?? 0;
+    const estDpgf1 = lot.estimationDpgf1 ?? 0;
+    const estDpgf2 = lot.estimationDpgf2 ?? 0;
     const estTF = estDpgf1 + estDpgf2;
 
     const estPSE = sumDpgf1(pse) + sumDpgf2(pse);
@@ -35,7 +35,7 @@ export function EstimationForm() {
       estTFplusTO: estTF + estTO,
       estTotal: estTF + estPSE + estVariante + estTO,
     };
-  }, [info.estimationDpgf1, info.estimationDpgf2, lotLines]);
+  }, [lot.estimationDpgf1, lot.estimationDpgf2, lot.lotLines]);
 
   const fmt = (n: number) =>
     new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -57,9 +57,9 @@ export function EstimationForm() {
             <Input
               type="number"
               step="0.01"
-              value={info.estimationDpgf1 ?? ""}
+              value={lot.estimationDpgf1 ?? ""}
               onChange={(e) =>
-                updateInfo({
+                updateLotInfo({
                   estimationDpgf1: e.target.value ? Number(e.target.value) : null,
                 })
               }
@@ -74,9 +74,9 @@ export function EstimationForm() {
               <Input
                 type="number"
                 step="0.01"
-                value={info.estimationDpgf2 ?? ""}
+                value={lot.estimationDpgf2 ?? ""}
                 onChange={(e) =>
-                  updateInfo({
+                  updateLotInfo({
                     estimationDpgf2: e.target.value ? Number(e.target.value) : null,
                   })
                 }

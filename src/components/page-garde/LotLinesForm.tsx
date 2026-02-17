@@ -16,8 +16,9 @@ function getAutoLabel(type: LotType | null, index: number): string {
 
 export function LotLinesForm() {
   const { project, updateLotLine } = useProjectStore();
-  const { lotLines, info } = project;
-  const hasDualDpgf = info.hasDualDpgf ?? false;
+  const lot = project.lots[project.currentLotIndex];
+  const { lotLines } = lot;
+  const hasDualDpgf = lot.hasDualDpgf ?? false;
 
   // Compute auto-numbering per type
   const typeCounters = useMemo(() => {

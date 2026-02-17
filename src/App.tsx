@@ -8,6 +8,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { useMultiProjectStore } from "@/store/multiProjectStore";
 import { useProjectStore } from "@/store/projectStore";
 import { getRepository, getSessionUser } from "@/lib/storageRepository";
+import { migrateToMultiLot } from "@/types/project";
 
 const Index = lazy(() => import("./pages/Index"));
 const TechniquePage = lazy(() => import("./pages/TechniquePage"));
@@ -26,7 +27,7 @@ function ProjectSync() {
   // Load project data when switching projects
   useEffect(() => {
     if (currentProjectId && projects[currentProjectId]) {
-      const savedProject = projects[currentProjectId];
+      const savedProject = migrateToMultiLot(projects[currentProjectId]);
       useProjectStore.setState({ project: savedProject });
     }
   }, [currentProjectId]);

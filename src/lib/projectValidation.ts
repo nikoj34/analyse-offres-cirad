@@ -35,6 +35,8 @@ const TechnicalNoteSchema = z.object({
   subCriterionId: z.string().max(100).optional(),
   notation: z.enum(["tres_bien", "bien", "moyen", "passable", "insuffisant"]).nullable(),
   comment: z.string().max(2000),
+  commentPositif: z.string().max(2000).optional(),
+  commentNegatif: z.string().max(2000).optional(),
 });
 
 const PriceEntrySchema = z.object({
@@ -58,24 +60,39 @@ const NegotiationVersionSchema = z.object({
   documentsToVerify: z.record(z.string(), z.string().max(2000)),
 });
 
-const ProjectInfoSchema = z.object({
-  name: z.string().max(200),
-  marketRef: z.string().max(200),
-  lotAnalyzed: z.string().max(200),
+const LotDataSchema = z.object({
+  id: z.string().max(100),
+  label: z.string().max(200),
   lotNumber: z.string().max(50),
-  analysisDate: z.string().max(50),
-  author: z.string().max(200),
+  lotAnalyzed: z.string().max(200),
   hasDualDpgf: z.boolean(),
   estimationDpgf1: z.number().nullable(),
   estimationDpgf2: z.number().nullable(),
-});
-
-export const ImportedProjectSchema = z.object({
-  id: z.string().max(100),
-  info: ProjectInfoSchema,
   companies: z.array(CompanySchema).max(30),
   lotLines: z.array(LotLineSchema).max(50),
   weightingCriteria: z.array(WeightingCriterionSchema).max(20),
   versions: z.array(NegotiationVersionSchema).max(10),
   currentVersionId: z.string().max(100),
+});
+
+const ProjectInfoSchema = z.object({
+  name: z.string().max(200),
+  marketRef: z.string().max(200),
+  analysisDate: z.string().max(50),
+  author: z.string().max(200),
+  numberOfLots: z.number().int().min(1).max(20).optional(),
+});
+
+// New multi-lot schema
+export const ImportedProjectSchema = z.object({
+  id: z.string().max(100),
+  info: ProjectInfoSchema,
+  lots: z.array(LotDataSchema).max(20).optional(),
+  currentLotIndex: z.number().int().min(0).optional(),
+  // Legacy fields (for backward compatibility)
+  companies: z.array(CompanySchema).max(30).optional(),
+  lotLines: z.array(LotLineSchema).max(50).optional(),
+  weightingCriteria: z.array(WeightingCriterionSchema).max(20).optional(),
+  versions: z.array(NegotiationVersionSchema).max(10).optional(),
+  currentVersionId: z.string().max(100).optional(),
 });
