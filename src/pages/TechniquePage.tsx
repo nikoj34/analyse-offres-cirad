@@ -7,7 +7,7 @@ import { NOTATION_LABELS, NOTATION_VALUES, NotationLevel, WeightingCriterion, Ne
 import { useMemo } from "react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
 import { Lock, AlertTriangle } from "lucide-react";
-import { getCompanyColor } from "@/lib/companyColors";
+import { getCompanyColor, getCompanyBgColor } from "@/lib/companyColors";
 import { useWeightingValid } from "@/hooks/useWeightingValid";
 
 const NOTATION_OPTIONS: NotationLevel[] = ["tres_bien", "bien", "moyen", "passable", "insuffisant"];
@@ -132,7 +132,10 @@ const TechniquePage = () => {
         <Card
           key={company.id}
           className={company.status === "ecartee" ? "opacity-60" : ""}
-          style={{ borderLeft: `4px solid ${getCompanyColor(companyIndex)}` }}
+          style={{
+            borderLeft: `4px solid ${getCompanyColor(companyIndex)}`,
+            backgroundColor: company.status !== "ecartee" ? getCompanyBgColor(companyIndex) : undefined,
+          }}
         >
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -306,18 +309,35 @@ function CriterionBlock({
                     ))}
                   </SelectContent>
                 </Select>
-                <div className="flex-1">
-                  <Textarea
-                    disabled={disabled}
-                    className="min-h-[80px] text-sm"
-                    rows={4}
-                    value={note?.comment ?? ""}
-                    onChange={(e) =>
-                      setTechnicalNote(companyId, criterion.id, sub.id, note?.notation ?? null, e.target.value)
-                    }
-                    placeholder="Commentaire / justification"
-                    maxLength={2000}
-                  />
+                <div className="flex-1 space-y-2">
+                  <div>
+                    <label className="text-xs text-green-700 font-medium">✅ Points Positifs</label>
+                    <Textarea
+                      disabled={disabled}
+                      className="min-h-[60px] text-sm border-green-200"
+                      rows={3}
+                      value={note?.commentPositif ?? ""}
+                      onChange={(e) =>
+                        setTechnicalNote(companyId, criterion.id, sub.id, note?.notation ?? null, note?.comment ?? "", e.target.value, undefined)
+                      }
+                      placeholder="Points positifs…"
+                      maxLength={2000}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-red-600 font-medium">❌ Points Négatifs</label>
+                    <Textarea
+                      disabled={disabled}
+                      className="min-h-[60px] text-sm border-red-200"
+                      rows={3}
+                      value={note?.commentNegatif ?? ""}
+                      onChange={(e) =>
+                        setTechnicalNote(companyId, criterion.id, sub.id, note?.notation ?? null, note?.comment ?? "", undefined, e.target.value)
+                      }
+                      placeholder="Points négatifs…"
+                      maxLength={2000}
+                    />
+                  </div>
                   {renderCommentDiff(note?.comment ?? "", sub.id)}
                 </div>
               </div>
@@ -356,18 +376,35 @@ function CriterionBlock({
             ))}
           </SelectContent>
         </Select>
-        <div className="flex-1">
-          <Textarea
-            disabled={disabled}
-            className="min-h-[80px] text-sm"
-            rows={4}
-            value={note?.comment ?? ""}
-            onChange={(e) =>
-              setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, e.target.value)
-            }
-            placeholder="Commentaire / justification"
-            maxLength={2000}
-          />
+        <div className="flex-1 space-y-2">
+          <div>
+            <label className="text-xs text-green-700 font-medium">✅ Points Positifs</label>
+            <Textarea
+              disabled={disabled}
+              className="min-h-[60px] text-sm border-green-200"
+              rows={3}
+              value={note?.commentPositif ?? ""}
+              onChange={(e) =>
+                setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, note?.comment ?? "", e.target.value, undefined)
+              }
+              placeholder="Points positifs…"
+              maxLength={2000}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-red-600 font-medium">❌ Points Négatifs</label>
+            <Textarea
+              disabled={disabled}
+              className="min-h-[60px] text-sm border-red-200"
+              rows={3}
+              value={note?.commentNegatif ?? ""}
+              onChange={(e) =>
+                setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, note?.comment ?? "", undefined, e.target.value)
+              }
+              placeholder="Points négatifs…"
+              maxLength={2000}
+            />
+          </div>
           {renderCommentDiff(note?.comment ?? "")}
         </div>
       </div>

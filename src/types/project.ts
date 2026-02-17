@@ -71,6 +71,8 @@ export interface TechnicalNote {
   subCriterionId?: string;
   notation: NotationLevel | null;
   comment: string;
+  commentPositif: string;
+  commentNegatif: string;
 }
 
 export interface PriceEntry {

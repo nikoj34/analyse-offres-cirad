@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { useMemo } from "react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
 import { Lock, AlertTriangle } from "lucide-react";
-import { getCompanyColor } from "@/lib/companyColors";
+import { getCompanyColor, getCompanyBgColor } from "@/lib/companyColors";
 import { useWeightingValid } from "@/hooks/useWeightingValid";
 import { LotLine } from "@/types/project";
 
@@ -201,7 +201,10 @@ const PrixPage = () => {
         <Card
           key={company.id}
           className={company.status === "ecartee" ? "opacity-60" : ""}
-          style={{ borderLeft: `4px solid ${getCompanyColor(companyIndex)}` }}
+          style={{
+            borderLeft: `4px solid ${getCompanyColor(companyIndex)}`,
+            backgroundColor: company.status !== "ecartee" ? getCompanyBgColor(companyIndex) : undefined,
+          }}
         >
           <CardHeader>
             <div className="flex items-center justify-between">

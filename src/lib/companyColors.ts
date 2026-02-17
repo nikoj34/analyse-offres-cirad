@@ -34,3 +34,12 @@ const COMPANY_COLORS = [
 export function getCompanyColor(companyIndex: number): string {
   return COMPANY_COLORS[companyIndex % COMPANY_COLORS.length];
 }
+
+/** Returns a very pale/pastel version of the company color (opacity 0.08) for card backgrounds */
+export function getCompanyBgColor(companyIndex: number): string {
+  const hex = COMPANY_COLORS[companyIndex % COMPANY_COLORS.length];
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, 0.06)`;
+}
