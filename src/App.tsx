@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useMultiProjectStore } from "@/store/multiProjectStore";
 import { useProjectStore } from "@/store/projectStore";
@@ -68,7 +68,7 @@ const App = () => {
         <Toaster />
         <Sonner />
         <ProjectSync />
-        <BrowserRouter>
+        <HashRouter>
           <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Chargement…</div>}>
           {currentProjectId ? (
             <AppLayout>
@@ -91,7 +91,7 @@ const App = () => {
             </Routes>
           )}
           </Suspense>
-        </BrowserRouter>
+        </HashRouter>
       </TooltipProvider>
     </QueryClientProvider>
   );
