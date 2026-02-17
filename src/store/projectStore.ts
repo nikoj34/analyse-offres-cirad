@@ -45,6 +45,7 @@ interface ProjectStore {
   addLot: () => void;
   removeLot: (index: number) => void;
   updateLotInfo: (updates: Partial<Pick<LotData, 'lotNumber' | 'lotAnalyzed' | 'hasDualDpgf' | 'estimationDpgf1' | 'estimationDpgf2' | 'label'>>) => void;
+  updateLotInfoByIndex: (index: number, updates: Partial<Pick<LotData, 'lotNumber' | 'lotAnalyzed' | 'hasDualDpgf' | 'estimationDpgf1' | 'estimationDpgf2' | 'label'>>) => void;
 
   // Company actions (operate on current lot)
   addCompany: () => void;
@@ -134,6 +135,14 @@ export const useProjectStore = create<ProjectStore>()(
 
       updateLotInfo: (updates) =>
         set((state) => setLot(state, updates)),
+
+      updateLotInfoByIndex: (index, updates) =>
+        set((state) => {
+          const lots = [...state.project.lots];
+          if (index < 0 || index >= lots.length) return state;
+          lots[index] = { ...lots[index], ...updates };
+          return { project: { ...state.project, lots } };
+        }),
 
       // === Company actions ===
       addCompany: () =>
