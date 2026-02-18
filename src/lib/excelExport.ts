@@ -760,65 +760,68 @@ function buildPrixSheet(
     const est2 = line.estimationDpgf2 ?? 0;
     const estTotal = est1 + est2;
 
-    ws.getCell(row, COL_LABEL).value = label;
-    ws.getCell(row, COL_LABEL).font = { size: 9, italic: isSectionHeader };
-    ws.getCell(row, COL_LABEL).fill = lightFill(isSectionHeader ? COLORS.lightBlue : COLORS.white);
-    ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "top" };
-    ws.getCell(row, COL_LABEL).border = thinBorder();
-    ws.getRow(row).height = 18;
-
-    activeCompanies.forEach((company, idx) => {
-      const col = companyCol(idx);
-      const entry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
-      const d1 = entry?.dpgf1 ?? 0;
-      const d2 = entry?.dpgf2 ?? 0;
-      const offerTotal = hasDpgf2 ? d1 + d2 : d1;
-      const estRef = hasDpgf2 ? estTotal : est1;
-
-      const cell = ws.getCell(row, col);
-      cell.value = offerTotal || null;
-      cell.numFmt = '#,##0.00 "€"';
-      cell.alignment = { horizontal: "right" };
-      cell.border = thinBorder();
-
-      // Color based on deviation
-      if (estRef !== 0 && offerTotal !== 0) {
-        const dev = ((offerTotal - estRef) / Math.abs(estRef)) * 100;
-        const absDev = Math.abs(dev);
-        if (absDev <= 10) cell.fill = lightFill("E8F5E9");
-        else if (absDev <= 20) cell.fill = lightFill("FFF3E0");
-        else cell.fill = lightFill("FFEBEE");
-      }
-    });
-    row++;
-
-    // Estimation sub-row (grayed)
-    if (estTotal > 0) {
-      ws.getCell(row, COL_LABEL).value = `  ↳ Est. CIRAD : ${hasDpgf2 ? `${est1.toLocaleString("fr-FR")} + ${est2.toLocaleString("fr-FR")}` : est1.toLocaleString("fr-FR")} €`;
-      ws.getCell(row, COL_LABEL).font = { italic: true, size: 8, color: { argb: "FF888888" } };
-      ws.getCell(row, COL_LABEL).fill = lightFill("F5F5F5");
+    if (hasDpgf2) {
+      // === DPGF 1 row ===
+      ws.getCell(row, COL_LABEL).value = `${label} — DPGF 1${est1 > 0 ? ` (Est. ${est1.toLocaleString("fr-FR")} €)` : ""}`;
+      ws.getCell(row, COL_LABEL).font = { size: 9, italic: true };
+      ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.white);
+      ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "middle" };
       ws.getCell(row, COL_LABEL).border = thinBorder();
-      ws.getRow(row).height = 14;
+      ws.getRow(row).height = 16;
 
       activeCompanies.forEach((company, idx) => {
         const col = companyCol(idx);
         const entry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
         const d1 = entry?.dpgf1 ?? 0;
-        const d2 = entry?.dpgf2 ?? 0;
-        const offerTotal = hasDpgf2 ? d1 + d2 : d1;
-        const estRef = hasDpgf2 ? estTotal : est1;
         const cell = ws.getCell(row, col);
-        if (estRef !== 0 && offerTotal !== 0) {
-          const dev = ((offerTotal - estRef) / Math.abs(estRef)) * 100;
-          cell.value = `${dev >= 0 ? "+" : ""}${dev.toFixed(2)}%`;
-          cell.font = { italic: true, size: 8, color: { argb: Math.abs(dev) <= 10 ? "FF2E7D32" : Math.abs(dev) <= 20 ? "FFE65100" : "FFC62828" } };
-        } else {
-          cell.value = "—";
-          cell.font = { italic: true, size: 8, color: { argb: "FF888888" } };
-        }
-        cell.fill = lightFill("F5F5F5");
-        cell.alignment = { horizontal: "center" };
+        cell.value = d1 || null;
+        cell.numFmt = '#,##0.00 "€"';
+        cell.alignment = { horizontal: "right" };
         cell.border = thinBorder();
+        cell.fill = lightFill(COLORS.white);
+      });
+      row++;
+
+      // === DPGF 2 row ===
+      ws.getCell(row, COL_LABEL).value = `${label} — DPGF 2${est2 > 0 ? ` (Est. ${est2.toLocaleString("fr-FR")} €)` : ""}`;
+      ws.getCell(row, COL_LABEL).font = { size: 9, italic: true };
+      ws.getCell(row, COL_LABEL).fill = lightFill("FAFAFA");
+      ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "middle" };
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getRow(row).height = 16;
+
+      activeCompanies.forEach((company, idx) => {
+        const col = companyCol(idx);
+        const entry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
+        const d2 = entry?.dpgf2 ?? 0;
+        const cell = ws.getCell(row, col);
+        cell.value = d2 || null;
+        cell.numFmt = '#,##0.00 "€"';
+        cell.alignment = { horizontal: "right" };
+        cell.border = thinBorder();
+        cell.fill = lightFill("FAFAFA");
+      });
+      row++;
+
+    } else {
+      // === Single DPGF row ===
+      ws.getCell(row, COL_LABEL).value = label + (est1 > 0 ? ` (Est. ${est1.toLocaleString("fr-FR")} €)` : "");
+      ws.getCell(row, COL_LABEL).font = { size: 9, italic: isSectionHeader };
+      ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.white);
+      ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "top" };
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getRow(row).height = 18;
+
+      activeCompanies.forEach((company, idx) => {
+        const col = companyCol(idx);
+        const entry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
+        const d1 = entry?.dpgf1 ?? 0;
+        const cell = ws.getCell(row, col);
+        cell.value = d1 || null;
+        cell.numFmt = '#,##0.00 "€"';
+        cell.alignment = { horizontal: "right" };
+        cell.border = thinBorder();
+        cell.fill = lightFill(COLORS.white);
       });
       row++;
     }
@@ -838,74 +841,95 @@ function buildPrixSheet(
     renderLineRow(line, line.label);
   }
 
-  // TF Total
-  ws.getCell(row, COL_LABEL).value = hasDpgf2 ? "TOTAL Tranche Ferme (hors PSE, Variante et Tranche Optionnelle)\nDPGF 1 + DPGF 2" : "TOTAL Tranche Ferme (hors PSE, Variante et Tranche Optionnelle)";
-  ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
-  ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightGreen);
-  ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "middle" };
-  ws.getCell(row, COL_LABEL).border = thickBorder();
-  ws.getRow(row).height = 28;
+  // TF Total — always shown
+  const estBaseDpgf1 = baseLines.reduce((s, l) => s + (l.estimationDpgf1 ?? 0), 0);
+  const estBaseDpgf2 = baseLines.reduce((s, l) => s + (l.estimationDpgf2 ?? 0), 0);
+  const estBaseTotal = hasDpgf2 ? estBaseDpgf1 + estBaseDpgf2 : estBaseDpgf1;
 
-  const tfTotalRowNum = row;
-  activeCompanies.forEach((company, idx) => {
-    const col = companyCol(idx);
-    const total = getTotal(company.id, baseLines);
-    const cell = ws.getCell(row, col);
-    cell.value = total || null;
-    cell.numFmt = '#,##0.00 "€"';
-    cell.font = { bold: true, size: 10 };
-    cell.fill = lightFill(COLORS.lightGreen);
-    cell.alignment = { horizontal: "right" };
-    cell.border = thickBorder();
-
-    // Écart vs estimation globale
-    const estBase = baseLines.reduce((s, l) => s + (hasDpgf2 ? (l.estimationDpgf1 ?? 0) + (l.estimationDpgf2 ?? 0) : (l.estimationDpgf1 ?? 0)), 0);
-    if (estBase > 0 && total > 0) {
-      const dev = ((total - estBase) / Math.abs(estBase)) * 100;
-      if (Math.abs(dev) <= 10) cell.fill = lightFill("C8E6C9");
-      else if (Math.abs(dev) <= 20) cell.fill = lightFill("FFE0B2");
-      else cell.fill = lightFill("FFCDD2");
-    }
-  });
-  row++;
-
-  // DPGF2 sub-total if applicable
   if (hasDpgf2) {
-    ws.getCell(row, COL_LABEL).value = "DPGF 1 — Estimé à " + baseLines.reduce((s, l) => s + (l.estimationDpgf1 ?? 0), 0).toLocaleString("fr-FR") + " € HT";
-    ws.getCell(row, COL_LABEL).font = { italic: true, size: 8, color: { argb: "FF888888" } };
-    ws.getCell(row, COL_LABEL).fill = lightFill("F5F5F5");
-    ws.getCell(row, COL_LABEL).border = thinBorder();
-    ws.getRow(row).height = 14;
+    // ── TOTAL DPGF 1 ──
+    ws.getCell(row, COL_LABEL).value = `TOTAL Tranche Ferme — DPGF 1 (Est. ${estBaseDpgf1.toLocaleString("fr-FR")} €)`;
+    ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
+    ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightGreen);
+    ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "middle" };
+    ws.getCell(row, COL_LABEL).border = thickBorder();
+    ws.getRow(row).height = 20;
     activeCompanies.forEach((company, idx) => {
       const col = companyCol(idx);
       const total1 = baseLines.reduce((s, l) => {
         const e = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === l.id);
         return s + (e?.dpgf1 ?? 0);
       }, 0);
-      ws.getCell(row, col).value = total1 || null;
-      ws.getCell(row, col).numFmt = '#,##0.00 "€"';
-      ws.getCell(row, col).font = { italic: true, size: 8, color: { argb: "FF888888" } };
-      ws.getCell(row, col).fill = lightFill("F5F5F5");
-      ws.getCell(row, col).border = thinBorder();
+      const cell = ws.getCell(row, col);
+      cell.value = total1 || null;
+      cell.numFmt = '#,##0.00 "€"';
+      cell.font = { bold: true, size: 9 };
+      cell.fill = lightFill(COLORS.lightGreen);
+      cell.alignment = { horizontal: "right" };
+      cell.border = thickBorder();
     });
     row++;
 
-    ws.getCell(row, COL_LABEL).value = "DPGF 2 — Estimé à " + baseLines.reduce((s, l) => s + (l.estimationDpgf2 ?? 0), 0).toLocaleString("fr-FR") + " € HT";
-    ws.getCell(row, COL_LABEL).font = { italic: true, size: 8, color: { argb: "FF888888" } };
-    ws.getCell(row, COL_LABEL).fill = lightFill("F5F5F5");
-    ws.getCell(row, COL_LABEL).border = thinBorder();
-    ws.getRow(row).height = 14;
+    // ── TOTAL DPGF 2 ──
+    ws.getCell(row, COL_LABEL).value = `TOTAL Tranche Ferme — DPGF 2 (Est. ${estBaseDpgf2.toLocaleString("fr-FR")} €)`;
+    ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
+    ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightGreen);
+    ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "middle" };
+    ws.getCell(row, COL_LABEL).border = thickBorder();
+    ws.getRow(row).height = 20;
     activeCompanies.forEach((company, idx) => {
       const col = companyCol(idx);
       const total2 = baseLines.reduce((s, l) => {
         const e = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === l.id);
         return s + (e?.dpgf2 ?? 0);
       }, 0);
-      ws.getCell(row, col).value = total2 || null;
-      ws.getCell(row, col).numFmt = '#,##0.00 "€"';
-      ws.getCell(row, col).font = { italic: true, size: 8, color: { argb: "FF888888" } };
-      ws.getCell(row, col).fill = lightFill("F5F5F5");
-      ws.getCell(row, col).border = thinBorder();
+      const cell = ws.getCell(row, col);
+      cell.value = total2 || null;
+      cell.numFmt = '#,##0.00 "€"';
+      cell.font = { bold: true, size: 9 };
+      cell.fill = lightFill(COLORS.lightGreen);
+      cell.alignment = { horizontal: "right" };
+      cell.border = thickBorder();
+    });
+    row++;
+
+    // ── TOTAL DPGF 1 + DPGF 2 ──
+    ws.getCell(row, COL_LABEL).value = `TOTAL TF (DPGF1 + DPGF2) — Estimé à ${estBaseTotal.toLocaleString("fr-FR")} € HT`;
+    ws.getCell(row, COL_LABEL).font = { bold: true, size: 10 };
+    ws.getCell(row, COL_LABEL).fill = lightFill("C8E6C9");
+    ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "middle" };
+    ws.getCell(row, COL_LABEL).border = thickBorder();
+    ws.getRow(row).height = 22;
+    activeCompanies.forEach((company, idx) => {
+      const col = companyCol(idx);
+      const total = getTotal(company.id, baseLines);
+      const cell = ws.getCell(row, col);
+      cell.value = total || null;
+      cell.numFmt = '#,##0.00 "€"';
+      cell.font = { bold: true, size: 10 };
+      cell.fill = lightFill("C8E6C9");
+      cell.alignment = { horizontal: "right" };
+      cell.border = thickBorder();
+    });
+    row++;
+  } else {
+    // Single DPGF total
+    ws.getCell(row, COL_LABEL).value = `TOTAL Tranche Ferme — Estimé à ${estBaseTotal.toLocaleString("fr-FR")} € HT`;
+    ws.getCell(row, COL_LABEL).font = { bold: true, size: 10 };
+    ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightGreen);
+    ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "middle" };
+    ws.getCell(row, COL_LABEL).border = thickBorder();
+    ws.getRow(row).height = 22;
+    activeCompanies.forEach((company, idx) => {
+      const col = companyCol(idx);
+      const total = getTotal(company.id, baseLines);
+      const cell = ws.getCell(row, col);
+      cell.value = total || null;
+      cell.numFmt = '#,##0.00 "€"';
+      cell.font = { bold: true, size: 10 };
+      cell.fill = lightFill(COLORS.lightGreen);
+      cell.alignment = { horizontal: "right" };
+      cell.border = thickBorder();
     });
     row++;
   }
@@ -913,28 +937,80 @@ function buildPrixSheet(
   ws.getRow(row).height = 6;
   row++;
 
-  // ── PSE ──
-  if (pseLines.length > 0) {
-    for (let i = 0; i < pseLines.length; i++) {
-      const line = pseLines[i];
-      const est = (line.estimationDpgf1 ?? 0) + (line.estimationDpgf2 ?? 0);
-      ws.getCell(row, COL_LABEL).value = `MONTANT PSE N°${i + 1} — Estimée à ${est.toLocaleString("fr-FR")} € HT`;
-      ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
-      ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightYellow);
+  // ── Helper: render PSE/Variante/TO line (with optional dual DPGF) ──
+  const renderTypedLine = (line: typeof activeLotLines[0], labelPrefix: string) => {
+    const est1 = line.estimationDpgf1 ?? 0;
+    const est2 = line.estimationDpgf2 ?? 0;
+
+    if (hasDpgf2) {
+      // DPGF 1
+      ws.getCell(row, COL_LABEL).value = `${labelPrefix} — DPGF 1${est1 > 0 ? ` (Est. ${est1.toLocaleString("fr-FR")} €)` : ""}`;
+      ws.getCell(row, COL_LABEL).font = { size: 9, italic: true };
+      ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.white);
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getRow(row).height = 16;
+      activeCompanies.forEach((company, idx) => {
+        const col = companyCol(idx);
+        const entry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
+        const cell = ws.getCell(row, col);
+        cell.value = entry?.dpgf1 || null;
+        cell.numFmt = '#,##0.00 "€"';
+        cell.alignment = { horizontal: "right" };
+        cell.border = thinBorder();
+        cell.fill = lightFill(COLORS.white);
+      });
+      row++;
+
+      // DPGF 2
+      ws.getCell(row, COL_LABEL).value = `${labelPrefix} — DPGF 2${est2 > 0 ? ` (Est. ${est2.toLocaleString("fr-FR")} €)` : ""}`;
+      ws.getCell(row, COL_LABEL).font = { size: 9, italic: true };
+      ws.getCell(row, COL_LABEL).fill = lightFill("FAFAFA");
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getRow(row).height = 16;
+      activeCompanies.forEach((company, idx) => {
+        const col = companyCol(idx);
+        const entry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
+        const cell = ws.getCell(row, col);
+        cell.value = entry?.dpgf2 || null;
+        cell.numFmt = '#,##0.00 "€"';
+        cell.alignment = { horizontal: "right" };
+        cell.border = thinBorder();
+        cell.fill = lightFill("FAFAFA");
+      });
+      row++;
+    } else {
+      ws.getCell(row, COL_LABEL).value = `${labelPrefix}${est1 > 0 ? ` (Est. ${est1.toLocaleString("fr-FR")} €)` : ""}`;
+      ws.getCell(row, COL_LABEL).font = { size: 9 };
+      ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.white);
       ws.getCell(row, COL_LABEL).border = thinBorder();
       ws.getRow(row).height = 18;
       activeCompanies.forEach((company, idx) => {
         const col = companyCol(idx);
         const entry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
-        const val = (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
         const cell = ws.getCell(row, col);
-        cell.value = val || null;
+        cell.value = entry?.dpgf1 || null;
         cell.numFmt = '#,##0.00 "€"';
-        cell.fill = lightFill(COLORS.lightYellow);
         cell.alignment = { horizontal: "right" };
         cell.border = thinBorder();
+        cell.fill = lightFill(COLORS.white);
       });
       row++;
+    }
+  };
+
+  // ── PSE ──
+  if (pseLines.length > 0) {
+    ws.mergeCells(row, COL_LABEL, row, lastCol);
+    const pseHeader = ws.getCell(row, COL_LABEL);
+    pseHeader.value = "PRESTATIONS SUPPLÉMENTAIRES ÉVENTUELLES (PSE)";
+    pseHeader.font = { bold: true, size: 9, color: { argb: COLORS.headerFont } };
+    pseHeader.fill = lightFill(COLORS.lightYellow);
+    pseHeader.border = thinBorder();
+    ws.getRow(row).height = 16;
+    row++;
+
+    for (let i = 0; i < pseLines.length; i++) {
+      renderTypedLine(pseLines[i], `PSE N°${i + 1}${pseLines[i].label ? ` — ${pseLines[i].label}` : ""}`);
     }
     ws.getRow(row).height = 6;
     row++;
@@ -942,26 +1018,17 @@ function buildPrixSheet(
 
   // ── Variantes ──
   if (varianteLines.length > 0) {
+    ws.mergeCells(row, COL_LABEL, row, lastCol);
+    const varHeader = ws.getCell(row, COL_LABEL);
+    varHeader.value = "VARIANTES";
+    varHeader.font = { bold: true, size: 9, color: { argb: COLORS.headerFont } };
+    varHeader.fill = lightFill(COLORS.lightOrange);
+    varHeader.border = thinBorder();
+    ws.getRow(row).height = 16;
+    row++;
+
     for (let i = 0; i < varianteLines.length; i++) {
-      const line = varianteLines[i];
-      const est = (line.estimationDpgf1 ?? 0) + (line.estimationDpgf2 ?? 0);
-      ws.getCell(row, COL_LABEL).value = `MONTANT VARIANTE N°${i + 1} — Estimée à ${est.toLocaleString("fr-FR")} € HT`;
-      ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
-      ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightOrange);
-      ws.getCell(row, COL_LABEL).border = thinBorder();
-      ws.getRow(row).height = 18;
-      activeCompanies.forEach((company, idx) => {
-        const col = companyCol(idx);
-        const entry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
-        const val = (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
-        const cell = ws.getCell(row, col);
-        cell.value = val || null;
-        cell.numFmt = '#,##0.00 "€"';
-        cell.fill = lightFill(COLORS.lightOrange);
-        cell.alignment = { horizontal: "right" };
-        cell.border = thinBorder();
-      });
-      row++;
+      renderTypedLine(varianteLines[i], `Variante N°${i + 1}${varianteLines[i].label ? ` — ${varianteLines[i].label}` : ""}`);
     }
     ws.getRow(row).height = 6;
     row++;
@@ -969,26 +1036,17 @@ function buildPrixSheet(
 
   // ── Tranches Optionnelles ──
   if (toLines.length > 0) {
+    ws.mergeCells(row, COL_LABEL, row, lastCol);
+    const toHeader = ws.getCell(row, COL_LABEL);
+    toHeader.value = "TRANCHES OPTIONNELLES";
+    toHeader.font = { bold: true, size: 9, color: { argb: COLORS.headerFont } };
+    toHeader.fill = lightFill(COLORS.lightBlue);
+    toHeader.border = thinBorder();
+    ws.getRow(row).height = 16;
+    row++;
+
     for (let i = 0; i < toLines.length; i++) {
-      const line = toLines[i];
-      const est = (line.estimationDpgf1 ?? 0) + (line.estimationDpgf2 ?? 0);
-      ws.getCell(row, COL_LABEL).value = `MONTANT Tranche Optionnelle N°${i + 1} — Estimée à ${est.toLocaleString("fr-FR")} € HT`;
-      ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
-      ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightBlue);
-      ws.getCell(row, COL_LABEL).border = thinBorder();
-      ws.getRow(row).height = 18;
-      activeCompanies.forEach((company, idx) => {
-        const col = companyCol(idx);
-        const entry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
-        const val = (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
-        const cell = ws.getCell(row, col);
-        cell.value = val || null;
-        cell.numFmt = '#,##0.00 "€"';
-        cell.fill = lightFill(COLORS.lightBlue);
-        cell.alignment = { horizontal: "right" };
-        cell.border = thinBorder();
-      });
-      row++;
+      renderTypedLine(toLines[i], `Tranche Optionnelle N°${i + 1}${toLines[i].label ? ` — ${toLines[i].label}` : ""}`);
     }
     ws.getRow(row).height = 6;
     row++;
@@ -1002,57 +1060,43 @@ function buildPrixSheet(
   const estTo = toLines.reduce((s, l) => s + (hasDpgf2 ? (l.estimationDpgf1 ?? 0) + (l.estimationDpgf2 ?? 0) : (l.estimationDpgf1 ?? 0)), 0);
 
   const scenarios: ScenarioLine[] = [
-    { label: `TOTAL Tranche Ferme + Tranche Optionnelle — Estimé à ${(estBase + estTo).toLocaleString("fr-FR")} € HT`, estLabel: "", lines: [...baseLines, ...toLines], fillColor: "D1ECF1" },
-    { label: `TOTAL Tranche Ferme + PSE — Estimé à ${(estBase + estPse).toLocaleString("fr-FR")} € HT`, estLabel: "", lines: [...baseLines, ...pseLines], fillColor: "D4EDDA" },
-    { label: `TOTAL Tranche Ferme + Variante — Estimé à ${(estBase + estVar).toLocaleString("fr-FR")} € HT`, estLabel: "", lines: [...baseLines, ...varianteLines], fillColor: "FFF3CD" },
-    { label: `TOTAL + PSE + Variante + Tranche Optionnelle — Estimé à ${(estBase + estPse + estVar + estTo).toLocaleString("fr-FR")} € HT`, estLabel: "", lines: [...baseLines, ...pseLines, ...varianteLines, ...toLines], fillColor: "F8D7DA" },
+    { label: `TOTAL TF + Tranche Optionnelle — Estimé à ${(estBase + estTo).toLocaleString("fr-FR")} € HT`, estLabel: "", lines: [...baseLines, ...toLines], fillColor: COLORS.white },
+    { label: `TOTAL TF + PSE — Estimé à ${(estBase + estPse).toLocaleString("fr-FR")} € HT`, estLabel: "", lines: [...baseLines, ...pseLines], fillColor: COLORS.white },
+    { label: `TOTAL TF + Variante — Estimé à ${(estBase + estVar).toLocaleString("fr-FR")} € HT`, estLabel: "", lines: [...baseLines, ...varianteLines], fillColor: COLORS.white },
+    { label: `TOTAL GÉNÉRAL (TF + PSE + Variante + TO) — Estimé à ${(estBase + estPse + estVar + estTo).toLocaleString("fr-FR")} € HT`, estLabel: "", lines: [...baseLines, ...pseLines, ...varianteLines, ...toLines], fillColor: COLORS.lightGreen },
   ];
 
-  const notePrixRows: { rowNum: number; estTotal: number; fillColor: string; label: string }[] = [];
-
   for (const scenario of scenarios) {
-    const est = scenario.lines.reduce((s, l) => s + (hasDpgf2 ? (l.estimationDpgf1 ?? 0) + (l.estimationDpgf2 ?? 0) : (l.estimationDpgf1 ?? 0)), 0);
     ws.getCell(row, COL_LABEL).value = scenario.label;
     ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
     ws.getCell(row, COL_LABEL).fill = lightFill(scenario.fillColor);
     ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "middle" };
     ws.getCell(row, COL_LABEL).border = thickBorder();
-    ws.getRow(row).height = 28;
+    ws.getRow(row).height = 22;
 
     activeCompanies.forEach((company, idx) => {
       const col = companyCol(idx);
       const total = getTotal(company.id, scenario.lines);
       const cell = ws.getCell(row, col);
-      cell.value = total || "- €";
-      if (typeof total === "number") cell.numFmt = '#,##0.00 "€"';
+      cell.value = total || null;
+      if (total) cell.numFmt = '#,##0.00 "€"';
       cell.font = { bold: true, size: 9 };
       cell.fill = lightFill(scenario.fillColor);
       cell.alignment = { horizontal: "right" };
       cell.border = thickBorder();
     });
-    notePrixRows.push({ rowNum: row, estTotal: est, fillColor: scenario.fillColor, label: scenario.label });
     row++;
   }
 
   ws.getRow(row).height = 6;
   row++;
 
-  // ── Notes de prix par scénario ──
-  // Compute min totals for each scenario
-  for (const scenRow of notePrixRows) {
-    const totalsForScenario = activeCompanies.map((company) => {
-      const scenLines = notePrixRows.find((r) => r.rowNum === scenRow.rowNum);
-      // We need to recompute from the scenario data — re-fetch
-      return 0; // placeholder handled below
-    });
-  }
-
-  // Row: NOTE DU PRIX - Scénario TF + TO
+  // ── Notes de prix par scénario (couleur forte uniquement ici) ──
   const noteRows = [
-    { label: `NOTE DU PRIX (/${prixWeight}) — Scénario TF + Tranche Optionnelle`, lines: [...baseLines, ...toLines], fillColor: "D1ECF1", isBold: false },
-    { label: `NOTE DU PRIX (/${prixWeight}) — Scénario TF + PSE`, lines: [...baseLines, ...pseLines], fillColor: "D4EDDA", isBold: false },
-    { label: `NOTE DU PRIX (/${prixWeight}) — Scénario TF + Variante`, lines: [...baseLines, ...varianteLines], fillColor: "FFF3CD", isBold: false },
-    { label: `NOTE DU PRIX (/${prixWeight}) — Scénario TOTAL GÉNÉRAL`, lines: [...baseLines, ...pseLines, ...varianteLines, ...toLines], fillColor: "FFD7DA", isBold: true },
+    { label: `NOTE DU PRIX (/${prixWeight}) — Scénario TF + Tranche Optionnelle`, lines: [...baseLines, ...toLines], fillColor: "BFE9FF", isBold: false },
+    { label: `NOTE DU PRIX (/${prixWeight}) — Scénario TF + PSE`, lines: [...baseLines, ...pseLines], fillColor: "B8F0C8", isBold: false },
+    { label: `NOTE DU PRIX (/${prixWeight}) — Scénario TF + Variante`, lines: [...baseLines, ...varianteLines], fillColor: "FFE8A0", isBold: false },
+    { label: `NOTE DU PRIX GLOBAL (/${prixWeight}) — Scénario TOTAL GÉNÉRAL`, lines: [...baseLines, ...pseLines, ...varianteLines, ...toLines], fillColor: "FFB3B3", isBold: true },
   ];
 
   for (const noteRow of noteRows) {
@@ -1061,10 +1105,10 @@ function buildPrixSheet(
     const minTotal = validTotals.length > 0 ? Math.min(...validTotals) : 0;
 
     ws.getCell(row, COL_LABEL).value = noteRow.label;
-    ws.getCell(row, COL_LABEL).font = { bold: noteRow.isBold, size: 9, color: noteRow.isBold ? { argb: "FFC62828" } : undefined };
+    ws.getCell(row, COL_LABEL).font = { bold: true, size: 9, color: noteRow.isBold ? { argb: "FF8B0000" } : { argb: "FF1F4E79" } };
     ws.getCell(row, COL_LABEL).fill = lightFill(noteRow.fillColor);
     ws.getCell(row, COL_LABEL).alignment = { wrapText: true };
-    ws.getCell(row, COL_LABEL).border = thinBorder();
+    ws.getCell(row, COL_LABEL).border = thickBorder();
     ws.getRow(row).height = 22;
 
     activeCompanies.forEach((company, idx) => {
@@ -1072,12 +1116,12 @@ function buildPrixSheet(
       const total = totals[idx];
       const notePrice = total > 0 && minTotal > 0 ? Number(((minTotal / total) * prixWeight).toFixed(2)) : 0;
       const cell = ws.getCell(row, col);
-      cell.value = notePrice;
-      cell.numFmt = "0.00";
-      cell.font = { bold: noteRow.isBold, size: 10, color: noteRow.isBold ? { argb: "FFC62828" } : undefined };
+      cell.value = notePrice || "—";
+      if (typeof notePrice === "number" && notePrice > 0) cell.numFmt = "0.00";
+      cell.font = { bold: true, size: 11, color: noteRow.isBold ? { argb: "FF8B0000" } : { argb: "FF1F4E79" } };
       cell.fill = lightFill(noteRow.fillColor);
       cell.alignment = { horizontal: "center" };
-      cell.border = thinBorder();
+      cell.border = thickBorder();
     });
     row++;
   }
