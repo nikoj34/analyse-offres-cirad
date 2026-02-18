@@ -97,6 +97,26 @@ export function getVersionDisplayLabel(label: string): string {
   return VERSION_DISPLAY_LABELS[label] ?? label;
 }
 
+// === Negotiation Questionnaire ===
+
+export interface NegotiationQuestion {
+  id: string;
+  text: string;
+  response: string;
+}
+
+export interface CompanyQuestionnaire {
+  companyId: number;
+  questions: NegotiationQuestion[];
+  receptionMode: boolean; // true = mode réception des réponses (questions figées)
+}
+
+export interface NegotiationQuestionnaire {
+  deadlineDate: string; // date limite de réponse
+  questionnaires: CompanyQuestionnaire[]; // par entreprise
+  activated: boolean; // si le questionnaire a été activé depuis la Synthèse
+}
+
 export interface NegotiationVersion {
   id: string;
   label: string;
@@ -109,6 +129,7 @@ export interface NegotiationVersion {
   validatedAt: string | null;
   negotiationDecisions: Record<number, NegotiationDecision>;
   documentsToVerify: Record<number, string>;
+  questionnaire?: NegotiationQuestionnaire;
 }
 
 // === Multi-Lot Types ===

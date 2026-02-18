@@ -7,8 +7,10 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getVersionDisplayLabel } from "@/types/project";
 import { useMemo, useState } from "react";
-import { Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle, Award, Settings2 } from "lucide-react";
+import { Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle, Award, Settings2, MessageSquare } from "lucide-react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
+import { useNavigate } from "react-router-dom";
+
 import { useWeightingValid } from "@/hooks/useWeightingValid";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import {
@@ -28,11 +30,14 @@ const SynthesePage = () => {
   const {
     project, setNegotiationDecision, getNegotiationDecision,
     validateVersion, unvalidateVersion, hasAttributaire,
+    activateQuestionnaire,
   } = useProjectStore();
+  const navigate = useNavigate();
   const lot = project.lots[project.currentLotIndex];
-  const { activeCompanies, version, isReadOnly, isNego, negoLabel } = useAnalysisContext();
+  const { activeCompanies, version, isReadOnly, isNego, negoLabel, negoRound } = useAnalysisContext();
   const { isValid: weightingValid, total: weightingTotal } = useWeightingValid();
   const { weightingCriteria, lotLines } = lot;
+
 
   const technicalCriteria = weightingCriteria.filter((c) => c.id !== "prix");
   const prixCriterion = weightingCriteria.find((c) => c.id === "prix");
@@ -429,6 +434,38 @@ const SynthesePage = () => {
           <Button className="gap-2" variant="default" onClick={() => setAttributaireDialogOpen(true)}>
             <Award className="h-4 w-4" />
             Déclarer l'attributaire
+          </Button>
+        )}
+
+        {/* Bouton questionnaire de négociation — visible si des entreprises sont retenues pour négociation */}
+        {version && !isNego && hasAnyRetenue && !isValidated && (
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => {
+              const retainedIds = Object.entries(version.negotiationDecisions ?? {})
+                .filter(([, d]) => d === "retenue")
+                .map(([id]) => Number(id));
+              // On active le questionnaire sur la prochaine version (celle de la Négo à venir)
+              // Pour l'instant, on l'active sur la version courante en attendant que la négo soit créée
+              activateQuestionnaire(version.id, retainedIds);
+              navigate("/versions");
+            }}
+          >
+            <MessageSquare className="h-4 w-4" />
+            Préparer le questionnaire de négociation
+          </Button>
+        )}
+
+        {/* Si déjà en négo et questionnaire activé → lien direct */}
+        {version && isNego && version.questionnaire?.activated && negoRound && (
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => navigate(`/nego/${negoRound}/questions`)}
+          >
+            <MessageSquare className="h-4 w-4" />
+            Voir le questionnaire de négociation
           </Button>
         )}
       </div>

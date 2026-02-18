@@ -13,7 +13,9 @@ import {
   ChevronDown,
   ArrowLeft,
   Package,
+  MessageSquare,
 } from "lucide-react";
+
 import {
   Collapsible,
   CollapsibleContent,
@@ -258,7 +260,22 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                         <BarChart3 className="h-3 w-3 shrink-0" />
                                         Synthèse
                                       </button>
+                                      {v.questionnaire?.activated && (
+                                        <button
+                                          onClick={() => handleLotSubNav(idx, `/nego/${round}/questions`)}
+                                          className={cn(
+                                            "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
+                                            isActive && location.pathname === `/nego/${round}/questions`
+                                              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                                              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
+                                          )}
+                                        >
+                                          <MessageSquare className="h-3 w-3 shrink-0" />
+                                          Questions
+                                        </button>
+                                      )}
                                     </div>
+
                                   );
                                 })}
                               </div>
