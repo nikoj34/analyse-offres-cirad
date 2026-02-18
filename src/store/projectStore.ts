@@ -17,7 +17,11 @@ import {
   PriceEntry,
   NegotiationVersion,
   NegotiationDecision,
+  NegotiationQuestionnaire,
+  CompanyQuestionnaire,
+  NegotiationQuestion,
 } from "@/types/project";
+
 
 // === Helpers ===
 
@@ -83,6 +87,15 @@ interface ProjectStore {
 
   hasAttributaire: (versionId: string) => boolean;
   canCreateNego: () => boolean;
+
+  // Questionnaire actions
+  activateQuestionnaire: (versionId: string, retainedCompanyIds: number[]) => void;
+  setQuestionnaireDealine: (versionId: string, date: string) => void;
+  addQuestion: (versionId: string, companyId: number) => void;
+  updateQuestion: (versionId: string, companyId: number, questionId: string, text: string) => void;
+  removeQuestion: (versionId: string, companyId: number, questionId: string) => void;
+  setReceptionMode: (versionId: string, companyId: number, mode: boolean) => void;
+  setQuestionResponse: (versionId: string, companyId: number, questionId: string, response: string) => void;
 
   resetProject: () => void;
 }
@@ -425,6 +438,24 @@ export const useProjectStore = create<ProjectStore>()(
             }
           }
 
+          // Copy questionnaire config if it was prepared
+          let newQuestionnaire: NegotiationQuestionnaire | undefined = undefined;
+          if (currentVersion.questionnaire?.activated) {
+            newQuestionnaire = {
+              deadlineDate: currentVersion.questionnaire.deadlineDate,
+              activated: true,
+              questionnaires: retainedIds.map((companyId) => {
+                // Preserve existing questions for this company if already set
+                const existing = currentVersion.questionnaire!.questionnaires.find(
+                  (q) => q.companyId === companyId
+                );
+                return existing
+                  ? { ...existing, receptionMode: false }
+                  : { companyId, questions: [], receptionMode: false };
+              }),
+            };
+          }
+
           const newVersion: NegotiationVersion = {
             id: newVersionId,
             label,
@@ -437,6 +468,7 @@ export const useProjectStore = create<ProjectStore>()(
             validatedAt: null,
             negotiationDecisions: {},
             documentsToVerify: newDocsToVerify,
+            questionnaire: newQuestionnaire,
           };
 
           const versions = lot.versions.map((v) =>
@@ -503,6 +535,148 @@ export const useProjectStore = create<ProjectStore>()(
         }),
 
       resetProject: () => set({ project: createDefaultProject() }),
+
+      // === Questionnaire actions ===
+      activateQuestionnaire: (versionId, retainedCompanyIds) =>
+        set((state) => {
+          const lot = getLot(state);
+          const version = lot.versions.find((v) => v.id === versionId);
+          if (!version || version.questionnaire?.activated) return state;
+          const questionnaire: NegotiationQuestionnaire = {
+            deadlineDate: "",
+            activated: true,
+            questionnaires: retainedCompanyIds.map((companyId) => ({
+              companyId,
+              questions: [],
+              receptionMode: false,
+            })),
+          };
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === versionId ? { ...v, questionnaire } : v
+            ),
+          });
+        }),
+
+      setQuestionnaireDealine: (versionId, date) =>
+        set((state) => {
+          const lot = getLot(state);
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === versionId
+                ? { ...v, questionnaire: { ...(v.questionnaire!), deadlineDate: date } }
+                : v
+            ),
+          });
+        }),
+
+      addQuestion: (versionId, companyId) =>
+        set((state) => {
+          const lot = getLot(state);
+          const version = lot.versions.find((v) => v.id === versionId);
+          if (!version?.questionnaire) return state;
+          const newQuestion: NegotiationQuestion = {
+            id: crypto.randomUUID(),
+            text: "",
+            response: "",
+          };
+          const questionnaires = version.questionnaire.questionnaires.map((q) =>
+            q.companyId === companyId
+              ? { ...q, questions: [...q.questions, newQuestion] }
+              : q
+          );
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === versionId
+                ? { ...v, questionnaire: { ...v.questionnaire!, questionnaires } }
+                : v
+            ),
+          });
+        }),
+
+      updateQuestion: (versionId, companyId, questionId, text) =>
+        set((state) => {
+          const lot = getLot(state);
+          const version = lot.versions.find((v) => v.id === versionId);
+          if (!version?.questionnaire) return state;
+          const questionnaires = version.questionnaire.questionnaires.map((q) =>
+            q.companyId === companyId
+              ? {
+                  ...q,
+                  questions: q.questions.map((question) =>
+                    question.id === questionId ? { ...question, text } : question
+                  ),
+                }
+              : q
+          );
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === versionId
+                ? { ...v, questionnaire: { ...v.questionnaire!, questionnaires } }
+                : v
+            ),
+          });
+        }),
+
+      removeQuestion: (versionId, companyId, questionId) =>
+        set((state) => {
+          const lot = getLot(state);
+          const version = lot.versions.find((v) => v.id === versionId);
+          if (!version?.questionnaire) return state;
+          const questionnaires = version.questionnaire.questionnaires.map((q) =>
+            q.companyId === companyId
+              ? { ...q, questions: q.questions.filter((question) => question.id !== questionId) }
+              : q
+          );
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === versionId
+                ? { ...v, questionnaire: { ...v.questionnaire!, questionnaires } }
+                : v
+            ),
+          });
+        }),
+
+      setReceptionMode: (versionId, companyId, mode) =>
+        set((state) => {
+          const lot = getLot(state);
+          const version = lot.versions.find((v) => v.id === versionId);
+          if (!version?.questionnaire) return state;
+          const questionnaires = version.questionnaire.questionnaires.map((q) =>
+            q.companyId === companyId ? { ...q, receptionMode: mode } : q
+          );
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === versionId
+                ? { ...v, questionnaire: { ...v.questionnaire!, questionnaires } }
+                : v
+            ),
+          });
+        }),
+
+      setQuestionResponse: (versionId, companyId, questionId, response) =>
+        set((state) => {
+          const lot = getLot(state);
+          const version = lot.versions.find((v) => v.id === versionId);
+          if (!version?.questionnaire) return state;
+          const questionnaires = version.questionnaire.questionnaires.map((q) =>
+            q.companyId === companyId
+              ? {
+                  ...q,
+                  questions: q.questions.map((question) =>
+                    question.id === questionId ? { ...question, response } : question
+                  ),
+                }
+              : q
+          );
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === versionId
+                ? { ...v, questionnaire: { ...v.questionnaire!, questionnaires } }
+                : v
+            ),
+          });
+        }),
     }),
     {
       name: "procure-analyze-project",

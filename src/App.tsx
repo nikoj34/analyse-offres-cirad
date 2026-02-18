@@ -18,6 +18,8 @@ const SynthesePage = lazy(() => import("./pages/SynthesePage"));
 const VersionsPage = lazy(() => import("./pages/VersionsPage"));
 const ExportPage = lazy(() => import("./pages/ExportPage"));
 const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
+const QuestionnairePage = lazy(() => import("./pages/QuestionnairePage"));
+
 
 const queryClient = new QueryClient();
 
@@ -83,7 +85,8 @@ const App = () => {
                 <Route path="/nego/:round/technique" element={<TechniquePage />} />
                 <Route path="/nego/:round/prix" element={<PrixPage />} />
                 <Route path="/nego/:round/synthese" element={<SynthesePage />} />
-                <Route path="/versions" element={<VersionsPage />} />
+                <Route path="/nego/:round/questions" element={<QuestionnairePage />} />
+
                 <Route path="/export" element={<ExportPage />} />
                 <Route path="*" element={<Index />} />
               </Routes>
