@@ -27,9 +27,36 @@ const COLORS = {
   excluded: "D9534F",
 };
 
+// 30 distinct company colors (matching companyColors.ts)
+const COMPANY_ARGB = [
+  "FF2563EB", "FFDC2626", "FF16A34A", "FFEA580C", "FF7C3AED",
+  "FFCA8A04", "FF0891B2", "FFBE185D", "FF4F46E5", "FF059669",
+  "FF9333EA", "FFD97706", "FF0D9488", "FFE11D48", "FF6D28D9",
+  "FF65A30D", "FF0284C7", "FFC2410C", "FF7C2D12", "FF4338CA",
+  "FF15803D", "FFB91C1C", "FF1D4ED8", "FFA21CAF", "FF854D0E",
+  "FF0E7490", "FF9F1239", "FF3730A3", "FF166534", "FF92400E",
+];
+
+// Pastel version of company color (very light background)
+function companyPastelArgb(idx: number): string {
+  const hex = COMPANY_ARGB[idx % COMPANY_ARGB.length].slice(2); // remove FF prefix
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  // Mix with white at 90%
+  const mix = (c: number) => Math.round(c * 0.12 + 255 * 0.88).toString(16).padStart(2, "0");
+  return `FF${mix(r)}${mix(g)}${mix(b)}`;
+}
+
 function thinBorder(): Partial<ExcelJS.Borders> {
   const side: Partial<ExcelJS.Border> = { style: "thin", color: { argb: COLORS.borderColor } };
   return { top: side, bottom: side, left: side, right: side };
+}
+
+function thickBorder(): Partial<ExcelJS.Borders> {
+  const thick: Partial<ExcelJS.Border> = { style: "medium", color: { argb: "595959" } };
+  const thin: Partial<ExcelJS.Border> = { style: "thin", color: { argb: COLORS.borderColor } };
+  return { top: thick, bottom: thick, left: thick, right: thick };
 }
 
 function headerFill(): ExcelJS.Fill {
@@ -44,23 +71,48 @@ function lightFill(color: string): ExcelJS.Fill {
   return { type: "pattern", pattern: "solid", fgColor: { argb: color } };
 }
 
-// Helper: build rich text cell with diff (strikethrough old + green new)
-function buildDiffRichText(current: string, prev: string): ExcelJS.CellRichTextValue | string {
-  if (!prev || prev === current) return current;
-  const parts: ExcelJS.RichText[] = [];
-  if (prev) {
-    parts.push({ text: prev, font: { strike: true, color: { argb: "C62828" }, size: 10 } });
-  }
-  if (current && current !== prev) {
-    if (parts.length > 0) parts.push({ text: "\n" });
-    parts.push({ text: current, font: { color: { argb: "2E7D32" }, size: 10 } });
-  }
-  if (parts.length === 0) return current;
-  return { richText: parts };
+function solidFill(argb: string): ExcelJS.Fill {
+  return { type: "pattern", pattern: "solid", fgColor: { argb } };
 }
 
-// =============== Shared helpers ===============
+// ─── Intelligent text diff ───────────────────────────────────────────────────
+// Computes a rich text showing old text (strikethrough red) + new text (green)
+// when comparing current vs previous version of a field.
+// If identical, returns plain string. Supports cumulative diffs across multiple nego rounds.
+function buildDiffRichText(current: string, prev: string): ExcelJS.CellRichTextValue | string {
+  const cur = (current ?? "").trim();
+  const prv = (prev ?? "").trim();
+  if (!prv && !cur) return "";
+  if (!prv) return cur;
+  if (cur === prv) return cur;
 
+  const parts: ExcelJS.RichText[] = [];
+
+  // Keep unchanged prefix/suffix and mark differences in the middle.
+  // Simple approach: show prev struck, then new added (handles append/modify)
+  // Check if it's a pure append (new starts with prev)
+  if (cur.startsWith(prv)) {
+    // Only addition at the end
+    const added = cur.slice(prv.length).trim();
+    if (prv) parts.push({ text: prv, font: { size: 10 } });
+    if (added) {
+      if (prv) parts.push({ text: "\n" });
+      parts.push({ text: added, font: { color: { argb: "FF1565C0" }, size: 10 } }); // blue for additions
+    }
+  } else {
+    // Modified or deleted text: strike red + new green
+    if (prv) {
+      parts.push({ text: prv, font: { strike: true, color: { argb: "FFC62828" }, size: 10 } });
+    }
+    if (cur) {
+      if (prv) parts.push({ text: "\n" });
+      parts.push({ text: cur, font: { color: { argb: "FF2E7D32" }, size: 10 } });
+    }
+  }
+  return parts.length > 0 ? { richText: parts } : cur;
+}
+
+// ─── Analyse Technique — Entreprises en colonnes ─────────────────────────────
 function buildTechSheet(
   wb: ExcelJS.Workbook,
   sheetName: string,
@@ -69,173 +121,550 @@ function buildTechSheet(
   companies: typeof project.companies,
   prevVersion?: NegotiationVersion | null
 ) {
-  const techSheet = wb.addWorksheet(sheetName);
-  techSheet.properties.defaultRowHeight = 18;
+  const ws = wb.addWorksheet(sheetName);
+  ws.properties.defaultRowHeight = 60; // taller rows for comments
 
-  const technicalCriteria = project.weightingCriteria.filter((c) => c.id !== "prix");
+  const technicalCriteria = project.weightingCriteria.filter(
+    (c) => c.id !== "prix" && c.id !== "environnemental" && c.id !== "planning"
+  );
+  const envCrit = project.weightingCriteria.find((c) => c.id === "environnemental");
+  const planCrit = project.weightingCriteria.find((c) => c.id === "planning");
   const maxTechWeight = technicalCriteria.reduce((s, c) => s + c.weight, 0);
 
-  let tRow = 2;
-  techSheet.mergeCells(`B${tRow}:G${tRow}`);
-  const techTitle = techSheet.getCell(`B${tRow}`);
-  techTitle.value = `${project.info.name || "Projet"} — Lot n° ${project.info.lotNumber || ""} — ${sheetName}`;
-  techTitle.font = { bold: true, size: 12, color: { argb: COLORS.darkText } };
-  techTitle.fill = lightFill(COLORS.lightBlue);
-  techTitle.border = thinBorder();
-  tRow++;
+  const activeCompanies = companies.filter((c) => c.name.trim() !== "");
 
-  techSheet.getCell(`B${tRow}`).value = `Date d'analyse : ${version.analysisDate || "—"}`;
-  techSheet.getCell(`B${tRow}`).font = { italic: true, size: 9 };
-  if (version.validated && version.validatedAt) {
-    techSheet.getCell(`D${tRow}`).value = `Validée le : ${new Date(version.validatedAt).toLocaleDateString("fr-FR")}`;
-    techSheet.getCell(`D${tRow}`).font = { italic: true, size: 9, color: { argb: "2E7D32" } };
-  }
-  tRow++;
-  tRow += 2;
+  // Column A = labels; for each company: 2 columns (Appréciation + Note)
+  // Col 1 = A (row labels)
+  // Col 2 = B (first company — Appréciation), Col 3 = C (first company — Note/X)
+  // Col 4 = D (second company — Appréciation), etc.
+  const COL_LABEL = 1; // A
+  const companyColStart = (idx: number) => 2 + idx * 2; // B, D, F...
 
-  techSheet.getCell(`B${tRow}`).value = `Note technique pondérée sur ${maxTechWeight} %`;
-  techSheet.getCell(`B${tRow}`).font = { bold: true, size: 10 };
-  techSheet.getCell(`B${tRow}`).fill = lightFill(COLORS.lightYellow);
-  techSheet.getCell(`B${tRow}`).border = thinBorder();
-  tRow += 2;
+  // ── Row 1: Title ──
+  let row = 1;
+  const lastCol = companyColStart(activeCompanies.length - 1) + 1;
+  ws.mergeCells(row, COL_LABEL, row, lastCol);
+  const titleCell = ws.getCell(row, COL_LABEL);
+  titleCell.value = `${project.info.name || "Projet"} — Lot ${project.info.lotNumber || ""} — ${sheetName}`;
+  titleCell.font = { bold: true, size: 13, color: { argb: COLORS.darkText } };
+  titleCell.fill = lightFill(COLORS.lightBlue);
+  titleCell.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getRow(row).height = 22;
+  row++;
 
-  for (const company of companies) {
+  // ── Row 2: Company headers (name) ──
+  ws.getCell(row, COL_LABEL).value = `${project.info.name || ""}`;
+  ws.getCell(row, COL_LABEL).font = { bold: true, size: 10, color: { argb: COLORS.headerFont } };
+  ws.getCell(row, COL_LABEL).fill = headerFill();
+  ws.getCell(row, COL_LABEL).border = thinBorder();
+  ws.getRow(row).height = 28;
+
+  activeCompanies.forEach((company, idx) => {
+    const colA = companyColStart(idx);
+    const colB = colA + 1;
+    ws.mergeCells(row, colA, row, colB);
+    const cell = ws.getCell(row, colA);
     const isExcluded = company.status === "ecartee";
+    cell.value = `Offre ${idx + 1}\n${company.name}${isExcluded ? " (ÉCARTÉE)" : ""}`;
+    cell.font = { bold: true, size: 10, color: { argb: "FFFFFFFF" } };
+    cell.fill = solidFill(COMPANY_ARGB[idx % COMPANY_ARGB.length]);
+    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    cell.border = thickBorder();
+  });
+  row++;
 
-    techSheet.mergeCells(`B${tRow}:G${tRow}`);
-    const ch = techSheet.getCell(`B${tRow}`);
-    ch.value = `${company.id}. ${company.name}${isExcluded ? " (ÉCARTÉE)" : ""}`;
-    ch.font = { bold: true, size: 11, color: { argb: isExcluded ? COLORS.excluded : COLORS.headerFont } };
-    ch.fill = isExcluded ? lightFill(COLORS.lightRed) : headerFill();
-    ch.border = thinBorder();
-    tRow++;
+  // ── Row 3: Sub-header (Appréciation / Note) ──
+  ws.getCell(row, COL_LABEL).value = "";
+  ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+  ws.getCell(row, COL_LABEL).border = thinBorder();
+  ws.getRow(row).height = 18;
 
-    if (isExcluded) {
-      techSheet.getCell(`B${tRow}`).value = `Motif : ${company.exclusionReason || "Non spécifié"}`;
-      techSheet.getCell(`B${tRow}`).font = { italic: true, color: { argb: COLORS.excluded } };
-      tRow += 2;
-      continue;
+  activeCompanies.forEach((company, idx) => {
+    const colA = companyColStart(idx);
+    const colB = colA + 1;
+    const pastel = companyPastelArgb(idx);
+
+    const appCell = ws.getCell(row, colA);
+    appCell.value = "Appréciation";
+    appCell.font = { bold: true, size: 9 };
+    appCell.fill = solidFill(pastel);
+    appCell.alignment = { horizontal: "center" };
+    appCell.border = thinBorder();
+
+    const noteCell = ws.getCell(row, colB);
+    noteCell.value = `Note/${maxTechWeight}`;
+    noteCell.font = { bold: true, size: 9 };
+    noteCell.fill = solidFill(pastel);
+    noteCell.alignment = { horizontal: "center" };
+    noteCell.border = thinBorder();
+  });
+  row++;
+
+  // ── Helper to compute criterion score ──
+  const getCriterionScore = (companyId: number, criterionId: string): { notation: string; score: number; note: any; subScores: { sub: any; notation: string; score: number; note: any }[] } => {
+    const criterion = project.weightingCriteria.find((c) => c.id === criterionId)!;
+    if (!criterion) return { notation: "—", score: 0, note: undefined, subScores: [] };
+
+    if (criterion.subCriteria.length > 0) {
+      const subTotal = criterion.subCriteria.reduce((s, sc) => s + sc.weight, 0);
+      let total = 0;
+      const subScores = criterion.subCriteria.map((sub) => {
+        const note = version.technicalNotes.find(
+          (n) => n.companyId === companyId && n.criterionId === criterionId && n.subCriterionId === sub.id
+        );
+        const val = note?.notation ? NOTATION_VALUES[note.notation] : 0;
+        const w = subTotal > 0 ? sub.weight / subTotal : 0;
+        const score = (val * w / 5) * criterion.weight;
+        total += score;
+        return { sub, notation: note?.notation ? NOTATION_LABELS[note.notation] : "—", score, note };
+      });
+      return { notation: "—", score: total, note: undefined, subScores };
+    } else {
+      const note = version.technicalNotes.find(
+        (n) => n.companyId === companyId && n.criterionId === criterionId && !n.subCriterionId
+      );
+      const val = note?.notation ? NOTATION_VALUES[note.notation] : 0;
+      const score = (val / 5) * criterion.weight;
+      return { notation: note?.notation ? NOTATION_LABELS[note.notation] : "—", score, note, subScores: [] };
     }
+  };
 
-    ["Critère", "Sous-critère", "Pondération", "Notation", "Note", "Points Positifs", "Points Négatifs"].forEach((label, i) => {
-      const c = techSheet.getCell(tRow, i + 2);
-      c.value = label;
-      c.font = { bold: true, size: 9 };
-      c.fill = lightFill(COLORS.lightBlue);
-      c.border = thinBorder();
-    });
-    tRow++;
+  // ── Per criterion rows ──
+  for (const criterion of technicalCriteria) {
+    const hasSubCriteria = criterion.subCriteria.length > 0;
+    const subTotal = hasSubCriteria ? criterion.subCriteria.reduce((s, sc) => s + sc.weight, 0) : 0;
 
-    let companyTotal = 0;
+    if (hasSubCriteria) {
+      // For each sub-criterion: one block of rows
+      for (const sub of criterion.subCriteria) {
+        const subWeight = subTotal > 0 ? sub.weight / subTotal : 0;
 
-    for (const criterion of technicalCriteria) {
-      if (criterion.subCriteria.length > 0) {
-        const subTotal = criterion.subCriteria.reduce((s, sc) => s + sc.weight, 0);
-        let criterionScore = 0;
-        for (const sub of criterion.subCriteria) {
+        // ── Sub-header row ──
+        ws.getCell(row, COL_LABEL).value = `${criterion.label}\n${sub.label} (${sub.weight}%)`;
+        ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
+        ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+        ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "top" };
+        ws.getCell(row, COL_LABEL).border = thinBorder();
+        ws.getRow(row).height = 18;
+
+        activeCompanies.forEach((company, idx) => {
+          const colA = companyColStart(idx);
+          const colB = colA + 1;
+          const pastel = companyPastelArgb(idx);
           const note = version.technicalNotes.find(
             (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
           );
-          const notationLabel = note?.notation ? NOTATION_LABELS[note.notation] : "—";
-          const notationValue = note?.notation ? NOTATION_VALUES[note.notation] : 0;
-          const subWeight = subTotal > 0 ? sub.weight / subTotal : 0;
-          const subScore = (notationValue * subWeight / 5) * criterion.weight;
-          criterionScore += subScore;
+          const val = note?.notation ? NOTATION_VALUES[note.notation] : 0;
+          const score = (val * subWeight / 5) * criterion.weight;
 
-          techSheet.getCell(tRow, 2).value = criterion.label;
-          techSheet.getCell(tRow, 3).value = `${sub.label} (${sub.weight}%)`;
-          techSheet.getCell(tRow, 4).value = `${criterion.weight}%`;
-          techSheet.getCell(tRow, 5).value = notationLabel;
-          techSheet.getCell(tRow, 6).value = Number(subScore.toFixed(1));
-          // Comments with diff rich text
+          const appCell = ws.getCell(row, colA);
+          appCell.value = note?.notation ? NOTATION_LABELS[note.notation] : "—";
+          appCell.font = { bold: true, size: 9 };
+          appCell.fill = solidFill(pastel);
+          appCell.alignment = { horizontal: "center", vertical: "middle" };
+          appCell.border = thinBorder();
+
+          const noteCell = ws.getCell(row, colB);
+          noteCell.value = Number(score.toFixed(2));
+          noteCell.numFmt = "0.00";
+          noteCell.font = { size: 9 };
+          noteCell.fill = solidFill(pastel);
+          noteCell.alignment = { horizontal: "center", vertical: "middle" };
+          noteCell.border = thinBorder();
+        });
+        row++;
+
+        // ── Comments rows (Points Positifs + Points Négatifs) ──
+        // Positifs
+        ws.getCell(row, COL_LABEL).value = "Points Positifs";
+        ws.getCell(row, COL_LABEL).font = { italic: true, size: 9, color: { argb: "FF2E7D32" } };
+        ws.getCell(row, COL_LABEL).fill = lightFill("F0FBF0");
+        ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "top" };
+        ws.getCell(row, COL_LABEL).border = thinBorder();
+        ws.getRow(row).height = 55;
+
+        activeCompanies.forEach((company, idx) => {
+          const colA = companyColStart(idx);
+          const colB = colA + 1;
+          const note = version.technicalNotes.find(
+            (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
+          );
+          const curPos = note?.commentPositif || note?.comment || "";
+
+          ws.mergeCells(row, colA, row, colB);
+          const cell = ws.getCell(row, colA);
+
           if (prevVersion) {
             const prevNote = prevVersion.technicalNotes.find(
               (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
             );
             const prevPos = prevNote?.commentPositif || prevNote?.comment || "";
-            const curPos = note?.commentPositif || note?.comment || "";
-            techSheet.getCell(tRow, 7).value = buildDiffRichText(curPos, prevPos);
-            const prevNeg = prevNote?.commentNegatif || "";
-            const curNeg = note?.commentNegatif || "";
-            techSheet.getCell(tRow, 8).value = buildDiffRichText(curNeg, prevNeg);
-            if (prevNote?.notation !== note?.notation) {
-              techSheet.getCell(tRow, 5).fill = lightFill("FFF9C4");
-              techSheet.getCell(tRow, 5).font = { bold: true, color: { argb: "E65100" } };
-            }
+            cell.value = buildDiffRichText(curPos, prevPos);
           } else {
-            techSheet.getCell(tRow, 7).value = note?.commentPositif || note?.comment || "";
-            techSheet.getCell(tRow, 8).value = note?.commentNegatif || "";
+            cell.value = curPos;
           }
-          techSheet.getCell(tRow, 7).alignment = { wrapText: true, vertical: "top" };
-          techSheet.getCell(tRow, 8).alignment = { wrapText: true, vertical: "top" };
-          for (let i = 2; i <= 8; i++) {
-            techSheet.getCell(tRow, i).border = thinBorder();
+          cell.alignment = { wrapText: true, vertical: "top" };
+          cell.border = thinBorder();
+          cell.fill = lightFill("F9FFF9");
+        });
+        row++;
+
+        // Négatifs
+        ws.getCell(row, COL_LABEL).value = "Points Négatifs";
+        ws.getCell(row, COL_LABEL).font = { italic: true, size: 9, color: { argb: "FFC62828" } };
+        ws.getCell(row, COL_LABEL).fill = lightFill("FFF8F8");
+        ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "top" };
+        ws.getCell(row, COL_LABEL).border = thinBorder();
+        ws.getRow(row).height = 55;
+
+        activeCompanies.forEach((company, idx) => {
+          const colA = companyColStart(idx);
+          const colB = colA + 1;
+          const note = version.technicalNotes.find(
+            (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
+          );
+          const curNeg = note?.commentNegatif || "";
+
+          ws.mergeCells(row, colA, row, colB);
+          const cell = ws.getCell(row, colA);
+
+          if (prevVersion) {
+            const prevNote = prevVersion.technicalNotes.find(
+              (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
+            );
+            const prevNeg = prevNote?.commentNegatif || "";
+            cell.value = buildDiffRichText(curNeg, prevNeg);
+          } else {
+            cell.value = curNeg;
           }
-          tRow++;
-        }
-        companyTotal += criterionScore;
-      } else {
+          cell.alignment = { wrapText: true, vertical: "top" };
+          cell.border = thinBorder();
+          cell.fill = lightFill("FFFDF8");
+        });
+        row++;
+      }
+
+      // ── Sous-total critère row ──
+      ws.getCell(row, COL_LABEL).value = `Total — ${criterion.label} (/${criterion.weight} pts)`;
+      ws.getCell(row, COL_LABEL).font = { bold: true, size: 10 };
+      ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightGreen);
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getRow(row).height = 18;
+
+      activeCompanies.forEach((company, idx) => {
+        const colA = companyColStart(idx);
+        const colB = colA + 1;
+        const scores = getCriterionScore(company.id, criterion.id);
+
+        ws.mergeCells(row, colA, row, colB);
+        const cell = ws.getCell(row, colA);
+        cell.value = Number(scores.score.toFixed(2));
+        cell.numFmt = "0.00";
+        cell.font = { bold: true, size: 10 };
+        cell.fill = lightFill(COLORS.lightGreen);
+        cell.alignment = { horizontal: "center" };
+        cell.border = thinBorder();
+      });
+      row++;
+
+    } else {
+      // No sub-criteria: single row for notation
+      ws.getCell(row, COL_LABEL).value = `${criterion.label} (${criterion.weight}%)`;
+      ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
+      ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+      ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "top" };
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getRow(row).height = 18;
+
+      activeCompanies.forEach((company, idx) => {
+        const colA = companyColStart(idx);
+        const colB = colA + 1;
+        const pastel = companyPastelArgb(idx);
+        const scores = getCriterionScore(company.id, criterion.id);
+
+        ws.getCell(row, colA).value = scores.notation;
+        ws.getCell(row, colA).font = { bold: true, size: 9 };
+        ws.getCell(row, colA).fill = solidFill(pastel);
+        ws.getCell(row, colA).alignment = { horizontal: "center" };
+        ws.getCell(row, colA).border = thinBorder();
+
+        ws.getCell(row, colB).value = Number(scores.score.toFixed(2));
+        ws.getCell(row, colB).numFmt = "0.00";
+        ws.getCell(row, colB).fill = solidFill(pastel);
+        ws.getCell(row, colB).alignment = { horizontal: "center" };
+        ws.getCell(row, colB).border = thinBorder();
+      });
+      row++;
+
+      // Comments for simple criterion
+      ws.getCell(row, COL_LABEL).value = "Points Positifs";
+      ws.getCell(row, COL_LABEL).font = { italic: true, size: 9, color: { argb: "FF2E7D32" } };
+      ws.getCell(row, COL_LABEL).fill = lightFill("F0FBF0");
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getRow(row).height = 55;
+
+      activeCompanies.forEach((company, idx) => {
+        const colA = companyColStart(idx);
+        const colB = colA + 1;
         const note = version.technicalNotes.find(
           (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
         );
-        const notationLabel = note?.notation ? NOTATION_LABELS[note.notation] : "—";
-        const notationValue = note?.notation ? NOTATION_VALUES[note.notation] : 0;
-        const score = (notationValue / 5) * criterion.weight;
-        companyTotal += score;
-
-        techSheet.getCell(tRow, 2).value = criterion.label;
-        techSheet.getCell(tRow, 3).value = "—";
-        techSheet.getCell(tRow, 4).value = `${criterion.weight}%`;
-        techSheet.getCell(tRow, 5).value = notationLabel;
-        techSheet.getCell(tRow, 6).value = Number(score.toFixed(1));
-        // Comments with diff rich text
+        const curPos = note?.commentPositif || note?.comment || "";
+        ws.mergeCells(row, colA, row, colB);
+        const cell = ws.getCell(row, colA);
         if (prevVersion) {
           const prevNote = prevVersion.technicalNotes.find(
             (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
           );
-          const prevPos = prevNote?.commentPositif || prevNote?.comment || "";
-          const curPos = note?.commentPositif || note?.comment || "";
-          techSheet.getCell(tRow, 7).value = buildDiffRichText(curPos, prevPos);
-          const prevNeg = prevNote?.commentNegatif || "";
-          const curNeg = note?.commentNegatif || "";
-          techSheet.getCell(tRow, 8).value = buildDiffRichText(curNeg, prevNeg);
-          if (prevNote?.notation !== note?.notation) {
-            techSheet.getCell(tRow, 5).fill = lightFill("FFF9C4");
-            techSheet.getCell(tRow, 5).font = { bold: true, color: { argb: "E65100" } };
-          }
+          cell.value = buildDiffRichText(curPos, prevNote?.commentPositif || prevNote?.comment || "");
         } else {
-          techSheet.getCell(tRow, 7).value = note?.commentPositif || note?.comment || "";
-          techSheet.getCell(tRow, 8).value = note?.commentNegatif || "";
+          cell.value = curPos;
         }
-        techSheet.getCell(tRow, 7).alignment = { wrapText: true, vertical: "top" };
-        techSheet.getCell(tRow, 8).alignment = { wrapText: true, vertical: "top" };
-        for (let i = 2; i <= 8; i++) {
-          techSheet.getCell(tRow, i).border = thinBorder();
+        cell.alignment = { wrapText: true, vertical: "top" };
+        cell.border = thinBorder();
+        cell.fill = lightFill("F9FFF9");
+      });
+      row++;
+
+      ws.getCell(row, COL_LABEL).value = "Points Négatifs";
+      ws.getCell(row, COL_LABEL).font = { italic: true, size: 9, color: { argb: "FFC62828" } };
+      ws.getCell(row, COL_LABEL).fill = lightFill("FFF8F8");
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getRow(row).height = 55;
+
+      activeCompanies.forEach((company, idx) => {
+        const colA = companyColStart(idx);
+        const colB = colA + 1;
+        const note = version.technicalNotes.find(
+          (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
+        );
+        const curNeg = note?.commentNegatif || "";
+        ws.mergeCells(row, colA, row, colB);
+        const cell = ws.getCell(row, colA);
+        if (prevVersion) {
+          const prevNote = prevVersion.technicalNotes.find(
+            (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
+          );
+          cell.value = buildDiffRichText(curNeg, prevNote?.commentNegatif || "");
+        } else {
+          cell.value = curNeg;
         }
-        tRow++;
-      }
+        cell.alignment = { wrapText: true, vertical: "top" };
+        cell.border = thinBorder();
+        cell.fill = lightFill("FFFDF8");
+      });
+      row++;
     }
 
-    techSheet.getCell(tRow, 2).value = "TOTAL";
-    techSheet.getCell(tRow, 2).font = { bold: true };
-    techSheet.getCell(tRow, 6).value = Number(companyTotal.toFixed(1));
-    techSheet.getCell(tRow, 6).font = { bold: true };
-    for (let i = 2; i <= 8; i++) {
-      techSheet.getCell(tRow, i).fill = lightFill(COLORS.lightGreen);
-      techSheet.getCell(tRow, i).border = thinBorder();
-    }
-    tRow += 2;
+    // Empty separator
+    ws.getRow(row).height = 6;
+    row++;
   }
 
-  techSheet.getColumn(2).width = 22;
-  techSheet.getColumn(3).width = 22;
-  techSheet.getColumn(4).width = 14;
-  techSheet.getColumn(5).width = 14;
-  techSheet.getColumn(6).width = 10;
-  techSheet.getColumn(7).width = 40;
-  techSheet.getColumn(8).width = 40;
+  // ── Note totale sur 100 ──
+  ws.getCell(row, COL_LABEL).value = `Note totale sur ${maxTechWeight}`;
+  ws.getCell(row, COL_LABEL).font = { bold: true, size: 10, color: { argb: COLORS.darkText } };
+  ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightYellow);
+  ws.getCell(row, COL_LABEL).border = thinBorder();
+  ws.getRow(row).height = 20;
+
+  const totalScores: Record<number, number> = {};
+  activeCompanies.forEach((company, idx) => {
+    const colA = companyColStart(idx);
+    const colB = colA + 1;
+    let total = 0;
+    for (const criterion of technicalCriteria) {
+      total += getCriterionScore(company.id, criterion.id).score;
+    }
+    totalScores[company.id] = total;
+    ws.mergeCells(row, colA, row, colB);
+    const cell = ws.getCell(row, colA);
+    cell.value = `Note de ${total.toFixed(0)} sur ${maxTechWeight}`;
+    cell.font = { bold: true, size: 10 };
+    cell.fill = lightFill(COLORS.lightYellow);
+    cell.alignment = { horizontal: "center" };
+    cell.border = thickBorder();
+  });
+  row++;
+
+  // ── Note technique pondérée ──
+  const prixCriterion = project.weightingCriteria.find((c) => c.id === "prix");
+  const prixWeight = prixCriterion?.weight ?? 40;
+  const techPondWeight = 100 - prixWeight - (envCrit?.weight ?? 0) - (planCrit?.weight ?? 0);
+
+  ws.getCell(row, COL_LABEL).value = `Note technique pondérée sur ${techPondWeight} %`;
+  ws.getCell(row, COL_LABEL).font = { bold: true, size: 10, color: { argb: COLORS.darkText } };
+  ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightOrange);
+  ws.getCell(row, COL_LABEL).border = thinBorder();
+  ws.getRow(row).height = 20;
+
+  activeCompanies.forEach((company, idx) => {
+    const colA = companyColStart(idx);
+    const colB = colA + 1;
+    const pondScore = totalScores[company.id] ?? 0;
+    ws.mergeCells(row, colA, row, colB);
+    const cell = ws.getCell(row, colA);
+    cell.value = Number(pondScore.toFixed(2));
+    cell.numFmt = "0.00";
+    cell.font = { bold: true, size: 10 };
+    cell.fill = lightFill(COLORS.lightOrange);
+    cell.alignment = { horizontal: "center" };
+    cell.border = thickBorder();
+  });
+  row += 2;
+
+  // ── Environnemental ──
+  if (envCrit) {
+    ws.getCell(row, COL_LABEL).value = `Environnemental (${envCrit.weight}%)`;
+    ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
+    ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+    ws.getCell(row, COL_LABEL).border = thinBorder();
+    ws.getRow(row).height = 18;
+
+    activeCompanies.forEach((company, idx) => {
+      const colA = companyColStart(idx);
+      const colB = colA + 1;
+      const pastel = companyPastelArgb(idx);
+      const note = version.technicalNotes.find(
+        (n) => n.companyId === company.id && n.criterionId === "environnemental" && !n.subCriterionId
+      );
+      const val = note?.notation ? NOTATION_VALUES[note.notation] : 0;
+      const score = (val / 5) * envCrit.weight;
+      ws.getCell(row, colA).value = note?.notation ? NOTATION_LABELS[note.notation] : "—";
+      ws.getCell(row, colA).font = { bold: true, size: 9 };
+      ws.getCell(row, colA).fill = solidFill(pastel);
+      ws.getCell(row, colA).alignment = { horizontal: "center" };
+      ws.getCell(row, colA).border = thinBorder();
+      ws.getCell(row, colB).value = Number(score.toFixed(2));
+      ws.getCell(row, colB).numFmt = "0.00";
+      ws.getCell(row, colB).fill = solidFill(pastel);
+      ws.getCell(row, colB).alignment = { horizontal: "center" };
+      ws.getCell(row, colB).border = thinBorder();
+    });
+    row++;
+
+    // Comments
+    ws.getCell(row, COL_LABEL).value = "Commentaire Environnemental";
+    ws.getCell(row, COL_LABEL).font = { italic: true, size: 9 };
+    ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+    ws.getCell(row, COL_LABEL).border = thinBorder();
+    ws.getRow(row).height = 55;
+
+    activeCompanies.forEach((company, idx) => {
+      const colA = companyColStart(idx);
+      const colB = colA + 1;
+      const note = version.technicalNotes.find(
+        (n) => n.companyId === company.id && n.criterionId === "environnemental" && !n.subCriterionId
+      );
+      ws.mergeCells(row, colA, row, colB);
+      const cell = ws.getCell(row, colA);
+      const curPos = note?.commentPositif || note?.comment || "";
+      if (prevVersion) {
+        const prevNote = prevVersion.technicalNotes.find(
+          (n) => n.companyId === company.id && n.criterionId === "environnemental" && !n.subCriterionId
+        );
+        cell.value = buildDiffRichText(curPos, prevNote?.commentPositif || prevNote?.comment || "");
+      } else {
+        cell.value = curPos;
+      }
+      cell.alignment = { wrapText: true, vertical: "top" };
+      cell.border = thinBorder();
+    });
+    row += 2;
+  }
+
+  // ── Planning ──
+  if (planCrit) {
+    ws.getCell(row, COL_LABEL).value = `Planning (${planCrit.weight}%)`;
+    ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
+    ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+    ws.getCell(row, COL_LABEL).border = thinBorder();
+    ws.getRow(row).height = 18;
+
+    activeCompanies.forEach((company, idx) => {
+      const colA = companyColStart(idx);
+      const colB = colA + 1;
+      const pastel = companyPastelArgb(idx);
+      const note = version.technicalNotes.find(
+        (n) => n.companyId === company.id && n.criterionId === "planning" && !n.subCriterionId
+      );
+      const val = note?.notation ? NOTATION_VALUES[note.notation] : 0;
+      const score = (val / 5) * planCrit.weight;
+      ws.getCell(row, colA).value = note?.notation ? NOTATION_LABELS[note.notation] : "—";
+      ws.getCell(row, colA).font = { bold: true, size: 9 };
+      ws.getCell(row, colA).fill = solidFill(pastel);
+      ws.getCell(row, colA).alignment = { horizontal: "center" };
+      ws.getCell(row, colA).border = thinBorder();
+      ws.getCell(row, colB).value = Number(score.toFixed(2));
+      ws.getCell(row, colB).numFmt = "0.00";
+      ws.getCell(row, colB).fill = solidFill(pastel);
+      ws.getCell(row, colB).alignment = { horizontal: "center" };
+      ws.getCell(row, colB).border = thinBorder();
+    });
+    row++;
+
+    ws.getCell(row, COL_LABEL).value = "Commentaire Planning";
+    ws.getCell(row, COL_LABEL).font = { italic: true, size: 9 };
+    ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+    ws.getCell(row, COL_LABEL).border = thinBorder();
+    ws.getRow(row).height = 55;
+
+    activeCompanies.forEach((company, idx) => {
+      const colA = companyColStart(idx);
+      const colB = colA + 1;
+      const note = version.technicalNotes.find(
+        (n) => n.companyId === company.id && n.criterionId === "planning" && !n.subCriterionId
+      );
+      ws.mergeCells(row, colA, row, colB);
+      const cell = ws.getCell(row, colA);
+      const curPos = note?.commentPositif || note?.comment || "";
+      if (prevVersion) {
+        const prevNote = prevVersion.technicalNotes.find(
+          (n) => n.companyId === company.id && n.criterionId === "planning" && !n.subCriterionId
+        );
+        cell.value = buildDiffRichText(curPos, prevNote?.commentPositif || prevNote?.comment || "");
+      } else {
+        cell.value = curPos;
+      }
+      cell.alignment = { wrapText: true, vertical: "top" };
+      cell.border = thinBorder();
+    });
+    row += 2;
+  }
+
+  // ── Documents à vérifier ──
+  ws.getCell(row, COL_LABEL).value = "Document à vérifier";
+  ws.getCell(row, COL_LABEL).font = { bold: true, size: 9, color: { argb: "FFE65100" } };
+  ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightOrange);
+  ws.getCell(row, COL_LABEL).border = thinBorder();
+  ws.getRow(row).height = 55;
+
+  activeCompanies.forEach((company, idx) => {
+    const colA = companyColStart(idx);
+    const colB = colA + 1;
+    const curDoc = version.documentsToVerify?.[company.id] ?? "";
+    ws.mergeCells(row, colA, row, colB);
+    const cell = ws.getCell(row, colA);
+    if (prevVersion) {
+      const prevDoc = prevVersion.documentsToVerify?.[company.id] ?? "";
+      cell.value = buildDiffRichText(curDoc, prevDoc);
+    } else {
+      cell.value = curDoc;
+    }
+    cell.alignment = { wrapText: true, vertical: "top" };
+    cell.border = thinBorder();
+    cell.fill = lightFill(COLORS.lightOrange);
+  });
+
+  // ── Column widths ──
+  ws.getColumn(COL_LABEL).width = 28;
+  activeCompanies.forEach((_, idx) => {
+    ws.getColumn(companyColStart(idx)).width = 22;
+    ws.getColumn(companyColStart(idx) + 1).width = 10;
+  });
 }
 
+// ─── Analyse Prix — Entreprises en colonnes ───────────────────────────────────
 function buildPrixSheet(
   wb: ExcelJS.Workbook,
   sheetName: string,
@@ -243,15 +672,24 @@ function buildPrixSheet(
   version: NegotiationVersion,
   companies: typeof project.companies
 ) {
-  const prixSheet = wb.addWorksheet(sheetName);
-  prixSheet.properties.defaultRowHeight = 18;
+  const ws = wb.addWorksheet(sheetName);
+  ws.properties.defaultRowHeight = 18;
 
+  const activeCompanies = companies.filter((c) => c.name.trim() !== "");
   const activeLotLines = project.lotLines.filter((l) => l.label.trim() !== "");
+  const baseLines = activeLotLines.filter((l) => !l.type);
+  const pseLines = activeLotLines.filter((l) => l.type === "PSE");
+  const varianteLines = activeLotLines.filter((l) => l.type === "VARIANTE");
+  const toLines = activeLotLines.filter((l) => l.type === "T_OPTIONNELLE");
+  const typedLines = activeLotLines.filter((l) => l.type);
+
   const prixCriterion = project.weightingCriteria.find((c) => c.id === "prix");
   const prixWeight = prixCriterion?.weight ?? 40;
   const hasDpgf2 = project.info.hasDualDpgf ?? false;
 
-  // Auto-numbering helper
+  const COL_LABEL = 1;
+  const companyCol = (idx: number) => 2 + idx;
+
   const getLineLabel = (line: typeof activeLotLines[0]) => {
     if (!line.type) return line.label;
     const group = activeLotLines.filter((l) => l.type === line.type);
@@ -260,353 +698,426 @@ function buildPrixSheet(
     return `${prefix} ${idx}${line.label ? ` — ${line.label}` : ""}`;
   };
 
-  let pRow = 2;
-  const endCol = hasDpgf2 ? "K" : "I";
-  prixSheet.mergeCells(`B${pRow}:${endCol}${pRow}`);
-  const prixTitle = prixSheet.getCell(`B${pRow}`);
-  prixTitle.value = `${project.info.name || "Projet"} — Lot n° ${project.info.lotNumber || ""} — ${sheetName}`;
-  prixTitle.font = { bold: true, size: 12, color: { argb: COLORS.darkText } };
-  prixTitle.fill = lightFill(COLORS.lightBlue);
-  prixTitle.border = thinBorder();
-  pRow++;
+  const lastCol = companyCol(activeCompanies.length - 1);
 
-  prixSheet.getCell(`B${pRow}`).value = `Date d'analyse : ${version.analysisDate || "—"}`;
-  prixSheet.getCell(`B${pRow}`).font = { italic: true, size: 9 };
-  if (version.validated && version.validatedAt) {
-    prixSheet.getCell(`D${pRow}`).value = `Validée le : ${new Date(version.validatedAt).toLocaleDateString("fr-FR")}`;
-    prixSheet.getCell(`D${pRow}`).font = { italic: true, size: 9, color: { argb: "2E7D32" } };
-  }
-  pRow++;
+  // ── Row 1: Title ──
+  let row = 1;
+  ws.mergeCells(row, COL_LABEL, row, lastCol);
+  const titleCell = ws.getCell(row, COL_LABEL);
+  titleCell.value = `${project.info.name || "Projet"} — Lot ${project.info.lotNumber || ""} — ${sheetName}`;
+  titleCell.font = { bold: true, size: 13, color: { argb: COLORS.darkText } };
+  titleCell.fill = lightFill(COLORS.lightBlue);
+  titleCell.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getRow(row).height = 22;
+  row++;
 
-  // Track total rows for MIN formula
-  const companyTotalRows: number[] = [];
+  // ── Row 2: Company headers ──
+  ws.getCell(row, COL_LABEL).value = `${project.info.name || ""}`;
+  ws.getCell(row, COL_LABEL).font = { bold: true, size: 10, color: { argb: COLORS.headerFont } };
+  ws.getCell(row, COL_LABEL).fill = headerFill();
+  ws.getCell(row, COL_LABEL).border = thinBorder();
+  ws.getRow(row).height = 30;
 
-  for (const company of companies) {
+  activeCompanies.forEach((company, idx) => {
+    const col = companyCol(idx);
+    const cell = ws.getCell(row, col);
     const isExcluded = company.status === "ecartee";
+    cell.value = `Offre ${idx + 1}\n${company.name}${isExcluded ? "\n(ÉCARTÉE)" : ""}`;
+    cell.font = { bold: true, size: 10, color: { argb: "FFFFFFFF" } };
+    cell.fill = solidFill(COMPANY_ARGB[idx % COMPANY_ARGB.length]);
+    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    cell.border = thickBorder();
+  });
+  row++;
 
-    prixSheet.mergeCells(`B${pRow}:${endCol}${pRow}`);
-    const compHeader = prixSheet.getCell(`B${pRow}`);
-    compHeader.value = `${company.id}. ${company.name}${isExcluded ? " (ÉCARTÉE)" : ""}`;
-    compHeader.font = { bold: true, size: 11, color: { argb: isExcluded ? COLORS.excluded : COLORS.headerFont } };
-    compHeader.fill = isExcluded ? lightFill(COLORS.lightRed) : headerFill();
-    compHeader.border = thinBorder();
-    pRow++;
+  // ── Row 3: Company names (small) ──
+  ws.getCell(row, COL_LABEL).value = "";
+  ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+  ws.getCell(row, COL_LABEL).border = thinBorder();
+  ws.getRow(row).height = 14;
+  activeCompanies.forEach((company, idx) => {
+    const col = companyCol(idx);
+    const pastel = companyPastelArgb(idx);
+    ws.getCell(row, col).value = company.name;
+    ws.getCell(row, col).font = { italic: true, size: 8, color: { argb: "FF555555" } };
+    ws.getCell(row, col).fill = solidFill(pastel);
+    ws.getCell(row, col).alignment = { horizontal: "center" };
+    ws.getCell(row, col).border = thinBorder();
+  });
+  row++;
 
-    if (isExcluded) {
-      prixSheet.getCell(`B${pRow}`).value = `Motif : ${company.exclusionReason || "Non spécifié"}`;
-      prixSheet.getCell(`B${pRow}`).font = { italic: true, color: { argb: COLORS.excluded } };
-      pRow += 2;
-      continue;
-    }
+  // ── Helper: get total for a company from a set of lines ──
+  const getTotal = (companyId: number, lines: typeof activeLotLines) => {
+    return lines.reduce((sum, line) => {
+      const entry = version.priceEntries.find((e) => e.companyId === companyId && e.lotLineId === line.id);
+      return sum + (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
+    }, 0);
+  };
 
-    // Headers: Ligne | Est. DPGF1 | DPGF1 Candidat | Écart 1 | [Est. DPGF2 | DPGF2 Candidat | Écart 2] | Total | Écart Global
-    const cols: string[] = ["Ligne", "Est. DPGF 1 (€)", "DPGF 1 Candidat (€ HT)", "Écart DPGF 1 (%)"];
-    if (hasDpgf2) cols.push("Est. DPGF 2 (€)", "DPGF 2 Candidat (€ HT)", "Écart DPGF 2 (%)");
-    cols.push("Total (€ HT)", "Écart Global (%)");
+  // ── Helper: render a row for a lot line ──
+  const renderLineRow = (line: typeof activeLotLines[0], label: string, isSectionHeader = false) => {
+    const est1 = line.estimationDpgf1 ?? 0;
+    const est2 = line.estimationDpgf2 ?? 0;
+    const estTotal = est1 + est2;
 
-    cols.forEach((label, i) => {
-      const c = prixSheet.getCell(pRow, i + 2);
-      c.value = label;
-      c.font = { bold: true, size: 9 };
-      c.fill = lightFill(COLORS.lightBlue);
-      c.border = thinBorder();
-      c.alignment = { horizontal: "center", wrapText: true };
-    });
-    pRow++;
+    ws.getCell(row, COL_LABEL).value = label;
+    ws.getCell(row, COL_LABEL).font = { size: 9, italic: isSectionHeader };
+    ws.getCell(row, COL_LABEL).fill = lightFill(isSectionHeader ? COLORS.lightBlue : COLORS.white);
+    ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "top" };
+    ws.getCell(row, COL_LABEL).border = thinBorder();
+    ws.getRow(row).height = 18;
 
-    const dataStartRow = pRow;
-
-    for (const line of activeLotLines) {
-      const entry = version.priceEntries.find(
-        (e) => e.companyId === company.id && e.lotLineId === line.id
-      );
+    activeCompanies.forEach((company, idx) => {
+      const col = companyCol(idx);
+      const entry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
       const d1 = entry?.dpgf1 ?? 0;
       const d2 = entry?.dpgf2 ?? 0;
-      const est1 = line.estimationDpgf1 ?? 0;
-      const est2 = line.estimationDpgf2 ?? 0;
-      const estTotal = est1 + est2;
-      const offerTotal = d1 + d2;
+      const offerTotal = hasDpgf2 ? d1 + d2 : d1;
+      const estRef = hasDpgf2 ? estTotal : est1;
 
-      let col = 2;
+      const cell = ws.getCell(row, col);
+      cell.value = offerTotal || null;
+      cell.numFmt = '#,##0.00 "€"';
+      cell.alignment = { horizontal: "right" };
+      cell.border = thinBorder();
 
-      // Ligne label with auto-numbering
-      prixSheet.getCell(pRow, col).value = getLineLabel(line);
-      prixSheet.getCell(pRow, col).border = thinBorder();
-      col++;
-
-      // Est. DPGF 1 — grayed out
-      const est1Cell = prixSheet.getCell(pRow, col);
-      est1Cell.value = est1 || "";
-      est1Cell.numFmt = '#,##0.00 "€"';
-      est1Cell.border = thinBorder();
-      est1Cell.font = { italic: true, color: { argb: "808080" } };
-      est1Cell.fill = lightFill("F0F0F0");
-      col++;
-
-      // DPGF 1 Candidat
-      prixSheet.getCell(pRow, col).value = d1 || "";
-      prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
-      prixSheet.getCell(pRow, col).border = thinBorder();
-      col++;
-
-      // Écart DPGF 1 — color coded
-      if (est1 !== 0 && d1 !== 0) {
-        const dev1 = ((d1 - est1) / Math.abs(est1)) * 100;
-        const devCell = prixSheet.getCell(pRow, col);
-        devCell.value = Number(dev1.toFixed(2));
-        devCell.numFmt = '0.00"%"';
-        devCell.border = thinBorder();
-        const absDev = Math.abs(dev1);
-        if (absDev <= 10) devCell.font = { bold: true, color: { argb: "2E7D32" } };
-        else if (absDev <= 20) devCell.font = { bold: true, color: { argb: "E65100" } };
-        else devCell.font = { bold: true, color: { argb: "C62828" } };
-        // Background tint
-        if (absDev <= 10) devCell.fill = lightFill("E8F5E9");
-        else if (absDev <= 20) devCell.fill = lightFill("FFF3E0");
-        else devCell.fill = lightFill("FFEBEE");
-      } else {
-        prixSheet.getCell(pRow, col).value = "—";
-        prixSheet.getCell(pRow, col).border = thinBorder();
-      }
-      col++;
-
-      if (hasDpgf2) {
-        // Est. DPGF 2 — grayed out
-        const est2Cell = prixSheet.getCell(pRow, col);
-        est2Cell.value = est2 || "";
-        est2Cell.numFmt = '#,##0.00 "€"';
-        est2Cell.border = thinBorder();
-        est2Cell.font = { italic: true, color: { argb: "808080" } };
-        est2Cell.fill = lightFill("F0F0F0");
-        col++;
-
-        // DPGF 2 Candidat
-        prixSheet.getCell(pRow, col).value = d2 || "";
-        prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
-        prixSheet.getCell(pRow, col).border = thinBorder();
-        col++;
-
-        // Écart DPGF 2 — color coded
-        if (est2 !== 0 && d2 !== 0) {
-          const dev2 = ((d2 - est2) / Math.abs(est2)) * 100;
-          const devCell = prixSheet.getCell(pRow, col);
-          devCell.value = Number(dev2.toFixed(2));
-          devCell.numFmt = '0.00"%"';
-          devCell.border = thinBorder();
-          const absDev = Math.abs(dev2);
-          if (absDev <= 10) devCell.font = { bold: true, color: { argb: "2E7D32" } };
-          else if (absDev <= 20) devCell.font = { bold: true, color: { argb: "E65100" } };
-          else devCell.font = { bold: true, color: { argb: "C62828" } };
-          if (absDev <= 10) devCell.fill = lightFill("E8F5E9");
-          else if (absDev <= 20) devCell.fill = lightFill("FFF3E0");
-          else devCell.fill = lightFill("FFEBEE");
-        } else {
-          prixSheet.getCell(pRow, col).value = "—";
-          prixSheet.getCell(pRow, col).border = thinBorder();
-        }
-        col++;
-      }
-
-      // Total
-      prixSheet.getCell(pRow, col).value = offerTotal;
-      prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
-      prixSheet.getCell(pRow, col).font = { bold: true };
-      prixSheet.getCell(pRow, col).border = thinBorder();
-      col++;
-
-      // Écart Global — color coded
-      if (estTotal !== 0 && offerTotal !== 0) {
-        const dev = ((offerTotal - estTotal) / Math.abs(estTotal)) * 100;
-        const devCell = prixSheet.getCell(pRow, col);
-        devCell.value = Number(dev.toFixed(2));
-        devCell.numFmt = '0.00"%"';
-        devCell.border = thinBorder();
+      // Color based on deviation
+      if (estRef !== 0 && offerTotal !== 0) {
+        const dev = ((offerTotal - estRef) / Math.abs(estRef)) * 100;
         const absDev = Math.abs(dev);
-        if (absDev <= 10) { devCell.font = { bold: true, color: { argb: "2E7D32" } }; devCell.fill = lightFill("E8F5E9"); }
-        else if (absDev <= 20) { devCell.font = { bold: true, color: { argb: "E65100" } }; devCell.fill = lightFill("FFF3E0"); }
-        else { devCell.font = { bold: true, color: { argb: "C62828" } }; devCell.fill = lightFill("FFEBEE"); }
-      } else {
-        prixSheet.getCell(pRow, col).value = "—";
-        prixSheet.getCell(pRow, col).border = thinBorder();
+        if (absDev <= 10) cell.fill = lightFill("E8F5E9");
+        else if (absDev <= 20) cell.fill = lightFill("FFF3E0");
+        else cell.fill = lightFill("FFEBEE");
       }
-
-      pRow++;
-    }
-
-    // Total row with SUM formulas
-    let col = 2;
-    prixSheet.getCell(pRow, col).value = "TOTAL";
-    prixSheet.getCell(pRow, col).font = { bold: true };
-    prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
-    prixSheet.getCell(pRow, col).border = thinBorder();
-    col++;
-
-    // Est DPGF1 SUM
-    const estD1Col = String.fromCharCode(64 + col);
-    prixSheet.getCell(pRow, col).value = { formula: `SUM(${estD1Col}${dataStartRow}:${estD1Col}${pRow - 1})` };
-    prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
-    prixSheet.getCell(pRow, col).font = { bold: true, italic: true, color: { argb: "808080" } };
-    prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
-    prixSheet.getCell(pRow, col).border = thinBorder();
-    col++;
-
-    // DPGF1 SUM
-    const d1Col = String.fromCharCode(64 + col);
-    prixSheet.getCell(pRow, col).value = { formula: `SUM(${d1Col}${dataStartRow}:${d1Col}${pRow - 1})` };
-    prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
-    prixSheet.getCell(pRow, col).font = { bold: true };
-    prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
-    prixSheet.getCell(pRow, col).border = thinBorder();
-    col++;
-
-    // Ecart 1 skip
-    prixSheet.getCell(pRow, col).value = "";
-    prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
-    prixSheet.getCell(pRow, col).border = thinBorder();
-    col++;
-
-    if (hasDpgf2) {
-      // Est DPGF2 SUM
-      const estD2Col = String.fromCharCode(64 + col);
-      prixSheet.getCell(pRow, col).value = { formula: `SUM(${estD2Col}${dataStartRow}:${estD2Col}${pRow - 1})` };
-      prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
-      prixSheet.getCell(pRow, col).font = { bold: true, italic: true, color: { argb: "808080" } };
-      prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
-      prixSheet.getCell(pRow, col).border = thinBorder();
-      col++;
-
-      // DPGF2 SUM
-      const d2Col = String.fromCharCode(64 + col);
-      prixSheet.getCell(pRow, col).value = { formula: `SUM(${d2Col}${dataStartRow}:${d2Col}${pRow - 1})` };
-      prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
-      prixSheet.getCell(pRow, col).font = { bold: true };
-      prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
-      prixSheet.getCell(pRow, col).border = thinBorder();
-      col++;
-
-      // Ecart 2 skip
-      prixSheet.getCell(pRow, col).value = "";
-      prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
-      prixSheet.getCell(pRow, col).border = thinBorder();
-      col++;
-    }
-
-    // Total SUM
-    const totCol = String.fromCharCode(64 + col);
-    prixSheet.getCell(pRow, col).value = { formula: `SUM(${totCol}${dataStartRow}:${totCol}${pRow - 1})` };
-    prixSheet.getCell(pRow, col).numFmt = '#,##0.00 "€"';
-    prixSheet.getCell(pRow, col).font = { bold: true };
-    prixSheet.getCell(pRow, col).fill = lightFill(COLORS.lightGreen);
-    prixSheet.getCell(pRow, col).border = thinBorder();
-
-    companyTotalRows.push(pRow);
-    pRow += 2;
-  }
-
-  // Price score summary with Excel formulas
-  if (companyTotalRows.length > 0) {
-    const totalColIdx = hasDpgf2 ? 9 : 7; // Column index where Total is
-    const totalColLetter = String.fromCharCode(64 + totalColIdx);
-
-    prixSheet.mergeCells(`B${pRow}:${endCol}${pRow}`);
-    const scoreTitle = prixSheet.getCell(`B${pRow}`);
-    scoreTitle.value = "NOTATION PRIX (formules dynamiques)";
-    scoreTitle.font = headerFont();
-    scoreTitle.fill = headerFill();
-    scoreTitle.border = thinBorder();
-    pRow++;
-
-    // Compute tech scores for note finale
-    const technicalCriteria = project.weightingCriteria.filter((c) => c.id !== "prix");
-    const techScoresMap: Record<number, number> = {};
-    for (const company of companies.filter((c) => c.status !== "ecartee")) {
-      let total = 0;
-      for (const criterion of technicalCriteria) {
-        if (criterion.subCriteria.length > 0) {
-          let raw = 0;
-          const subTotal = criterion.subCriteria.reduce((s, sc) => s + sc.weight, 0);
-          for (const sub of criterion.subCriteria) {
-            const note = version.technicalNotes.find(
-              (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
-            );
-            if (note?.notation) raw += NOTATION_VALUES[note.notation] * (subTotal > 0 ? sub.weight / subTotal : 0);
-          }
-          total += (raw / 5) * criterion.weight;
-        } else {
-          const note = version.technicalNotes.find(
-            (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
-          );
-          if (note?.notation) total += (NOTATION_VALUES[note.notation] / 5) * criterion.weight;
-        }
-      }
-      techScoresMap[company.id] = total;
-    }
-    const maxTechWeight = technicalCriteria.reduce((s, c) => s + c.weight, 0);
-
-    ["Entreprise", "Montant Total HT", `Note Prix / ${prixWeight}`, `Note Tech / ${maxTechWeight}`, "Note Globale"].forEach((h, i) => {
-      const c = prixSheet.getCell(pRow, i + 2);
-      c.value = h;
-      c.font = { bold: true, size: 9 };
-      c.fill = lightFill(COLORS.lightBlue);
-      c.border = thinBorder();
-      c.alignment = { horizontal: "center" };
     });
-    pRow++;
+    row++;
 
-    const eligibleCompanies = companies.filter((c) => c.status !== "ecartee");
-    const scoreStartRow = pRow;
+    // Estimation sub-row (grayed)
+    if (estTotal > 0) {
+      ws.getCell(row, COL_LABEL).value = `  ↳ Est. CIRAD : ${hasDpgf2 ? `${est1.toLocaleString("fr-FR")} + ${est2.toLocaleString("fr-FR")}` : est1.toLocaleString("fr-FR")} €`;
+      ws.getCell(row, COL_LABEL).font = { italic: true, size: 8, color: { argb: "FF888888" } };
+      ws.getCell(row, COL_LABEL).fill = lightFill("F5F5F5");
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getRow(row).height = 14;
 
-    // MIN formula reference — collect total cell refs
-    const totalCellRefs = companyTotalRows.map((r) => `${totalColLetter}${r}`);
-    const minFormula = `MIN(${totalCellRefs.join(",")})`;
-
-    let compIdx = 0;
-    for (const company of eligibleCompanies) {
-      const totalRow = companyTotalRows[compIdx];
-      if (totalRow === undefined) { compIdx++; continue; }
-
-      prixSheet.getCell(pRow, 2).value = `${company.id}. ${company.name}`;
-      prixSheet.getCell(pRow, 2).border = thinBorder();
-
-      // Reference the total from above
-      prixSheet.getCell(pRow, 3).value = { formula: `${totalColLetter}${totalRow}` };
-      prixSheet.getCell(pRow, 3).numFmt = '#,##0.00 "€"';
-      prixSheet.getCell(pRow, 3).border = thinBorder();
-
-      // Note Prix = (MIN / Montant) * Pondération — Excel formula
-      prixSheet.getCell(pRow, 4).value = {
-        formula: `IF(C${pRow}>0,(${minFormula}/C${pRow})*${prixWeight},0)`
-      };
-      prixSheet.getCell(pRow, 4).numFmt = '0.00';
-      prixSheet.getCell(pRow, 4).font = { bold: true };
-      prixSheet.getCell(pRow, 4).border = thinBorder();
-      prixSheet.getCell(pRow, 4).alignment = { horizontal: "center" };
-
-      // Note Technique
-      const techScore = techScoresMap[company.id] ?? 0;
-      prixSheet.getCell(pRow, 5).value = Number(techScore.toFixed(1));
-      prixSheet.getCell(pRow, 5).numFmt = '0.0';
-      prixSheet.getCell(pRow, 5).border = thinBorder();
-      prixSheet.getCell(pRow, 5).alignment = { horizontal: "center" };
-
-      // Note Globale = Note Prix + Note Tech (formula)
-      prixSheet.getCell(pRow, 6).value = { formula: `D${pRow}+E${pRow}` };
-      prixSheet.getCell(pRow, 6).numFmt = '0.00';
-      prixSheet.getCell(pRow, 6).font = { bold: true };
-      prixSheet.getCell(pRow, 6).border = thinBorder();
-      prixSheet.getCell(pRow, 6).alignment = { horizontal: "center" };
-
-      compIdx++;
-      pRow++;
+      activeCompanies.forEach((company, idx) => {
+        const col = companyCol(idx);
+        const entry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
+        const d1 = entry?.dpgf1 ?? 0;
+        const d2 = entry?.dpgf2 ?? 0;
+        const offerTotal = hasDpgf2 ? d1 + d2 : d1;
+        const estRef = hasDpgf2 ? estTotal : est1;
+        const cell = ws.getCell(row, col);
+        if (estRef !== 0 && offerTotal !== 0) {
+          const dev = ((offerTotal - estRef) / Math.abs(estRef)) * 100;
+          cell.value = `${dev >= 0 ? "+" : ""}${dev.toFixed(2)}%`;
+          cell.font = { italic: true, size: 8, color: { argb: Math.abs(dev) <= 10 ? "FF2E7D32" : Math.abs(dev) <= 20 ? "FFE65100" : "FFC62828" } };
+        } else {
+          cell.value = "—";
+          cell.font = { italic: true, size: 8, color: { argb: "FF888888" } };
+        }
+        cell.fill = lightFill("F5F5F5");
+        cell.alignment = { horizontal: "center" };
+        cell.border = thinBorder();
+      });
+      row++;
     }
+  };
 
-    pRow++;
+  // ── Section: Tranche Ferme ──
+  ws.mergeCells(row, COL_LABEL, row, lastCol);
+  const tfHeader = ws.getCell(row, COL_LABEL);
+  tfHeader.value = "TRANCHE FERME (hors PSE, Variante et Tranche Optionnelle)";
+  tfHeader.font = { bold: true, size: 10, color: { argb: COLORS.headerFont } };
+  tfHeader.fill = headerFill();
+  tfHeader.border = thinBorder();
+  ws.getRow(row).height = 18;
+  row++;
+
+  for (const line of baseLines) {
+    renderLineRow(line, line.label);
   }
 
-  prixSheet.getColumn("B").width = 30;
-  for (let i = 3; i <= 12; i++) {
-    prixSheet.getColumn(i).width = 18;
+  // TF Total
+  ws.getCell(row, COL_LABEL).value = hasDpgf2 ? "TOTAL Tranche Ferme (hors PSE, Variante et Tranche Optionnelle)\nDPGF 1 + DPGF 2" : "TOTAL Tranche Ferme (hors PSE, Variante et Tranche Optionnelle)";
+  ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
+  ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightGreen);
+  ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "middle" };
+  ws.getCell(row, COL_LABEL).border = thickBorder();
+  ws.getRow(row).height = 28;
+
+  const tfTotalRowNum = row;
+  activeCompanies.forEach((company, idx) => {
+    const col = companyCol(idx);
+    const total = getTotal(company.id, baseLines);
+    const cell = ws.getCell(row, col);
+    cell.value = total || null;
+    cell.numFmt = '#,##0.00 "€"';
+    cell.font = { bold: true, size: 10 };
+    cell.fill = lightFill(COLORS.lightGreen);
+    cell.alignment = { horizontal: "right" };
+    cell.border = thickBorder();
+
+    // Écart vs estimation globale
+    const estBase = baseLines.reduce((s, l) => s + (hasDpgf2 ? (l.estimationDpgf1 ?? 0) + (l.estimationDpgf2 ?? 0) : (l.estimationDpgf1 ?? 0)), 0);
+    if (estBase > 0 && total > 0) {
+      const dev = ((total - estBase) / Math.abs(estBase)) * 100;
+      if (Math.abs(dev) <= 10) cell.fill = lightFill("C8E6C9");
+      else if (Math.abs(dev) <= 20) cell.fill = lightFill("FFE0B2");
+      else cell.fill = lightFill("FFCDD2");
+    }
+  });
+  row++;
+
+  // DPGF2 sub-total if applicable
+  if (hasDpgf2) {
+    ws.getCell(row, COL_LABEL).value = "DPGF 1 — Estimé à " + baseLines.reduce((s, l) => s + (l.estimationDpgf1 ?? 0), 0).toLocaleString("fr-FR") + " € HT";
+    ws.getCell(row, COL_LABEL).font = { italic: true, size: 8, color: { argb: "FF888888" } };
+    ws.getCell(row, COL_LABEL).fill = lightFill("F5F5F5");
+    ws.getCell(row, COL_LABEL).border = thinBorder();
+    ws.getRow(row).height = 14;
+    activeCompanies.forEach((company, idx) => {
+      const col = companyCol(idx);
+      const total1 = baseLines.reduce((s, l) => {
+        const e = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === l.id);
+        return s + (e?.dpgf1 ?? 0);
+      }, 0);
+      ws.getCell(row, col).value = total1 || null;
+      ws.getCell(row, col).numFmt = '#,##0.00 "€"';
+      ws.getCell(row, col).font = { italic: true, size: 8, color: { argb: "FF888888" } };
+      ws.getCell(row, col).fill = lightFill("F5F5F5");
+      ws.getCell(row, col).border = thinBorder();
+    });
+    row++;
+
+    ws.getCell(row, COL_LABEL).value = "DPGF 2 — Estimé à " + baseLines.reduce((s, l) => s + (l.estimationDpgf2 ?? 0), 0).toLocaleString("fr-FR") + " € HT";
+    ws.getCell(row, COL_LABEL).font = { italic: true, size: 8, color: { argb: "FF888888" } };
+    ws.getCell(row, COL_LABEL).fill = lightFill("F5F5F5");
+    ws.getCell(row, COL_LABEL).border = thinBorder();
+    ws.getRow(row).height = 14;
+    activeCompanies.forEach((company, idx) => {
+      const col = companyCol(idx);
+      const total2 = baseLines.reduce((s, l) => {
+        const e = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === l.id);
+        return s + (e?.dpgf2 ?? 0);
+      }, 0);
+      ws.getCell(row, col).value = total2 || null;
+      ws.getCell(row, col).numFmt = '#,##0.00 "€"';
+      ws.getCell(row, col).font = { italic: true, size: 8, color: { argb: "FF888888" } };
+      ws.getCell(row, col).fill = lightFill("F5F5F5");
+      ws.getCell(row, col).border = thinBorder();
+    });
+    row++;
   }
+
+  ws.getRow(row).height = 6;
+  row++;
+
+  // ── PSE ──
+  if (pseLines.length > 0) {
+    for (let i = 0; i < pseLines.length; i++) {
+      const line = pseLines[i];
+      const est = (line.estimationDpgf1 ?? 0) + (line.estimationDpgf2 ?? 0);
+      ws.getCell(row, COL_LABEL).value = `MONTANT PSE N°${i + 1} — Estimée à ${est.toLocaleString("fr-FR")} € HT`;
+      ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
+      ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightYellow);
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getRow(row).height = 18;
+      activeCompanies.forEach((company, idx) => {
+        const col = companyCol(idx);
+        const entry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
+        const val = (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
+        const cell = ws.getCell(row, col);
+        cell.value = val || null;
+        cell.numFmt = '#,##0.00 "€"';
+        cell.fill = lightFill(COLORS.lightYellow);
+        cell.alignment = { horizontal: "right" };
+        cell.border = thinBorder();
+      });
+      row++;
+    }
+    ws.getRow(row).height = 6;
+    row++;
+  }
+
+  // ── Variantes ──
+  if (varianteLines.length > 0) {
+    for (let i = 0; i < varianteLines.length; i++) {
+      const line = varianteLines[i];
+      const est = (line.estimationDpgf1 ?? 0) + (line.estimationDpgf2 ?? 0);
+      ws.getCell(row, COL_LABEL).value = `MONTANT VARIANTE N°${i + 1} — Estimée à ${est.toLocaleString("fr-FR")} € HT`;
+      ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
+      ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightOrange);
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getRow(row).height = 18;
+      activeCompanies.forEach((company, idx) => {
+        const col = companyCol(idx);
+        const entry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
+        const val = (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
+        const cell = ws.getCell(row, col);
+        cell.value = val || null;
+        cell.numFmt = '#,##0.00 "€"';
+        cell.fill = lightFill(COLORS.lightOrange);
+        cell.alignment = { horizontal: "right" };
+        cell.border = thinBorder();
+      });
+      row++;
+    }
+    ws.getRow(row).height = 6;
+    row++;
+  }
+
+  // ── Tranches Optionnelles ──
+  if (toLines.length > 0) {
+    for (let i = 0; i < toLines.length; i++) {
+      const line = toLines[i];
+      const est = (line.estimationDpgf1 ?? 0) + (line.estimationDpgf2 ?? 0);
+      ws.getCell(row, COL_LABEL).value = `MONTANT Tranche Optionnelle N°${i + 1} — Estimée à ${est.toLocaleString("fr-FR")} € HT`;
+      ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
+      ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getRow(row).height = 18;
+      activeCompanies.forEach((company, idx) => {
+        const col = companyCol(idx);
+        const entry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
+        const val = (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
+        const cell = ws.getCell(row, col);
+        cell.value = val || null;
+        cell.numFmt = '#,##0.00 "€"';
+        cell.fill = lightFill(COLORS.lightBlue);
+        cell.alignment = { horizontal: "right" };
+        cell.border = thinBorder();
+      });
+      row++;
+    }
+    ws.getRow(row).height = 6;
+    row++;
+  }
+
+  // ── Scénarios totaux ──
+  type ScenarioLine = { label: string; estLabel: string; lines: typeof activeLotLines; fillColor: string };
+  const estBase = baseLines.reduce((s, l) => s + (hasDpgf2 ? (l.estimationDpgf1 ?? 0) + (l.estimationDpgf2 ?? 0) : (l.estimationDpgf1 ?? 0)), 0);
+  const estPse = pseLines.reduce((s, l) => s + (hasDpgf2 ? (l.estimationDpgf1 ?? 0) + (l.estimationDpgf2 ?? 0) : (l.estimationDpgf1 ?? 0)), 0);
+  const estVar = varianteLines.reduce((s, l) => s + (hasDpgf2 ? (l.estimationDpgf1 ?? 0) + (l.estimationDpgf2 ?? 0) : (l.estimationDpgf1 ?? 0)), 0);
+  const estTo = toLines.reduce((s, l) => s + (hasDpgf2 ? (l.estimationDpgf1 ?? 0) + (l.estimationDpgf2 ?? 0) : (l.estimationDpgf1 ?? 0)), 0);
+
+  const scenarios: ScenarioLine[] = [
+    { label: `TOTAL Tranche Ferme + Tranche Optionnelle — Estimé à ${(estBase + estTo).toLocaleString("fr-FR")} € HT`, estLabel: "", lines: [...baseLines, ...toLines], fillColor: "D1ECF1" },
+    { label: `TOTAL Tranche Ferme + PSE — Estimé à ${(estBase + estPse).toLocaleString("fr-FR")} € HT`, estLabel: "", lines: [...baseLines, ...pseLines], fillColor: "D4EDDA" },
+    { label: `TOTAL Tranche Ferme + Variante — Estimé à ${(estBase + estVar).toLocaleString("fr-FR")} € HT`, estLabel: "", lines: [...baseLines, ...varianteLines], fillColor: "FFF3CD" },
+    { label: `TOTAL + PSE + Variante + Tranche Optionnelle — Estimé à ${(estBase + estPse + estVar + estTo).toLocaleString("fr-FR")} € HT`, estLabel: "", lines: [...baseLines, ...pseLines, ...varianteLines, ...toLines], fillColor: "F8D7DA" },
+  ];
+
+  const notePrixRows: { rowNum: number; estTotal: number; fillColor: string; label: string }[] = [];
+
+  for (const scenario of scenarios) {
+    const est = scenario.lines.reduce((s, l) => s + (hasDpgf2 ? (l.estimationDpgf1 ?? 0) + (l.estimationDpgf2 ?? 0) : (l.estimationDpgf1 ?? 0)), 0);
+    ws.getCell(row, COL_LABEL).value = scenario.label;
+    ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
+    ws.getCell(row, COL_LABEL).fill = lightFill(scenario.fillColor);
+    ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "middle" };
+    ws.getCell(row, COL_LABEL).border = thickBorder();
+    ws.getRow(row).height = 28;
+
+    activeCompanies.forEach((company, idx) => {
+      const col = companyCol(idx);
+      const total = getTotal(company.id, scenario.lines);
+      const cell = ws.getCell(row, col);
+      cell.value = total || "- €";
+      if (typeof total === "number") cell.numFmt = '#,##0.00 "€"';
+      cell.font = { bold: true, size: 9 };
+      cell.fill = lightFill(scenario.fillColor);
+      cell.alignment = { horizontal: "right" };
+      cell.border = thickBorder();
+    });
+    notePrixRows.push({ rowNum: row, estTotal: est, fillColor: scenario.fillColor, label: scenario.label });
+    row++;
+  }
+
+  ws.getRow(row).height = 6;
+  row++;
+
+  // ── Notes de prix par scénario ──
+  // Compute min totals for each scenario
+  for (const scenRow of notePrixRows) {
+    const totalsForScenario = activeCompanies.map((company) => {
+      const scenLines = notePrixRows.find((r) => r.rowNum === scenRow.rowNum);
+      // We need to recompute from the scenario data — re-fetch
+      return 0; // placeholder handled below
+    });
+  }
+
+  // Row: NOTE DU PRIX - Scénario TF + TO
+  const noteRows = [
+    { label: `NOTE DU PRIX (/${prixWeight}) — Scénario TF + Tranche Optionnelle`, lines: [...baseLines, ...toLines], fillColor: "D1ECF1", isBold: false },
+    { label: `NOTE DU PRIX (/${prixWeight}) — Scénario TF + PSE`, lines: [...baseLines, ...pseLines], fillColor: "D4EDDA", isBold: false },
+    { label: `NOTE DU PRIX (/${prixWeight}) — Scénario TF + Variante`, lines: [...baseLines, ...varianteLines], fillColor: "FFF3CD", isBold: false },
+    { label: `NOTE DU PRIX (/${prixWeight}) — Scénario TOTAL GÉNÉRAL`, lines: [...baseLines, ...pseLines, ...varianteLines, ...toLines], fillColor: "FFD7DA", isBold: true },
+  ];
+
+  for (const noteRow of noteRows) {
+    const totals = activeCompanies.map((company) => getTotal(company.id, noteRow.lines));
+    const validTotals = totals.filter((t) => t > 0);
+    const minTotal = validTotals.length > 0 ? Math.min(...validTotals) : 0;
+
+    ws.getCell(row, COL_LABEL).value = noteRow.label;
+    ws.getCell(row, COL_LABEL).font = { bold: noteRow.isBold, size: 9, color: noteRow.isBold ? { argb: "FFC62828" } : undefined };
+    ws.getCell(row, COL_LABEL).fill = lightFill(noteRow.fillColor);
+    ws.getCell(row, COL_LABEL).alignment = { wrapText: true };
+    ws.getCell(row, COL_LABEL).border = thinBorder();
+    ws.getRow(row).height = 22;
+
+    activeCompanies.forEach((company, idx) => {
+      const col = companyCol(idx);
+      const total = totals[idx];
+      const notePrice = total > 0 && minTotal > 0 ? Number(((minTotal / total) * prixWeight).toFixed(2)) : 0;
+      const cell = ws.getCell(row, col);
+      cell.value = notePrice;
+      cell.numFmt = "0.00";
+      cell.font = { bold: noteRow.isBold, size: 10, color: noteRow.isBold ? { argb: "FFC62828" } : undefined };
+      cell.fill = lightFill(noteRow.fillColor);
+      cell.alignment = { horizontal: "center" };
+      cell.border = thinBorder();
+    });
+    row++;
+  }
+
+  ws.getRow(row).height = 6;
+  row++;
+
+  // ── Écart global / estimation ──
+  {
+    const estTotalAll = estBase + estPse + estVar + estTo;
+    ws.getCell(row, COL_LABEL).value = `ÉCART GLOBAL / ESTIMATION (${estTotalAll.toLocaleString("fr-FR")} €)`;
+    ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
+    ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightRed);
+    ws.getCell(row, COL_LABEL).border = thinBorder();
+    ws.getRow(row).height = 18;
+
+    activeCompanies.forEach((company, idx) => {
+      const col = companyCol(idx);
+      const total = getTotal(company.id, activeLotLines);
+      const cell = ws.getCell(row, col);
+      if (estTotalAll > 0 && total > 0) {
+        const dev = ((total - estTotalAll) / Math.abs(estTotalAll)) * 100;
+        cell.value = `${dev >= 0 ? "+" : ""}${dev.toFixed(2)}%`;
+        const absDev = Math.abs(dev);
+        cell.font = { bold: true, color: { argb: absDev <= 10 ? "FF2E7D32" : absDev <= 20 ? "FFE65100" : "FFC62828" } };
+        cell.fill = lightFill(absDev <= 10 ? "E8F5E9" : absDev <= 20 ? "FFF3E0" : "FFEBEE");
+      } else {
+        cell.value = "—";
+        cell.fill = lightFill(COLORS.lightRed);
+      }
+      cell.alignment = { horizontal: "center" };
+      cell.border = thinBorder();
+    });
+  }
+
+  // ── Column widths ──
+  ws.getColumn(COL_LABEL).width = 42;
+  activeCompanies.forEach((_, idx) => {
+    ws.getColumn(companyCol(idx)).width = 16;
+  });
 }
 
 function buildSyntheseSheet(
@@ -672,7 +1183,6 @@ function buildSyntheseSheet(
   });
   sRow++;
 
-  // Calculate scores
   interface SynthResult {
     company: typeof companies[0];
     priceTotal: number;
@@ -748,7 +1258,6 @@ function buildSyntheseSheet(
   });
 
   const nonExcludedRows: number[] = [];
-  // Track montant column cells for MIN formula
   const montantCells: string[] = [];
 
   for (const r of sortedSynth) {
@@ -773,15 +1282,8 @@ function buildSyntheseSheet(
     montantCell.alignment = { horizontal: "center" };
     if (!isExcluded) montantCell.numFmt = '#,##0.00 "€"';
 
-    // Note Prix = (MIN / Montant) * Pondération — Excel formula
     const prixScoreCell = synthSheet.getCell(sRow, 4);
-    if (isExcluded) {
-      prixScoreCell.value = "—";
-    } else {
-      const minRef = `MIN(${montantCells.map(() => "").join("")})`; // placeholder, will set after loop
-      // Temporary static value; we'll overwrite with formula after collecting all montant cells
-      prixScoreCell.value = Number(r.priceScore.toFixed(2));
-    }
+    prixScoreCell.value = Number(r.priceScore.toFixed(2));
     prixScoreCell.border = thinBorder();
     prixScoreCell.alignment = { horizontal: "center" };
 
@@ -801,11 +1303,7 @@ function buildSyntheseSheet(
     planCell.alignment = { horizontal: "center" };
 
     const globalCell = synthSheet.getCell(sRow, 8);
-    if (isExcluded) {
-      globalCell.value = "—";
-    } else {
-      globalCell.value = { formula: `D${sRow}+E${sRow}+F${sRow}+G${sRow}` };
-    }
+    globalCell.value = isExcluded ? "—" : Number(r.globalScore.toFixed(2));
     globalCell.border = thinBorder();
     globalCell.alignment = { horizontal: "center" };
     globalCell.font = { bold: true };
@@ -829,43 +1327,34 @@ function buildSyntheseSheet(
     } else {
       const isRetained = decision === "retenue" || decision === "attributaire";
       phaseCell.font = { bold: true, color: { argb: isRetained ? "2E7D32" : COLORS.excluded } };
+      const compIdx = sortedSynth.filter((x) => x.company.status !== "ecartee").indexOf(r);
+      const pastel = companyPastelArgb(compIdx >= 0 ? compIdx : 0);
+      for (let i = 2; i <= 10; i++) {
+        const c = synthSheet.getCell(sRow, i);
+        if (!c.fill || (c.fill as any).fgColor?.argb === COLORS.white) {
+          c.fill = lightFill(pastel);
+        }
+      }
     }
 
     sRow++;
   }
 
-  // Now set Excel formulas for Note Prix using collected montant cells
-  const minFormula = `MIN(${montantCells.join(",")})`;
-  for (const row of nonExcludedRows) {
-    const prixScoreCell = synthSheet.getCell(row, 4);
-    prixScoreCell.value = {
-      formula: `IF(C${row}>0,(${minFormula}/C${row})*${prixWeight},0)`
-    };
-    prixScoreCell.numFmt = '0.00';
-    prixScoreCell.font = { bold: true };
-
-    // Re-apply global formula since D changed
-    synthSheet.getCell(row, 8).value = { formula: `D${row}+E${row}+F${row}+G${row}` };
-    synthSheet.getCell(row, 8).font = { bold: true };
+  // Rank
+  for (let i = 0; i < nonExcludedRows.length; i++) {
+    const row = nonExcludedRows[i];
+    synthSheet.getCell(row, 9).value = i + 1;
+    synthSheet.getCell(row, 9).font = { bold: true };
   }
 
-  // RANK formulas
-  for (const row of nonExcludedRows) {
-    const rankCell = synthSheet.getCell(row, 9);
-    rankCell.value = { formula: `RANK(H${row},H${nonExcludedRows[0]}:H${nonExcludedRows[nonExcludedRows.length - 1]})` };
-    rankCell.font = { bold: true };
-  }
-
-  // ===== VALIDATION TEXT BLOCK =====
   sRow += 2;
 
-  // Find attributaire
+  // Attributaire block
   const allDecisions = version.negotiationDecisions ?? {};
   const attributaireEntry = sortedSynth.find(
     (r) => r.company.status !== "ecartee" && allDecisions[r.company.id] === "attributaire"
   );
 
-  // Auto-numbering helper for lot lines
   const getLineLabelSynth = (line: typeof activeLotLines[0]) => {
     if (!line.type) return line.label;
     const group = activeLotLines.filter((l) => l.type === line.type);
@@ -894,11 +1383,8 @@ function buildSyntheseSheet(
     }
     sRow++;
 
-    // Attribution pressentie
     if (attributaireEntry) {
       const attrRank = sortedSynth.filter((r) => r.company.status !== "ecartee").indexOf(attributaireEntry) + 1;
-
-      // Determine which options are included (all typed lines with prices from the attributaire)
       const enabledOptions = typedLines.filter((l) => {
         const entry = version.priceEntries.find(
           (e) => e.companyId === attributaireEntry.company.id && e.lotLineId === l.id
@@ -928,7 +1414,6 @@ function buildSyntheseSheet(
       synthSheet.getCell(`B${sRow}`).border = thinBorder();
       sRow += 2;
 
-      // Détail du scénario retenu
       synthSheet.getCell(`B${sRow}`).value = "Détail du scénario retenu :";
       synthSheet.getCell(`B${sRow}`).font = { bold: true, size: 10 };
       sRow++;
@@ -951,7 +1436,6 @@ function buildSyntheseSheet(
       sRow += 2;
     }
 
-    // Motifs d'éviction / non-attribution
     const excludedCompanies = companies.filter((c) => c.status === "ecartee");
     const nonRetenues = companies.filter(
       (c) => c.status !== "ecartee" && allDecisions[c.id] === "non_retenue"
@@ -980,7 +1464,6 @@ function buildSyntheseSheet(
     }
   }
 
-  // ===== NOTES PRIX PAR SCÉNARIO =====
   if (typedLines.length > 0) {
     sRow += 1;
     synthSheet.mergeCells(`B${sRow}:J${sRow}`);
@@ -997,7 +1480,6 @@ function buildSyntheseSheet(
 
     const eligibleForScenario = companies.filter((c) => c.status !== "ecartee" && c.name.trim() !== "");
 
-    // Compute tech scores
     const scenTechScores: Record<number, number> = {};
     for (const company of eligibleForScenario) {
       let total = 0;
@@ -1024,7 +1506,6 @@ function buildSyntheseSheet(
       scenTechScores[company.id] = total;
     }
 
-    // Tranche Ferme
     {
       synthSheet.mergeCells(`B${sRow}:H${sRow}`);
       const tfTitle = synthSheet.getCell(`B${sRow}`);
@@ -1073,7 +1554,6 @@ function buildSyntheseSheet(
       sRow++;
     }
 
-    // Per option scenario
     for (const line of typedLines) {
       const label = getLineLabelSynth(line);
       synthSheet.mergeCells(`B${sRow}:H${sRow}`);
@@ -1144,7 +1624,6 @@ function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
   title.border = thinBorder();
   row += 2;
 
-  // Price methodology
   methSheet.mergeCells(`B${row}:H${row}`);
   const priceTitle = methSheet.getCell(`B${row}`);
   priceTitle.value = "1. Critère Prix";
@@ -1160,7 +1639,6 @@ function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
   methSheet.getCell(`B${row}`).font = { size: 10 };
   row += 2;
 
-  // Technical methodology
   methSheet.mergeCells(`B${row}:H${row}`);
   const techTitle = methSheet.getCell(`B${row}`);
   techTitle.value = "2. Critères Techniques (Valeur Technique, Environnemental, Planning)";
@@ -1173,7 +1651,6 @@ function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
   methSheet.getCell(`B${row}`).font = { size: 10 };
   row += 2;
 
-  // Notation scale table
   const techCriteria = project.weightingCriteria.filter((c) => c.id !== "prix");
   const notationHeaders = ["Appréciation", "Note / 5"];
   for (const c of techCriteria) {
@@ -1200,11 +1677,9 @@ function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
     methSheet.getCell(row, 2).value = label;
     methSheet.getCell(row, 2).border = thinBorder();
     methSheet.getCell(row, 2).font = { bold: true };
-
     methSheet.getCell(row, 3).value = `${value} / 5`;
     methSheet.getCell(row, 3).border = thinBorder();
     methSheet.getCell(row, 3).alignment = { horizontal: "center" };
-
     let col = 4;
     for (const c of techCriteria) {
       const weighted = (value / 5) * c.weight;
@@ -1218,7 +1693,6 @@ function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
   }
   row += 2;
 
-  // Scenario table
   methSheet.mergeCells(`B${row}:H${row}`);
   const scenTitle = methSheet.getCell(`B${row}`);
   scenTitle.value = "3. Tableau des Scénarios Possibles";
@@ -1244,7 +1718,6 @@ function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
     });
     row++;
 
-    // Base scenario
     methSheet.getCell(row, 2).value = "Base seule";
     methSheet.getCell(row, 2).border = thinBorder();
     methSheet.getCell(row, 3).value = "Tranche Ferme (DPGF)";
@@ -1253,7 +1726,6 @@ function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
     methSheet.getCell(row, 4).border = thinBorder();
     row++;
 
-    // Generate combinations
     const pseLines = typedLines.filter((l) => l.type === "PSE");
     const varianteLines = typedLines.filter((l) => l.type === "VARIANTE");
     const toLines = typedLines.filter((l) => l.type === "T_OPTIONNELLE");
@@ -1305,242 +1777,6 @@ function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
   methSheet.getColumn("H").width = 15;
 }
 
-function buildComparaisonsSheet(
-  wb: ExcelJS.Workbook,
-  project: ProjectData,
-  version: NegotiationVersion,
-  companies: typeof project.companies
-) {
-  const cmpSheet = wb.addWorksheet("COMPARAISONS");
-  cmpSheet.properties.defaultRowHeight = 18;
-
-  const activeLotLines = project.lotLines.filter((l) => l.label.trim() !== "");
-  const typedLines = activeLotLines.filter((l) => l.type);
-  if (typedLines.length === 0) return;
-
-  const technicalCriteria = project.weightingCriteria.filter((c) => c.id !== "prix");
-  const prixCriterion = project.weightingCriteria.find((c) => c.id === "prix");
-  const prixWeight = prixCriterion?.weight ?? 40;
-  const vtWeight = technicalCriteria.filter((c) => c.id !== "environnemental" && c.id !== "planning").reduce((s, c) => s + c.weight, 0);
-  const envCrit = technicalCriteria.find((c) => c.id === "environnemental");
-  const planCrit = technicalCriteria.find((c) => c.id === "planning");
-  const envW = envCrit?.weight ?? 0;
-  const planW = planCrit?.weight ?? 0;
-  const maxGlobal = vtWeight + envW + planW + prixWeight;
-
-  const eligibleCompanies = companies.filter((c) => c.status !== "ecartee" && c.name.trim() !== "");
-
-  // Auto-numbering
-  const getLineLabel = (line: typeof activeLotLines[0]) => {
-    if (!line.type) return line.label;
-    const group = activeLotLines.filter((l) => l.type === line.type);
-    const idx = group.indexOf(line) + 1;
-    const prefix = line.type === "PSE" ? "PSE" : line.type === "VARIANTE" ? "Variante" : "TO";
-    return `${prefix} ${idx}${line.label ? ` — ${line.label}` : ""}`;
-  };
-
-  // Compute tech scores once
-  const techScores: Record<number, { tech: number; env: number; plan: number; total: number }> = {};
-  for (const company of eligibleCompanies) {
-    let tech = 0, env = 0, plan = 0;
-    for (const criterion of technicalCriteria) {
-      let score = 0;
-      if (criterion.subCriteria.length > 0) {
-        let raw = 0;
-        const subTotal = criterion.subCriteria.reduce((s, sc) => s + sc.weight, 0);
-        for (const sub of criterion.subCriteria) {
-          const note = version.technicalNotes.find(
-            (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
-          );
-          if (note?.notation) {
-            raw += NOTATION_VALUES[note.notation] * (subTotal > 0 ? sub.weight / subTotal : 0);
-          }
-        }
-        score = (raw / 5) * criterion.weight;
-      } else {
-        const note = version.technicalNotes.find(
-          (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
-        );
-        if (note?.notation) score = (NOTATION_VALUES[note.notation] / 5) * criterion.weight;
-      }
-      if (criterion.id === "environnemental") env = score;
-      else if (criterion.id === "planning") plan = score;
-      else tech += score;
-    }
-    techScores[company.id] = { tech, env, plan, total: tech + env + plan };
-  }
-
-  let row = 2;
-  cmpSheet.mergeCells(`B${row}:J${row}`);
-  const title = cmpSheet.getCell(`B${row}`);
-  title.value = `${project.info.name || "Projet"} — Comparaisons par option`;
-  title.font = { bold: true, size: 12, color: { argb: COLORS.darkText } };
-  title.fill = lightFill(COLORS.lightBlue);
-  title.border = thinBorder();
-  row++;
-  cmpSheet.getCell(`B${row}`).value = "Toutes les comparaisons individuelles (Base + 1 option), y compris celles non retenues.";
-  cmpSheet.getCell(`B${row}`).font = { italic: true, size: 9 };
-  row += 2;
-
-  // === Tranche Ferme seule (obligatoire) ===
-  {
-    cmpSheet.mergeCells(`B${row}:J${row}`);
-    const tfTitle = cmpSheet.getCell(`B${row}`);
-    tfTitle.value = "Scénario : Tranche Ferme (Base seule)";
-    tfTitle.font = { bold: true, size: 11, color: { argb: COLORS.headerFont } };
-    tfTitle.fill = headerFill();
-    tfTitle.border = thinBorder();
-    row++;
-
-    const tfHeaders = ["Entreprise", "Prix Base (€ HT)", `Note Tech (/${vtWeight + envW + planW})`, `Note Prix (/${prixWeight})`, `Note Globale (/${maxGlobal})`, "Classement"];
-    tfHeaders.forEach((h, i) => {
-      const c = cmpSheet.getCell(row, i + 2);
-      c.value = h;
-      c.font = { bold: true, size: 9 };
-      c.fill = lightFill(COLORS.lightBlue);
-      c.border = thinBorder();
-      c.alignment = { horizontal: "center", wrapText: true };
-    });
-    row++;
-
-    const baseTotals: { name: string; basePrice: number; techTotal: number }[] = [];
-    for (const company of eligibleCompanies) {
-      const baseDpgf = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === 0);
-      let basePrice = (baseDpgf?.dpgf1 ?? 0) + (baseDpgf?.dpgf2 ?? 0);
-      if (basePrice === 0) {
-        const baseLines = activeLotLines.filter((l) => !l.type);
-        for (const bl of baseLines) {
-          const e = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === bl.id);
-          basePrice += (e?.dpgf1 ?? 0) + (e?.dpgf2 ?? 0);
-        }
-      }
-      const ts = techScores[company.id] ?? { tech: 0, env: 0, plan: 0, total: 0 };
-      baseTotals.push({ name: `${company.id}. ${company.name}`, basePrice, techTotal: ts.total });
-    }
-
-    const validBasePrices = baseTotals.filter((t) => t.basePrice > 0).map((t) => t.basePrice);
-    const minBasePrice = validBasePrices.length > 0 ? Math.min(...validBasePrices) : 0;
-
-    const scoredBase = baseTotals.map((t) => {
-      const priceScore = t.basePrice > 0 ? (minBasePrice / t.basePrice) * prixWeight : 0;
-      return { ...t, priceScore, globalScore: t.techTotal + priceScore };
-    }).sort((a, b) => b.globalScore - a.globalScore);
-
-    scoredBase.forEach((s, idx) => {
-      cmpSheet.getCell(row, 2).value = s.name;
-      cmpSheet.getCell(row, 2).border = thinBorder();
-      cmpSheet.getCell(row, 3).value = s.basePrice;
-      cmpSheet.getCell(row, 3).numFmt = '#,##0.00 "€"';
-      cmpSheet.getCell(row, 3).font = { bold: true };
-      cmpSheet.getCell(row, 3).border = thinBorder();
-      cmpSheet.getCell(row, 4).value = Number(s.techTotal.toFixed(1));
-      cmpSheet.getCell(row, 4).border = thinBorder();
-      cmpSheet.getCell(row, 4).alignment = { horizontal: "center" };
-      cmpSheet.getCell(row, 5).value = Number(s.priceScore.toFixed(2));
-      cmpSheet.getCell(row, 5).border = thinBorder();
-      cmpSheet.getCell(row, 5).alignment = { horizontal: "center" };
-      cmpSheet.getCell(row, 6).value = Number(s.globalScore.toFixed(2));
-      cmpSheet.getCell(row, 6).font = { bold: true };
-      cmpSheet.getCell(row, 6).border = thinBorder();
-      cmpSheet.getCell(row, 6).alignment = { horizontal: "center" };
-      cmpSheet.getCell(row, 7).value = idx + 1;
-      cmpSheet.getCell(row, 7).font = { bold: true };
-      cmpSheet.getCell(row, 7).border = thinBorder();
-      cmpSheet.getCell(row, 7).alignment = { horizontal: "center" };
-      row++;
-    });
-    row += 1;
-  }
-
-  // For each typed line, show a comparison table (Base + option)
-  for (const line of typedLines) {
-    const label = getLineLabel(line);
-
-    cmpSheet.mergeCells(`B${row}:J${row}`);
-    const secTitle = cmpSheet.getCell(`B${row}`);
-    secTitle.value = `Scénario : Base + ${label}`;
-    secTitle.font = { bold: true, size: 11, color: { argb: COLORS.headerFont } };
-    secTitle.fill = headerFill();
-    secTitle.border = thinBorder();
-    row++;
-
-    const headers = ["Entreprise", "Prix Base (€)", `Prix ${label} (€)`, "Total (€ HT)", `Note Tech (/${vtWeight + envW + planW})`, `Note Prix (/${prixWeight})`, `Note Globale (/${maxGlobal})`, "Classement"];
-    headers.forEach((h, i) => {
-      const c = cmpSheet.getCell(row, i + 2);
-      c.value = h;
-      c.font = { bold: true, size: 9 };
-      c.fill = lightFill(COLORS.lightBlue);
-      c.border = thinBorder();
-      c.alignment = { horizontal: "center", wrapText: true };
-    });
-    row++;
-
-    // Compute totals for this scenario
-    const totals: { companyId: number; name: string; basePrice: number; optionPrice: number; total: number; techTotal: number }[] = [];
-    for (const company of eligibleCompanies) {
-      const baseDpgf = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === 0);
-      const baseTotal = (baseDpgf?.dpgf1 ?? 0) + (baseDpgf?.dpgf2 ?? 0);
-      // If no lot line 0, sum all base lines
-      let basePrice = baseTotal;
-      if (baseTotal === 0) {
-        const baseLines = activeLotLines.filter((l) => !l.type);
-        for (const bl of baseLines) {
-          const e = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === bl.id);
-          basePrice += (e?.dpgf1 ?? 0) + (e?.dpgf2 ?? 0);
-        }
-      }
-      const optEntry = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === line.id);
-      const optionPrice = (optEntry?.dpgf1 ?? 0) + (optEntry?.dpgf2 ?? 0);
-      const total = basePrice + optionPrice;
-      const ts = techScores[company.id] ?? { tech: 0, env: 0, plan: 0, total: 0 };
-      totals.push({ companyId: company.id, name: `${company.id}. ${company.name}`, basePrice, optionPrice, total, techTotal: ts.total });
-    }
-
-    const validPrices = totals.filter((t) => t.total > 0).map((t) => t.total);
-    const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : 0;
-
-    const scored = totals.map((t) => {
-      const priceScore = t.total > 0 ? (minPrice / t.total) * prixWeight : 0;
-      return { ...t, priceScore, globalScore: t.techTotal + priceScore };
-    }).sort((a, b) => b.globalScore - a.globalScore);
-
-    const dataStart = row;
-    scored.forEach((s, idx) => {
-      cmpSheet.getCell(row, 2).value = s.name;
-      cmpSheet.getCell(row, 2).border = thinBorder();
-      cmpSheet.getCell(row, 3).value = s.basePrice;
-      cmpSheet.getCell(row, 3).numFmt = '#,##0.00 "€"';
-      cmpSheet.getCell(row, 3).border = thinBorder();
-      cmpSheet.getCell(row, 4).value = s.optionPrice;
-      cmpSheet.getCell(row, 4).numFmt = '#,##0.00 "€"';
-      cmpSheet.getCell(row, 4).border = thinBorder();
-      cmpSheet.getCell(row, 5).value = s.total;
-      cmpSheet.getCell(row, 5).numFmt = '#,##0.00 "€"';
-      cmpSheet.getCell(row, 5).font = { bold: true };
-      cmpSheet.getCell(row, 5).border = thinBorder();
-      cmpSheet.getCell(row, 6).value = Number(s.techTotal.toFixed(1));
-      cmpSheet.getCell(row, 6).border = thinBorder();
-      cmpSheet.getCell(row, 6).alignment = { horizontal: "center" };
-      cmpSheet.getCell(row, 7).value = Number(s.priceScore.toFixed(2));
-      cmpSheet.getCell(row, 7).border = thinBorder();
-      cmpSheet.getCell(row, 7).alignment = { horizontal: "center" };
-      cmpSheet.getCell(row, 8).value = Number(s.globalScore.toFixed(2));
-      cmpSheet.getCell(row, 8).font = { bold: true };
-      cmpSheet.getCell(row, 8).border = thinBorder();
-      cmpSheet.getCell(row, 8).alignment = { horizontal: "center" };
-      cmpSheet.getCell(row, 9).value = idx + 1;
-      cmpSheet.getCell(row, 9).font = { bold: true };
-      cmpSheet.getCell(row, 9).border = thinBorder();
-      cmpSheet.getCell(row, 9).alignment = { horizontal: "center" };
-      row++;
-    });
-    row += 1;
-  }
-
-  cmpSheet.getColumn("B").width = 25;
-  for (let i = 3; i <= 10; i++) cmpSheet.getColumn(i).width = 18;
-}
-
 // =============== Main export function ===============
 
 export async function exportToExcel(project: ProjectData) {
@@ -1588,7 +1824,6 @@ export async function exportToExcel(project: ProjectData) {
     row++;
   }
 
-  // Estimation section
   row += 1;
   pgSheet.mergeCells(`B${row}:F${row}`);
   const estTitle = pgSheet.getCell(`B${row}`);
@@ -1618,7 +1853,6 @@ export async function exportToExcel(project: ProjectData) {
     row++;
   }
 
-  // Companies list
   row += 1;
   pgSheet.mergeCells(`B${row}:F${row}`);
   const compTitle = pgSheet.getCell(`B${row}`);
@@ -1645,7 +1879,6 @@ export async function exportToExcel(project: ProjectData) {
     row++;
   }
 
-  // Lot lines
   row += 1;
   pgSheet.mergeCells(`B${row}:G${row}`);
   const lotTitle = pgSheet.getCell(`B${row}`);
@@ -1680,7 +1913,6 @@ export async function exportToExcel(project: ProjectData) {
     row++;
   }
 
-  // Weighting
   row += 1;
   pgSheet.mergeCells(`B${row}:F${row}`);
   const weightTitle = pgSheet.getCell(`B${row}`);
@@ -1723,7 +1955,6 @@ export async function exportToExcel(project: ProjectData) {
   buildTechSheet(wb, "ANALYSE_TECHNIQUE", project, v0, activeCompanies);
   buildPrixSheet(wb, "ANALYSE_DES_PRIX", project, v0, activeCompanies);
   buildSyntheseSheet(wb, "SYNTHESE", project, v0, activeCompanies);
-  buildComparaisonsSheet(wb, project, v0, activeCompanies);
 
   // =========== Methodology ===========
   buildMethodologySheet(wb, project);
