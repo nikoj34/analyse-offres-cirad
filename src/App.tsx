@@ -86,9 +86,10 @@ const App = () => {
                 <Route path="/nego/:round/prix" element={<PrixPage />} />
                 <Route path="/nego/:round/synthese" element={<SynthesePage />} />
                 <Route path="/nego/:round/questions" element={<QuestionnairePage />} />
-
+                <Route path="/versions" element={<VersionsPage />} />
                 <Route path="/export" element={<ExportPage />} />
                 <Route path="*" element={<Index />} />
+
               </Routes>
             </AppLayout>
           ) : (
