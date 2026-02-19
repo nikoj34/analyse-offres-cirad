@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -75,7 +75,6 @@ const SynthesePage = () => {
     return init;
   });
 
-  const [compareLines, setCompareLines] = useState<Record<number, boolean>>({});
   const [negoDate, setNegoDate] = useState(new Date().toISOString().split("T")[0]);
   const [attributaireDialogOpen, setAttributaireDialogOpen] = useState(false);
   const [validationComment, setValidationComment] = useState("");
@@ -258,10 +257,10 @@ const SynthesePage = () => {
     });
   }, [results]);
 
-  // Active options from compareLines toggles (PSE + Variantes only, no TO)
+  // Active options from pseVarianteChoice toggles (OUI = inclus dans la comparaison)
   const activeCompareLines = useMemo(() => {
-    return [...pseLines, ...varianteLines].filter((l) => !!compareLines[l.id]);
-  }, [pseLines, varianteLines, compareLines]);
+    return [...pseLines, ...varianteLines].filter((l) => pseVarianteChoice[l.id] === "oui");
+  }, [pseLines, varianteLines, pseVarianteChoice]);
 
   // Results augmentés avec les options actives des toggles de comparaison
   const scenarioResults = useMemo(() => {
@@ -517,68 +516,18 @@ const SynthesePage = () => {
       </Card>
 
       {/* ═══════════════════════════════════════════════════ */}
-      {/* SECTION 6.2 — SCÉNARIOS DE COMPARAISON             */}
+      {/* SECTION 6.2 — COMPARAISON DE SCÉNARIOS + DÉCISION  */}
       {/* ═══════════════════════════════════════════════════ */}
       {(hasPSE || hasVariante) && (
         <Card className="border-blue-200 dark:border-blue-900">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2 text-blue-800 dark:text-blue-300">
               <Settings2 className="h-4 w-4" />
-              Comparaison de Scénarios
+              Comparaison de Scénarios — PSE / Variantes retenues au marché ?
             </CardTitle>
             <CardDescription className="text-xs">
-              Simulez l'impact des PSE et Variantes sur le classement. Les Tranches Optionnelles sont intégrées à l'analyse de base uniquement.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-6">
-              {hasPSE && (
-                <div className="space-y-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">PSE</span>
-                  {pseLines.map((l) => (
-                    <div key={l.id} className="flex items-center gap-2">
-                      <Switch
-                        checked={!!compareLines[l.id]}
-                        onCheckedChange={(v) => setCompareLines((prev) => ({ ...prev, [l.id]: v }))}
-                      />
-                      <span className="text-sm">{getLineLabel(l)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {hasVariante && (
-                <div className="space-y-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Variantes</span>
-                  {varianteLines.map((l) => (
-                    <div key={l.id} className="flex items-center gap-2">
-                      <Switch
-                        checked={!!compareLines[l.id]}
-                        onCheckedChange={(v) => setCompareLines((prev) => ({ ...prev, [l.id]: v }))}
-                      />
-                      <span className="text-sm">{getLineLabel(l)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ═══════════════════════════════════════════════════ */}
-      {/* DÉCISION PSE / VARIANTES — OUI / NON               */}
-      {/* Affiché si PSE ou Variantes existent               */}
-      {/* ═══════════════════════════════════════════════════ */}
-      {(hasPSE || hasVariante) && (
-        <Card className="border-amber-200 dark:border-amber-800">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2 text-amber-800 dark:text-amber-300">
-              <CheckCircle className="h-4 w-4" />
-              Décision PSE / Variantes — Retenues au marché ?
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Indiquez pour chaque PSE et Variante si elle est retenue (OUI) ou non retenue (NON) dans le marché final.
-              Ce choix est obligatoire avant la validation lorsqu'un attributaire est désigné.
+              Cliquez sur <strong>OUI</strong> pour inclure une PSE ou Variante dans le classement et la retenir au marché. <strong>NON</strong> = non retenue. Un second clic désélectionne.
+              Le choix OUI / NON est obligatoire pour chaque option avant la validation lorsqu'un attributaire est désigné.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -623,7 +572,7 @@ const SynthesePage = () => {
                           )}
                           {choice !== null && (
                             <span className={`text-xs font-medium ${choice === "oui" ? "text-green-700" : "text-destructive"}`}>
-                              {choice === "oui" ? "✓ Retenue" : "✗ Non retenue"}
+                              {choice === "oui" ? "✓ Retenue au marché" : "✗ Non retenue"}
                             </span>
                           )}
                         </div>
@@ -672,7 +621,7 @@ const SynthesePage = () => {
                           )}
                           {choice !== null && (
                             <span className={`text-xs font-medium ${choice === "oui" ? "text-green-700" : "text-destructive"}`}>
-                              {choice === "oui" ? "✓ Retenue" : "✗ Non retenue"}
+                              {choice === "oui" ? "✓ Retenue au marché" : "✗ Non retenue"}
                             </span>
                           )}
                         </div>
