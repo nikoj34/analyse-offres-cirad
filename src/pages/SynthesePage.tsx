@@ -381,8 +381,6 @@ const SynthesePage = () => {
     );
   }
 
-  let rank = 0;
-
   return (
     <div className="space-y-6">
 
@@ -510,14 +508,15 @@ const SynthesePage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sorted.map((row) => {
+              {results.map((row) => {
                 const isExcluded = row.company.status === "ecartee";
-                if (!isExcluded) rank++;
+                // Calcul du rang : position dans le classement trié, indépendamment de l'ordre d'affichage
+                const rankInSorted = isExcluded ? null : sorted.filter((r) => r.company.status !== "ecartee").findIndex((r) => r.company.id === row.company.id) + 1;
                 const decision = getNegotiationDecision(row.company.id);
                 const availableDecisions = getAvailableDecisions(row.company.id);
                 return (
                   <TableRow key={row.company.id} className={isExcluded ? "opacity-50" : ""}>
-                    <TableCell className="font-semibold">{isExcluded ? "—" : rank}</TableCell>
+                    <TableCell className="font-semibold">{isExcluded ? "—" : rankInSorted}</TableCell>
                     <TableCell className="font-medium">
                       <div className="flex flex-col gap-0.5">
                         <span>{row.company.id}. {row.company.name}</span>
