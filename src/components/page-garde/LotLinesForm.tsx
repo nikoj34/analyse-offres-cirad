@@ -50,7 +50,7 @@ export function LotLinesForm() {
             <span>Auto N°</span>
             <span>Intitulé</span>
             <span>Type</span>
-            {hasDualDpgf && <span>Affectation</span>}
+            {hasDualDpgf && <span>Sur quel(s) DPGF</span>}
             <span className="text-right">Est. DPGF 1 (€)</span>
             {hasDualDpgf && <span className="text-right">Est. DPGF 2 (€)</span>}
           </div>

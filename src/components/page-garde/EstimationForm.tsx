@@ -7,6 +7,7 @@ export function EstimationForm() {
   const { project, updateLotInfo } = useProjectStore();
   const lot = project.lots[project.currentLotIndex];
   const hasDualDpgf = lot.hasDualDpgf ?? false;
+  const toleranceSeuil = lot.toleranceSeuil ?? 20;
 
   const computed = useMemo(() => {
     const lotEstimations = lot.lotLines.filter((l) => l.label.trim() !== "");
@@ -84,6 +85,33 @@ export function EstimationForm() {
               />
             </div>
           )}
+        </div>
+
+        {/* Seuil de tolérance */}
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-muted/30 p-3">
+          <label className="text-sm font-medium text-foreground whitespace-nowrap">
+            Seuil de tolérance estimation :
+          </label>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">±</span>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              className="w-20 text-right"
+              value={toleranceSeuil}
+              onChange={(e) =>
+                updateLotInfo({
+                  toleranceSeuil: e.target.value ? Math.max(0, Math.min(100, Number(e.target.value))) : 20,
+                })
+              }
+            />
+            <span className="text-sm text-muted-foreground">%</span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Au-delà de ce seuil, l'écart s'affiche en grisé dans l'Analyse prix.
+          </p>
         </div>
 
         <div className="rounded-md border border-border bg-muted/50 p-4">

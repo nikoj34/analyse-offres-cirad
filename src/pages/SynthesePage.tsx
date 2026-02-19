@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getVersionDisplayLabel } from "@/types/project";
 import { useMemo, useState } from "react";
-import { Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle, Award, Settings2, MessageSquare } from "lucide-react";
+import { Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle, Award, Settings2, MessageSquare, Plus, GitBranch, ArrowRight } from "lucide-react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
 import { useNavigate } from "react-router-dom";
 
@@ -30,7 +32,7 @@ const SynthesePage = () => {
   const {
     project, setNegotiationDecision, getNegotiationDecision,
     validateVersion, unvalidateVersion, hasAttributaire,
-    activateQuestionnaire,
+    activateQuestionnaire, createVersion, switchVersion,
   } = useProjectStore();
   const navigate = useNavigate();
   const lot = project.lots[project.currentLotIndex];
@@ -71,6 +73,7 @@ const SynthesePage = () => {
   });
 
   const [compareLines, setCompareLines] = useState<Record<number, boolean>>({});
+  const [negoDate, setNegoDate] = useState(new Date().toISOString().split("T")[0]);
   const [attributaireDialogOpen, setAttributaireDialogOpen] = useState(false);
   const [validationComment, setValidationComment] = useState("");
   const [validationDialogOpen, setValidationDialogOpen] = useState(false);
@@ -879,6 +882,115 @@ const SynthesePage = () => {
           </Table>
         </CardContent>
       </Card>
+
+      {/* === SECTION CYCLES : gestion des phases de négociation — visible uniquement en phase initiale === */}
+      {!isNego && (() => {
+        const { versions, currentVersionId } = lot;
+        const currentVersion = versions.find((v) => v.id === currentVersionId);
+        const currentHasAttributaire = currentVersion ? hasAttributaire(currentVersion.id) : false;
+        const currentIsValidated = currentVersion?.validated ?? false;
+        const canCreate = versions.length < 3;
+        const canCreateNego = canCreate && currentIsValidated && !currentHasAttributaire;
+        const nextIndex = versions.length;
+        const nextLabel = `V${nextIndex}`;
+        const nextDisplayLabel = getVersionDisplayLabel(nextLabel);
+        const negoVersions = versions.slice(1);
+
+        if (negoVersions.length === 0 && !canCreateNego) return null;
+
+        return (
+          <Card className="border-dashed">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm flex items-center gap-2 text-muted-foreground">
+                <GitBranch className="h-4 w-4" />
+                Gestion des cycles de négociation
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Créez une phase de négociation après validation de l'analyse initiale. Les données précédentes seront figées.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {canCreateNego && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button className="gap-2" size="sm">
+                      <Plus className="h-4 w-4" />
+                      Créer {nextDisplayLabel}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle className="flex items-center gap-2">
+                        <AlertTriangle className="h-5 w-5 text-destructive" />
+                        Attention — Blocage définitif
+                      </AlertDialogTitle>
+                      <AlertDialogDescription asChild>
+                        <div className="space-y-3">
+                          <p>
+                            La création de <strong>{nextDisplayLabel}</strong> va <strong>figer définitivement</strong> la
+                            version actuelle. Seules les entreprises retenues seront reprises.
+                          </p>
+                          <div>
+                            <Label htmlFor="nego-date-synth" className="text-sm font-medium">
+                              Date de l'analyse (obligatoire)
+                            </Label>
+                            <Input
+                              id="nego-date-synth"
+                              type="date"
+                              value={negoDate}
+                              onChange={(e) => setNegoDate(e.target.value)}
+                              className="mt-1 w-48"
+                            />
+                          </div>
+                        </div>
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Annuler</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => createVersion(nextLabel, negoDate)}
+                        disabled={!negoDate}
+                      >
+                        Confirmer et créer {nextDisplayLabel}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+
+              {negoVersions.length > 0 && (
+                <div className="grid gap-3">
+                  {versions.map((v, idx) => {
+                    const isCurrent = v.id === currentVersionId;
+                    const vHasAttributaire = hasAttributaire(v.id);
+                    const displayLbl = getVersionDisplayLabel(v.label);
+                    return (
+                      <div key={v.id} className={`flex items-center justify-between rounded-lg border p-3 ${isCurrent ? "ring-2 ring-primary" : ""}`}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm">{displayLbl}</span>
+                          {isCurrent && <Badge variant="default" className="text-xs">Active</Badge>}
+                          {v.validated && <Badge variant="default" className="bg-green-600 text-xs"><CheckCircle className="h-3 w-3 mr-1" />Validée</Badge>}
+                          {v.frozen && !v.validated && <Badge variant="secondary" className="text-xs"><Lock className="h-3 w-3 mr-1" />Figée</Badge>}
+                          {vHasAttributaire && <Badge className="text-xs bg-amber-500">Attributaire</Badge>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">{v.analysisDate || "—"}</span>
+                          {!isCurrent && (
+                            <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => switchVersion(v.id)}>
+                              <ArrowRight className="h-3 w-3" />
+                              Basculer
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
     </div>
   );
 };

@@ -156,18 +156,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           Configuration
                         </button>
                         <button
-                          onClick={() => handleLotSubNav(idx, "/technique")}
-                          className={cn(
-                            "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                            isActive && location.pathname === "/technique"
-                              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
-                          )}
-                        >
-                          <Wrench className="h-3.5 w-3.5 shrink-0" />
-                          Analyse technique
-                        </button>
-                        <button
                           onClick={() => handleLotSubNav(idx, "/prix")}
                           className={cn(
                             "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
@@ -178,6 +166,18 @@ export function AppLayout({ children }: { children: ReactNode }) {
                         >
                           <Euro className="h-3.5 w-3.5 shrink-0" />
                           Analyse prix
+                        </button>
+                        <button
+                          onClick={() => handleLotSubNav(idx, "/technique")}
+                          className={cn(
+                            "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
+                            isActive && location.pathname === "/technique"
+                              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
+                          )}
+                        >
+                          <Wrench className="h-3.5 w-3.5 shrink-0" />
+                          Analyse technique
                         </button>
                         <button
                           onClick={() => handleLotSubNav(idx, "/synthese")}
@@ -193,7 +193,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                         </button>
 
                         {/* Négociations */}
-                        {negoVersions.length > 0 || l.versions.length >= 1 ? (
+                        {negoVersions.length > 0 && (
                           <Collapsible defaultOpen={isActive && negoVersions.length > 0}>
                             <CollapsibleTrigger
                               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent/50 transition-colors"
@@ -204,18 +204,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
                             </CollapsibleTrigger>
                             <CollapsibleContent>
                               <div className="ml-3 flex flex-col gap-0.5 border-l border-border pl-2 mt-0.5">
-                                <button
-                                  onClick={() => handleLotSubNav(idx, "/versions")}
-                                  className={cn(
-                                    "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors text-left",
-                                    isActive && location.pathname === "/versions"
-                                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
-                                  )}
-                                >
-                                  <GitBranch className="h-3 w-3 shrink-0" />
-                                  Cycles
-                                </button>
                                 {negoVersions.map((v, i) => {
                                   const round = i + 1;
                                   const negoLabel = `Négo ${round}`;
@@ -224,18 +212,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                       <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                                         {negoLabel}
                                       </div>
-                                      <button
-                                        onClick={() => handleLotSubNav(idx, `/nego/${round}/technique`)}
-                                        className={cn(
-                                          "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
-                                          isActive && location.pathname === `/nego/${round}/technique`
-                                            ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                                            : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
-                                        )}
-                                      >
-                                        <Wrench className="h-3 w-3 shrink-0" />
-                                        Technique
-                                      </button>
                                       <button
                                         onClick={() => handleLotSubNav(idx, `/nego/${round}/prix`)}
                                         className={cn(
@@ -247,6 +223,18 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                       >
                                         <Euro className="h-3 w-3 shrink-0" />
                                         Prix
+                                      </button>
+                                      <button
+                                        onClick={() => handleLotSubNav(idx, `/nego/${round}/technique`)}
+                                        className={cn(
+                                          "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
+                                          isActive && location.pathname === `/nego/${round}/technique`
+                                            ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                                            : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
+                                        )}
+                                      >
+                                        <Wrench className="h-3 w-3 shrink-0" />
+                                        Technique
                                       </button>
                                       <button
                                         onClick={() => handleLotSubNav(idx, `/nego/${round}/synthese`)}
@@ -275,13 +263,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                         </button>
                                       )}
                                     </div>
-
                                   );
                                 })}
                               </div>
                             </CollapsibleContent>
                           </Collapsible>
-                        ) : null}
+                        )}
 
                         {/* Export for this lot */}
                         <button
