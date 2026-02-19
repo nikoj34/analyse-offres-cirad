@@ -419,54 +419,6 @@ const SynthesePage = () => {
           </CardDescription>
         </CardHeader>
 
-        {/* Boutons de bascule scenario en ligne */}
-        {hasScenarioOptions && (
-          <div className="px-6 pb-4 flex flex-wrap gap-4 items-start border-b border-border">
-            {hasPSE && (
-              <div className="space-y-1.5">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">PSE</span>
-                <div className="flex flex-wrap gap-2">
-                  {pseLines.map((l) => (
-                    <button
-                      key={l.id}
-                      onClick={() => !isReadOnly && !isValidated && toggleLine(l.id, l.type)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                        enabledLines[l.id]
-                          ? "border-blue-500 bg-blue-100 text-blue-800"
-                          : "border-border bg-background text-muted-foreground hover:bg-muted"
-                      } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
-                    >
-                      {enabledLines[l.id] ? "✓ " : ""}{getLineLabel(l)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {hasVariante && (
-              <div className="space-y-1.5">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Variantes (analysées séparément)</span>
-                <div className="flex flex-wrap gap-2">
-                  {varianteLines.map((l) => (
-                    <button
-                      key={l.id}
-                      onClick={() => !isReadOnly && !isValidated && toggleLine(l.id, l.type)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                        enabledLines[l.id]
-                          ? "border-violet-500 bg-violet-100 text-violet-800"
-                          : "border-border bg-background text-muted-foreground hover:bg-muted"
-                      } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
-                    >
-                      {enabledLines[l.id] ? "✓ " : ""}{getLineLabel(l)}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[11px] text-muted-foreground italic">
-                  Conformément au Règlement de la Consultation, les variantes sont isolées de l'offre de base.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
 
         <CardContent className="overflow-x-auto pt-4">
           <Table>
