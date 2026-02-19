@@ -471,8 +471,11 @@ export const useProjectStore = create<ProjectStore>()(
             questionnaire: newQuestionnaire,
           };
 
+          // Lock the current version as read-only (frozen + validated)
           const versions = lot.versions.map((v) =>
-            v.id === lot.currentVersionId ? { ...v, frozen: true } : v
+            v.id === lot.currentVersionId
+              ? { ...v, frozen: true, validated: true, validatedAt: v.validatedAt ?? new Date().toISOString() }
+              : v
           );
 
           return setLot(state, {

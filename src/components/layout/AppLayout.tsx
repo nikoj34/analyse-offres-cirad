@@ -204,9 +204,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
                             </CollapsibleTrigger>
                             <CollapsibleContent>
                               <div className="ml-3 flex flex-col gap-0.5 border-l border-border pl-2 mt-0.5">
-                                {negoVersions.map((v, i) => {
+                                    {negoVersions.map((v, i) => {
                                   const round = i + 1;
                                   const negoLabel = `Négo ${round}`;
+                                  // Afficher Questions seulement si synthèse validée ET au moins une entreprise retenue
+                                  const hasRetainedCompany = Object.values(v.negotiationDecisions ?? {}).some(
+                                    (d) => d === "retenue" || d === "attributaire"
+                                  );
+                                  const showQuestions = v.validated && hasRetainedCompany;
                                   return (
                                     <div key={v.id} className="space-y-0.5">
                                       <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -248,7 +253,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                         <BarChart3 className="h-3 w-3 shrink-0" />
                                         Synthèse
                                       </button>
-                                      {v.questionnaire?.activated && (
+                                      {showQuestions && (
                                         <button
                                           onClick={() => handleLotSubNav(idx, `/nego/${round}/questions`)}
                                           className={cn(

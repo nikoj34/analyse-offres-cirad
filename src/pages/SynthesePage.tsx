@@ -9,10 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getVersionDisplayLabel } from "@/types/project";
 import { useMemo, useState } from "react";
-import { Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle, Award, Settings2, MessageSquare, Plus, GitBranch, ArrowRight } from "lucide-react";
+import {
+  Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle, Award,
+  Settings2, MessageSquare, Plus, GitBranch, ArrowRight,
+} from "lucide-react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
 import { useNavigate } from "react-router-dom";
-
 import { useWeightingValid } from "@/hooks/useWeightingValid";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import {
@@ -40,7 +42,6 @@ const SynthesePage = () => {
   const { isValid: weightingValid, total: weightingTotal } = useWeightingValid();
   const { weightingCriteria, lotLines } = lot;
 
-
   const technicalCriteria = weightingCriteria.filter((c) => c.id !== "prix");
   const prixCriterion = weightingCriteria.find((c) => c.id === "prix");
   const prixWeight = prixCriterion?.weight ?? 40;
@@ -50,12 +51,12 @@ const SynthesePage = () => {
   const envCriterion = technicalCriteria.find((c) => c.id === "environnemental");
   const planCriterion = technicalCriteria.find((c) => c.id === "planning");
 
-  // Scenario toggles
+  // Option line groups
+  const baseLines = activeLotLines.filter((l) => !l.type);
   const pseLines = activeLotLines.filter((l) => l.type === "PSE");
   const varianteLines = activeLotLines.filter((l) => l.type === "VARIANTE");
   const toLines = activeLotLines.filter((l) => l.type === "T_OPTIONNELLE");
 
-  // Auto-numbering helper
   const getLineLabel = (line: typeof activeLotLines[0]) => {
     if (!line.type) return line.label;
     const group = activeLotLines.filter((l) => l.type === line.type);
@@ -64,10 +65,12 @@ const SynthesePage = () => {
     return `${prefix} ${idx}${line.label ? ` — ${line.label}` : ""}`;
   };
 
+  // enabledLines = which options are active in the main scenario (base = always included via lotLineId=0)
   const [enabledLines, setEnabledLines] = useState<Record<number, boolean>>(() => {
     const init: Record<number, boolean> = {};
     for (const l of activeLotLines) {
-      init[l.id] = !l.type; // base lines enabled by default
+      // TCs enabled by default, PSE/Variantes excluded by default
+      init[l.id] = l.type === "T_OPTIONNELLE";
     }
     return init;
   });
@@ -92,7 +95,6 @@ const SynthesePage = () => {
   const isValidated = version?.validated ?? false;
   const displayLabel = version ? getVersionDisplayLabel(version.label) : "";
 
-  // Attribution exclusivity checks
   const decisions = useMemo(() => {
     if (!version) return {};
     return version.negotiationDecisions ?? {};
@@ -118,7 +120,6 @@ const SynthesePage = () => {
     return allDecided && !hasAnyAttributaire && !hasAnyRetenue;
   }, [activeCompanies, allDecided, hasAnyAttributaire, hasAnyRetenue]);
 
-  // --- Compute results ---
   // Helper: get price for a company on a specific lot line
   const getLinePrice = (companyId: number, lineId: number) => {
     if (!version) return 0;
@@ -130,6 +131,25 @@ const SynthesePage = () => {
     if (!version) return false;
     const entry = version.priceEntries.find((e) => e.companyId === companyId && e.lotLineId === lineId);
     return entry !== undefined && ((entry.dpgf1 ?? 0) !== 0 || (entry.dpgf2 ?? 0) !== 0);
+  };
+
+  // Compute TF total (sum of base lines) + enabled TCs
+  const getCompanyScenarioTotal = (companyId: number) => {
+    if (!version) return 0;
+    // Sum all base (non-typed) lines
+    let total = baseLines.reduce((sum, l) => sum + getLinePrice(companyId, l.id), 0);
+    // Fallback: old storage uses lotLineId=0 for the global TF total
+    if (total === 0) {
+      const entry = version.priceEntries.find((e) => e.companyId === companyId && e.lotLineId === 0);
+      total = (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
+    }
+    // Add enabled option lines (PSE/Variante/TO)
+    for (const line of activeLotLines) {
+      if (line.type && enabledLines[line.id]) {
+        total += getLinePrice(companyId, line.id);
+      }
+    }
+    return total;
   };
 
   const results = useMemo(() => {
@@ -166,7 +186,6 @@ const SynthesePage = () => {
             criterionScore = (NOTATION_VALUES[note.notation] / 5) * criterion.weight;
           }
         }
-
         if (criterion.id === "environnemental") env = criterionScore;
         else if (criterion.id === "planning") planning = criterionScore;
         else technique += criterionScore;
@@ -175,22 +194,16 @@ const SynthesePage = () => {
       techScores[company.id] = { total, technique, env, planning };
     }
 
-    // Compute scenario total: Base + sum of enabled option lines
     const companyPriceTotals: Record<number, number> = {};
     const missingPrices: Record<number, string[]> = {};
 
     for (const company of activeCompanies) {
       if (company.status === "ecartee") continue;
-      const baseDpgf = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === 0);
-      const baseTotal = (baseDpgf?.dpgf1 ?? 0) + (baseDpgf?.dpgf2 ?? 0);
-
-      let scenarioTotal = baseTotal;
+      const scenarioTotal = getCompanyScenarioTotal(company.id);
       const missing: string[] = [];
 
       for (const line of activeLotLines) {
         if (line.type && enabledLines[line.id]) {
-          const lineTotal = getLinePrice(company.id, line.id);
-          scenarioTotal += lineTotal;
           if (!hasPrice(company.id, line.id)) {
             missing.push(getLineLabel(line));
           }
@@ -222,6 +235,7 @@ const SynthesePage = () => {
         priceScore, priceTotal, globalScore, missingPrices: missing,
       };
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCompanies, technicalCriteria, version, prixWeight, activeLotLines, enabledLines]);
 
   const sorted = useMemo(() => {
@@ -232,37 +246,24 @@ const SynthesePage = () => {
     });
   }, [results]);
 
-  // --- Comparison rows: individual option lines with recalculated price scores ---
+  // Comparison rows for scenario section
   const comparisonRows = useMemo(() => {
     if (!version) return [];
     const rows: {
-      key: string;
-      companyName: string;
-      optionLabel: string;
-      techScore: number;
-      techniqueScore: number;
-      envScore: number;
-      planningScore: number;
-      priceTotal: number;
-      priceScore: number;
-      globalScore: number;
-      hasMissing: boolean;
+      key: string; companyName: string; optionLabel: string;
+      techScore: number; techniqueScore: number; envScore: number; planningScore: number;
+      priceTotal: number; priceScore: number; globalScore: number; hasMissing: boolean;
     }[] = [];
 
-    const optionLines = [...pseLines, ...varianteLines, ...toLines].filter(
-      (l) => !!compareLines[l.id]
-    );
-
+    const optionLines = [...pseLines, ...varianteLines, ...toLines].filter((l) => !!compareLines[l.id]);
     if (optionLines.length === 0) return [];
 
     const eligibleCompanies = activeCompanies.filter((c) => c.status !== "ecartee");
 
     for (const line of optionLines) {
-      // Compute "Base + this option" for all companies
       const totals: Record<number, number> = {};
       for (const company of eligibleCompanies) {
-        const baseDpgf = version.priceEntries.find((e) => e.companyId === company.id && e.lotLineId === 0);
-        const baseTotal = (baseDpgf?.dpgf1 ?? 0) + (baseDpgf?.dpgf2 ?? 0);
+        const baseTotal = getCompanyScenarioTotal(company.id);
         const optionPrice = getLinePrice(company.id, line.id);
         totals[company.id] = baseTotal + optionPrice;
       }
@@ -277,7 +278,6 @@ const SynthesePage = () => {
         const ps = pt > 0 ? (minP / pt) * prixWeight : 0;
         const gs = result.techScore + ps;
         const missing = !hasPrice(company.id, line.id);
-
         rows.push({
           key: `cmp-${line.id}-${company.id}`,
           companyName: `${company.id}. ${company.name}`,
@@ -286,17 +286,13 @@ const SynthesePage = () => {
           techniqueScore: result.techniqueScore,
           envScore: result.envScore,
           planningScore: result.planningScore,
-          priceTotal: pt,
-          priceScore: ps,
-          globalScore: gs,
-          hasMissing: missing,
+          priceTotal: pt, priceScore: ps, globalScore: gs, hasMissing: missing,
         });
       }
     }
-
-    // Sort comparison rows by globalScore desc
     rows.sort((a, b) => b.globalScore - a.globalScore);
     return rows;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version, compareLines, pseLines, varianteLines, toLines, activeCompanies, results, prixWeight]);
 
   const valueTechWeight = valueTechnique.reduce((s, c) => s + c.weight, 0);
@@ -312,6 +308,7 @@ const SynthesePage = () => {
   const attributaireResult = sorted.find(
     (r) => r.company.status !== "ecartee" && getNegotiationDecision(r.company.id) === "attributaire"
   );
+
   const scenarioDescription = useMemo(() => {
     if (!attributaireResult) return "";
     const enabledOptions = activeLotLines
@@ -319,9 +316,9 @@ const SynthesePage = () => {
       .map((l) => getLineLabel(l))
       .join(", ");
     return `L'entreprise ${attributaireResult.company.name} est retenue pour un montant de ${fmt(attributaireResult.priceTotal)} HT, incluant la Solution de Base${enabledOptions ? ` + ${enabledOptions}` : ""}.`;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attributaireResult, activeLotLines, enabledLines]);
 
-  // Get available decision options based on exclusivity rules
   const getAvailableDecisions = (companyId: number): NegotiationDecision[] => {
     const currentDecision = decisions[companyId] ?? "non_defini";
     return DECISION_OPTIONS.filter((d) => {
@@ -340,7 +337,7 @@ const SynthesePage = () => {
           <div className="mt-4 rounded-md border border-destructive bg-destructive/10 p-4 flex items-center gap-3">
             <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
             <p className="text-sm text-destructive font-medium">
-              Le total des pondérations doit être de 100% (Actuel : {weightingTotal}%). 
+              Le total des pondérations doit être de 100% (Actuel : {weightingTotal}%).
               Veuillez corriger dans « Données du projet » avant de continuer.
             </p>
           </div>
@@ -365,8 +362,13 @@ const SynthesePage = () => {
   }
 
   let rank = 0;
+
   return (
     <div className="space-y-6">
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* TITRE + BADGES                                      */}
+      {/* ═══════════════════════════════════════════════════ */}
       <div>
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
           {pageTitle}
@@ -387,380 +389,92 @@ const SynthesePage = () => {
           )}
         </h1>
         <p className="text-sm text-muted-foreground">
-          Classement global des entreprises (technique + prix). Total sur {maxTotal} pts.
-          {hasScenarioOptions && " Total = Base + Σ(Options actives)."}
+          Classement global (technique + prix). Total sur {maxTotal} pts.{" "}
+          {hasScenarioOptions && "Total = Base + Σ(Tranches Conditionnelles actives)."}
         </p>
       </div>
 
-      {/* Action buttons */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {version && allDecided && !isValidated && !isReadOnly && (
-          <Button
-            className="gap-2 bg-green-600 hover:bg-green-700"
-            onClick={() => setValidationDialogOpen(true)}
-          >
-            <CheckCircle className="h-4 w-4" />
-            {versionHasAttributaire ? "Valider l'analyse — Attribuer" : "Valider l'analyse"}
-          </Button>
-        )}
-
-        {version && isValidated && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="outline" className="gap-2">
-                <Unlock className="h-4 w-4" />
-                Débloquer l'analyse
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5 text-destructive" />
-                  Débloquer l'analyse ?
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  L'analyse sera déverrouillée. Vous pourrez modifier les données et éventuellement créer
-                  une nouvelle phase de négociation.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Annuler</AlertDialogCancel>
-                <AlertDialogAction onClick={() => unvalidateVersion(version.id)}>
-                  Confirmer le déblocage
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
-
-        {attributaireResult && (
-          <Button className="gap-2" variant="default" onClick={() => setAttributaireDialogOpen(true)}>
-            <Award className="h-4 w-4" />
-            Déclarer l'attributaire
-          </Button>
-        )}
-
-        {/* Bouton questionnaire de négociation — visible si des entreprises sont retenues pour négociation */}
-        {version && !isNego && hasAnyRetenue && !isValidated && (
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => {
-              const retainedIds = Object.entries(version.negotiationDecisions ?? {})
-                .filter(([, d]) => d === "retenue")
-                .map(([id]) => Number(id));
-              // On active le questionnaire sur la prochaine version (celle de la Négo à venir)
-              // Pour l'instant, on l'active sur la version courante en attendant que la négo soit créée
-              activateQuestionnaire(version.id, retainedIds);
-              navigate("/versions");
-            }}
-          >
-            <MessageSquare className="h-4 w-4" />
-            Préparer le questionnaire de négociation
-          </Button>
-        )}
-
-        {/* Si déjà en négo et questionnaire activé → lien direct */}
-        {version && isNego && version.questionnaire?.activated && negoRound && (
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => navigate(`/nego/${negoRound}/questions`)}
-          >
-            <MessageSquare className="h-4 w-4" />
-            Voir le questionnaire de négociation
-          </Button>
-        )}
-      </div>
-
-      {/* Non-attribution warning */}
-      {nobodyRetained && !isValidated && (
-        <div className="rounded-md border border-orange-300 bg-orange-50 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle className="h-4 w-4 text-orange-600" />
-            <span className="text-sm font-semibold text-orange-800">Aucune entreprise retenue ni attributaire</span>
-          </div>
-          <p className="text-xs text-orange-700 mb-2">Un motif de non-attribution est obligatoire pour valider.</p>
-          <Textarea
-            className="text-sm"
-            rows={2}
-            placeholder="Motif de non-attribution..."
-            value={validationComment}
-            onChange={(e) => setValidationComment(e.target.value)}
-            maxLength={2000}
-          />
-        </div>
-      )}
-
-      {/* Validation modal */}
-      <Dialog open={validationDialogOpen} onOpenChange={setValidationDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-green-600" />
-              Valider l'analyse
-            </DialogTitle>
-            <DialogDescription>
-              {versionHasAttributaire
-                ? "L'entreprise attributaire sera confirmée et cette phase sera figée."
-                : "La validation va figer cette phase."}
-            </DialogDescription>
-          </DialogHeader>
-
-          {/* Attribution pressentie */}
-          {attributaireResult && (
-            <div className="space-y-3">
-              <div className="rounded-md border border-green-300 bg-green-50 p-4 text-sm leading-relaxed">
-                <p className="font-semibold mb-2 text-green-800">🏆 Attribution pressentie</p>
-                <p>{scenarioDescription}</p>
-                <p className="mt-2 text-muted-foreground">
-                  Classée au rang n°1 avec une note globale de {attributaireResult.globalScore.toFixed(1)} / {maxTotal} pts.
-                </p>
-              </div>
-
-              {/* Scenario detail */}
-              <div className="rounded-md border border-border bg-muted/30 p-4 text-sm">
-                <p className="font-semibold mb-1">Détail du scénario retenu :</p>
-                <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
-                  <li>Solution de Base (Tranche Ferme)</li>
-                  {activeLotLines.filter((l) => l.type && enabledLines[l.id]).map((l) => (
-                    <li key={l.id}>{getLineLabel(l)} — {fmt(getLinePrice(attributaireResult.company.id, l.id))}</li>
-                  ))}
-                </ul>
-                <p className="mt-2 font-semibold">
-                  Montant final HT : {fmt(attributaireResult.priceTotal)}
-                </p>
-              </div>
-
-              {/* Variante info if any variante enabled */}
-              {activeLotLines.some((l) => l.type === "VARIANTE" && enabledLines[l.id]) && (
-                <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">
-                  <p className="font-semibold text-blue-800 mb-1">📋 Variante retenue</p>
-                  <p className="text-blue-700">
-                    Le scénario retenu inclut une variante proposée par le candidat. L'analyse confirme que cette variante
-                    présente un avantage technique et/ou économique par rapport à la solution de base.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Motif d'éviction for excluded companies */}
-          {(() => {
-            const excludedCompanies = activeCompanies.filter((c) => c.status === "ecartee");
-            const nonRetenues = activeCompanies.filter((c) => c.status !== "ecartee" && getNegotiationDecision(c.id) === "non_retenue");
-            if (excludedCompanies.length === 0 && nonRetenues.length === 0) return null;
-            return (
-              <div className="rounded-md border border-orange-200 bg-orange-50 p-4 text-sm">
-                <p className="font-semibold text-orange-800 mb-2">⚠️ Motifs d'éviction / non-attribution</p>
-                {excludedCompanies.map((c) => (
-                  <p key={c.id} className="text-orange-700">
-                    <span className="font-medium">{c.name}</span> — Écartée : {c.exclusionReason || "Motif non précisé"}
-                  </p>
-                ))}
-                {nonRetenues.map((c) => (
-                  <p key={c.id} className="text-orange-700">
-                    <span className="font-medium">{c.name}</span> — Non retenue
-                  </p>
-                ))}
-              </div>
-            );
-          })()}
-
-          {/* Non-attribution motif */}
-          {nobodyRetained && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-destructive">Motif de non-attribution (obligatoire)</label>
-              <Textarea
-                className="text-sm border-destructive"
-                rows={3}
-                placeholder="Conformément à l'article L2152-4 du Code de la commande publique, le pouvoir adjudicateur déclare sans suite la présente consultation..."
-                value={evictionMotif}
-                onChange={(e) => setEvictionMotif(e.target.value)}
-                maxLength={3000}
-              />
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Commentaire technique (optionnel)</label>
-            <Textarea
-              className="text-sm"
-              rows={3}
-              placeholder="Commentaire libre sur la décision..."
-              value={validationComment}
-              onChange={(e) => setValidationComment(e.target.value)}
-              maxLength={3000}
-            />
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setValidationDialogOpen(false)}>Annuler</Button>
-            <Button
-              onClick={() => {
-                if (version) {
-                  validateVersion(version.id);
-                  setValidationDialogOpen(false);
-                }
-              }}
-              disabled={nobodyRetained && !evictionMotif.trim()}
-            >
-              Confirmer la validation
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Attributaire declaration dialog */}
-      <Dialog open={attributaireDialogOpen} onOpenChange={setAttributaireDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Award className="h-5 w-5 text-green-600" />
-              Déclaration de l'attributaire
-            </DialogTitle>
-            <DialogDescription>Récapitulatif du scénario retenu</DialogDescription>
-          </DialogHeader>
-          <div className="rounded-md border border-border bg-muted/30 p-4 text-sm leading-relaxed">
-            {scenarioDescription}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAttributaireDialogOpen(false)}>Fermer</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* === PHASE 1: Comparaison visuelle === */}
-      {hasScenarioOptions && (
-        <Card className="border-blue-200">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2 text-blue-800">
-              <Settings2 className="h-4 w-4" />
-              Phase 1 — Comparaison visuelle
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Comparez l'impact de chaque option sur le classement. Ces lignes apparaissent en bas du tableau à titre indicatif uniquement.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-6">
-              {hasPSE && (
-                <div className="space-y-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">PSE</span>
-                  {pseLines.map((l) => (
-                    <div key={l.id} className="flex items-center gap-2">
-                      <Switch
-                        checked={!!compareLines[l.id]}
-                        onCheckedChange={(v) => setCompareLines((prev) => ({ ...prev, [l.id]: v }))}
-                      />
-                      <span className="text-sm">{getLineLabel(l)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {hasVariante && (
-                <div className="space-y-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Variantes</span>
-                  {varianteLines.map((l) => (
-                    <div key={l.id} className="flex items-center gap-2">
-                      <Switch
-                        checked={!!compareLines[l.id]}
-                        onCheckedChange={(v) => setCompareLines((prev) => ({ ...prev, [l.id]: v }))}
-                      />
-                      <span className="text-sm">{getLineLabel(l)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {hasTO && (
-                <div className="space-y-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tranches Optionnelles</span>
-                  {toLines.map((l) => (
-                    <div key={l.id} className="flex items-center gap-2">
-                      <Switch
-                        checked={!!compareLines[l.id]}
-                        onCheckedChange={(v) => setCompareLines((prev) => ({ ...prev, [l.id]: v }))}
-                      />
-                      <span className="text-sm">{getLineLabel(l)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* === PHASE 2: Scénario d'attribution retenu === */}
-      {hasScenarioOptions && (
-        <Card className="border-green-200">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2 text-green-800">
-              <Award className="h-4 w-4" />
-              Phase 2 — Scénario d'attribution retenu
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Décidez quelles options sont retenues pour l'attribution. Le classement officiel et le montant global sont recalculés en temps réel.
-              <span className="block mt-1 font-semibold">Total = Base + Σ(Options retenues)</span>
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {[...pseLines, ...varianteLines, ...toLines].map((l) => {
-                const enabled = !!enabledLines[l.id];
-                return (
-                  <div
-                    key={l.id}
-                    className={`flex items-center justify-between rounded-lg border p-3 transition-colors ${
-                      enabled
-                        ? "border-green-300 bg-green-50"
-                        : "border-border bg-background"
-                    }`}
-                  >
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-sm font-medium">{getLineLabel(l)}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {l.type === "PSE" ? "Plus-value" : l.type === "VARIANTE" ? "Variante" : "Tranche optionnelle"}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant={enabled ? "default" : "outline"}
-                        className={`cursor-pointer select-none text-xs px-3 py-1 ${
-                          enabled
-                            ? "bg-green-600 hover:bg-green-700"
-                            : "hover:bg-muted"
-                        }`}
-                        onClick={() => !isReadOnly && !isValidated && toggleLine(l.id)}
-                      >
-                        {enabled ? "OUI" : "NON"}
-                      </Badge>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {/* Résumé du scénario */}
-            <div className="mt-4 rounded-md border border-border bg-muted/30 p-3 text-sm">
-              <span className="font-semibold">Scénario actuel : </span>
-              <span className="text-muted-foreground">
-                Solution de Base
-                {[...pseLines, ...varianteLines, ...toLines]
-                  .filter((l) => enabledLines[l.id])
-                  .map((l) => ` + ${getLineLabel(l)}`)
-                  .join("")}
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* SECTION 6.1 — CLASSEMENT GÉNÉRAL                   */}
+      {/* ═══════════════════════════════════════════════════ */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Classement Général</CardTitle>
-          <CardDescription>Les entreprises écartées sont affichées mais non classées.</CardDescription>
+          <CardTitle className="text-base">6.1 — Classement Général</CardTitle>
+          <CardDescription>
+            Règle de calcul : TF + Σ(Tranches Conditionnelles). Les entreprises écartées sont affichées mais non classées.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
+
+        {/* Boutons de bascule scenario en ligne */}
+        {hasScenarioOptions && (
+          <div className="px-6 pb-4 flex flex-wrap gap-4 items-start border-b border-border">
+            {hasPSE && (
+              <div className="space-y-1.5">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">PSE</span>
+                <div className="flex flex-wrap gap-2">
+                  {pseLines.map((l) => (
+                    <button
+                      key={l.id}
+                      onClick={() => !isReadOnly && !isValidated && toggleLine(l.id)}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                        enabledLines[l.id]
+                          ? "border-blue-500 bg-blue-100 text-blue-800"
+                          : "border-border bg-background text-muted-foreground hover:bg-muted"
+                      } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                    >
+                      {enabledLines[l.id] ? "✓ " : ""}{getLineLabel(l)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {hasVariante && (
+              <div className="space-y-1.5">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Variantes (analysées séparément)</span>
+                <div className="flex flex-wrap gap-2">
+                  {varianteLines.map((l) => (
+                    <button
+                      key={l.id}
+                      onClick={() => !isReadOnly && !isValidated && toggleLine(l.id)}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                        enabledLines[l.id]
+                          ? "border-violet-500 bg-violet-100 text-violet-800"
+                          : "border-border bg-background text-muted-foreground hover:bg-muted"
+                      } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                    >
+                      {enabledLines[l.id] ? "✓ " : ""}{getLineLabel(l)}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground italic">
+                  Conformément au Règlement de la Consultation, les variantes sont isolées de l'offre de base.
+                </p>
+              </div>
+            )}
+            {hasTO && (
+              <div className="space-y-1.5">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tranches Optionnelles</span>
+                <div className="flex flex-wrap gap-2">
+                  {toLines.map((l) => (
+                    <button
+                      key={l.id}
+                      onClick={() => !isReadOnly && !isValidated && toggleLine(l.id)}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                        enabledLines[l.id]
+                          ? "border-green-500 bg-green-100 text-green-800"
+                          : "border-border bg-background text-muted-foreground hover:bg-muted"
+                      } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                    >
+                      {enabledLines[l.id] ? "✓ " : ""}{getLineLabel(l)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <CardContent className="overflow-x-auto pt-4">
           <Table>
             <TableHeader>
               <TableRow>
@@ -770,7 +484,7 @@ const SynthesePage = () => {
                 {envWeight > 0 && <TableHead className="text-right">Enviro. / {envWeight}</TableHead>}
                 {planWeight > 0 && <TableHead className="text-right">Planning / {planWeight}</TableHead>}
                 <TableHead className="text-right">Prix / {prixWeight}</TableHead>
-                <TableHead className="text-right">Montant Scénario</TableHead>
+                <TableHead className="text-right">Montant scénario</TableHead>
                 <TableHead className="text-right">Globale / {maxTotal}</TableHead>
                 <TableHead className="text-center">Statut / Décision</TableHead>
               </TableRow>
@@ -843,11 +557,14 @@ const SynthesePage = () => {
                 );
               })}
 
-              {/* Comparison rows — individual option lines */}
+              {/* Lignes de comparaison individuelles */}
               {comparisonRows.length > 0 && (
                 <>
                   <TableRow className="bg-muted/20">
-                    <TableCell colSpan={7 + (envWeight > 0 ? 1 : 0) + (planWeight > 0 ? 1 : 0)} className="text-xs font-semibold text-muted-foreground uppercase tracking-wider py-2">
+                    <TableCell
+                      colSpan={7 + (envWeight > 0 ? 1 : 0) + (planWeight > 0 ? 1 : 0)}
+                      className="text-xs font-semibold text-muted-foreground uppercase tracking-wider py-2"
+                    >
                       Lignes de comparaison (Base + Option individuelle)
                     </TableCell>
                   </TableRow>
@@ -883,8 +600,191 @@ const SynthesePage = () => {
         </CardContent>
       </Card>
 
-      {/* === SECTION CYCLES : gestion des phases de négociation — visible uniquement en phase initiale === */}
-      {!isNego && (() => {
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* SECTION 6.2 — SCÉNARIOS DE COMPARAISON             */}
+      {/* ═══════════════════════════════════════════════════ */}
+      {hasScenarioOptions && (
+        <Card className="border-blue-200 dark:border-blue-900">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2 text-blue-800 dark:text-blue-300">
+              <Settings2 className="h-4 w-4" />
+              6.2 — Comparaison de Scénarios
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Simulez l'impact de chaque option sur le classement. Ces lignes apparaissent dans le tableau à titre indicatif.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-6">
+              {hasPSE && (
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">PSE</span>
+                  {pseLines.map((l) => (
+                    <div key={l.id} className="flex items-center gap-2">
+                      <Switch
+                        checked={!!compareLines[l.id]}
+                        onCheckedChange={(v) => setCompareLines((prev) => ({ ...prev, [l.id]: v }))}
+                      />
+                      <span className="text-sm">{getLineLabel(l)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {hasVariante && (
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Variantes</span>
+                  {varianteLines.map((l) => (
+                    <div key={l.id} className="flex items-center gap-2">
+                      <Switch
+                        checked={!!compareLines[l.id]}
+                        onCheckedChange={(v) => setCompareLines((prev) => ({ ...prev, [l.id]: v }))}
+                      />
+                      <span className="text-sm">{getLineLabel(l)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {hasTO && (
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tranches Optionnelles</span>
+                  {toLines.map((l) => (
+                    <div key={l.id} className="flex items-center gap-2">
+                      <Switch
+                        checked={!!compareLines[l.id]}
+                        onCheckedChange={(v) => setCompareLines((prev) => ({ ...prev, [l.id]: v }))}
+                      />
+                      <span className="text-sm">{getLineLabel(l)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* SECTION 6.3 — VALIDATION DE LA PHASE               */}
+      {/* ═══════════════════════════════════════════════════ */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-green-600" />
+            6.3 — Validation de la phase
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+
+          {/* Avertissement aucune attribution */}
+          {nobodyRetained && !isValidated && (
+            <div className="rounded-md border border-orange-300 bg-orange-50 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="h-4 w-4 text-orange-600" />
+                <span className="text-sm font-semibold text-orange-800">Aucune entreprise retenue ni attributaire</span>
+              </div>
+              <p className="text-xs text-orange-700 mb-2">Un motif de non-attribution est obligatoire pour valider.</p>
+              <Textarea
+                className="text-sm"
+                rows={2}
+                placeholder="Motif de non-attribution..."
+                value={validationComment}
+                onChange={(e) => setValidationComment(e.target.value)}
+                maxLength={2000}
+              />
+            </div>
+          )}
+
+          {/* Boutons d'action */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {version && allDecided && !isValidated && !isReadOnly && (
+              <Button
+                className="gap-2 bg-green-600 hover:bg-green-700"
+                onClick={() => setValidationDialogOpen(true)}
+              >
+                <CheckCircle className="h-4 w-4" />
+                {versionHasAttributaire ? "Valider et clôturer la phase — Attribuer" : "Valider la Synthèse et clôturer la phase"}
+              </Button>
+            )}
+
+            {version && isValidated && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" className="gap-2">
+                    <Unlock className="h-4 w-4" />
+                    Débloquer l'analyse
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="flex items-center gap-2">
+                      <AlertTriangle className="h-5 w-5 text-destructive" />
+                      Débloquer l'analyse ?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      L'analyse sera déverrouillée. Vous pourrez modifier les données et éventuellement créer
+                      une nouvelle phase de négociation.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Annuler</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => unvalidateVersion(version.id)}>
+                      Confirmer le déblocage
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+
+            {attributaireResult && (
+              <Button className="gap-2" variant="default" onClick={() => setAttributaireDialogOpen(true)}>
+                <Award className="h-4 w-4" />
+                Déclarer l'attributaire
+              </Button>
+            )}
+
+            {/* Bouton questionnaire de négociation */}
+            {version && !isNego && hasAnyRetenue && !isValidated && (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => {
+                  const retainedIds = Object.entries(version.negotiationDecisions ?? {})
+                    .filter(([, d]) => d === "retenue")
+                    .map(([id]) => Number(id));
+                  activateQuestionnaire(version.id, retainedIds);
+                }}
+              >
+                <MessageSquare className="h-4 w-4" />
+                Préparer le questionnaire de négociation
+              </Button>
+            )}
+
+            {/* Lien direct questionnaire si déjà en négo */}
+            {version && isNego && version.questionnaire?.activated && negoRound && (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => navigate(`/nego/${negoRound}/questions`)}
+              >
+                <MessageSquare className="h-4 w-4" />
+                Voir le questionnaire de négociation
+              </Button>
+            )}
+
+            {!allDecided && !isValidated && !isReadOnly && (
+              <p className="text-xs text-muted-foreground">
+                Attribuez une décision à chaque entreprise éligible pour pouvoir valider.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* SECTION 6.4 — CYCLES DE NÉGOCIATION                */}
+      {/* Visible uniquement si une négociation est en cours */}
+      {/* ═══════════════════════════════════════════════════ */}
+      {(() => {
         const { versions, currentVersionId } = lot;
         const currentVersion = versions.find((v) => v.id === currentVersionId);
         const currentHasAttributaire = currentVersion ? hasAttributaire(currentVersion.id) : false;
@@ -896,6 +796,7 @@ const SynthesePage = () => {
         const nextDisplayLabel = getVersionDisplayLabel(nextLabel);
         const negoVersions = versions.slice(1);
 
+        // N'afficher que si une négo existe déjà ou peut être créée
         if (negoVersions.length === 0 && !canCreateNego) return null;
 
         return (
@@ -903,10 +804,10 @@ const SynthesePage = () => {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm flex items-center gap-2 text-muted-foreground">
                 <GitBranch className="h-4 w-4" />
-                Gestion des cycles de négociation
+                6.4 — Gestion des cycles de négociation
               </CardTitle>
               <CardDescription className="text-xs">
-                Créez une phase de négociation après validation de l'analyse initiale. Les données précédentes seront figées.
+                Créez une phase de négociation après validation de l'analyse. Les données précédentes seront figées en lecture seule.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -922,13 +823,13 @@ const SynthesePage = () => {
                     <AlertDialogHeader>
                       <AlertDialogTitle className="flex items-center gap-2">
                         <AlertTriangle className="h-5 w-5 text-destructive" />
-                        Attention — Blocage définitif
+                        Attention — Blocage définitif de la phase actuelle
                       </AlertDialogTitle>
                       <AlertDialogDescription asChild>
                         <div className="space-y-3">
                           <p>
-                            La création de <strong>{nextDisplayLabel}</strong> va <strong>figer définitivement</strong> la
-                            version actuelle. Seules les entreprises retenues seront reprises.
+                            La création de <strong>{nextDisplayLabel}</strong> va <strong>verrouiller définitivement en lecture seule</strong> la
+                            phase actuelle. Seules les entreprises retenues seront reprises dans la nouvelle phase.
                           </p>
                           <div>
                             <Label htmlFor="nego-date-synth" className="text-sm font-medium">
@@ -958,25 +859,53 @@ const SynthesePage = () => {
                 </AlertDialog>
               )}
 
-              {negoVersions.length > 0 && (
+              {/* Timeline des versions */}
+              {(negoVersions.length > 0 || versions.length > 0) && (
                 <div className="grid gap-3">
                   {versions.map((v, idx) => {
                     const isCurrent = v.id === currentVersionId;
                     const vHasAttributaire = hasAttributaire(v.id);
                     const displayLbl = getVersionDisplayLabel(v.label);
                     return (
-                      <div key={v.id} className={`flex items-center justify-between rounded-lg border p-3 ${isCurrent ? "ring-2 ring-primary" : ""}`}>
+                      <div
+                        key={v.id}
+                        className={`flex items-center justify-between rounded-lg border p-3 transition-colors ${
+                          isCurrent ? "ring-2 ring-primary bg-primary/5" : "bg-background"
+                        }`}
+                      >
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-medium text-sm">{displayLbl}</span>
                           {isCurrent && <Badge variant="default" className="text-xs">Active</Badge>}
-                          {v.validated && <Badge variant="default" className="bg-green-600 text-xs"><CheckCircle className="h-3 w-3 mr-1" />Validée</Badge>}
-                          {v.frozen && !v.validated && <Badge variant="secondary" className="text-xs"><Lock className="h-3 w-3 mr-1" />Figée</Badge>}
+                          {v.validated && (
+                            <Badge variant="default" className="bg-green-600 text-xs">
+                              <CheckCircle className="h-3 w-3 mr-1" />Validée
+                            </Badge>
+                          )}
+                          {v.frozen && !v.validated && (
+                            <Badge variant="secondary" className="text-xs">
+                              <Lock className="h-3 w-3 mr-1" />Figée
+                            </Badge>
+                          )}
                           {vHasAttributaire && <Badge className="text-xs bg-amber-500">Attributaire</Badge>}
+                          {idx > 0 && (
+                            <Badge variant="outline" className="text-xs text-muted-foreground">
+                              Négociation {idx}
+                            </Badge>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-muted-foreground">{v.analysisDate || "—"}</span>
                           {!isCurrent && (
-                            <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => switchVersion(v.id)}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1 text-xs"
+                              onClick={() => {
+                                switchVersion(v.id);
+                                if (idx > 0) navigate(`/nego/${idx}/synthese`);
+                                else navigate("/synthese");
+                              }}
+                            >
                               <ArrowRight className="h-3 w-3" />
                               Basculer
                             </Button>
@@ -991,6 +920,140 @@ const SynthesePage = () => {
           </Card>
         );
       })()}
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* MODALES                                             */}
+      {/* ═══════════════════════════════════════════════════ */}
+
+      {/* Validation dialog */}
+      <Dialog open={validationDialogOpen} onOpenChange={setValidationDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-green-600" />
+              Valider l'analyse
+            </DialogTitle>
+            <DialogDescription>
+              {versionHasAttributaire
+                ? "L'entreprise attributaire sera confirmée et cette phase sera figée."
+                : "La validation va figer cette phase."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {attributaireResult && (
+            <div className="space-y-3">
+              <div className="rounded-md border border-green-300 bg-green-50 p-4 text-sm leading-relaxed">
+                <p className="font-semibold mb-2 text-green-800">🏆 Attribution pressentie</p>
+                <p>{scenarioDescription}</p>
+                <p className="mt-2 text-muted-foreground">
+                  Classée au rang n°1 avec une note globale de {attributaireResult.globalScore.toFixed(1)} / {maxTotal} pts.
+                </p>
+              </div>
+              <div className="rounded-md border border-border bg-muted/30 p-4 text-sm">
+                <p className="font-semibold mb-1">Détail du scénario retenu :</p>
+                <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
+                  <li>Solution de Base (Tranche Ferme)</li>
+                  {activeLotLines.filter((l) => l.type && enabledLines[l.id]).map((l) => (
+                    <li key={l.id}>{getLineLabel(l)} — {fmt(getLinePrice(attributaireResult.company.id, l.id))}</li>
+                  ))}
+                </ul>
+                <p className="mt-2 font-semibold">Montant final HT : {fmt(attributaireResult.priceTotal)}</p>
+              </div>
+              {activeLotLines.some((l) => l.type === "VARIANTE" && enabledLines[l.id]) && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">
+                  <p className="font-semibold text-blue-800 mb-1">📋 Variante retenue</p>
+                  <p className="text-blue-700">
+                    Le scénario retenu inclut une variante proposée par le candidat. L'analyse confirme que cette variante
+                    présente un avantage technique et/ou économique par rapport à la solution de base.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {(() => {
+            const excludedCompanies = activeCompanies.filter((c) => c.status === "ecartee");
+            const nonRetenues = activeCompanies.filter((c) => c.status !== "ecartee" && getNegotiationDecision(c.id) === "non_retenue");
+            if (excludedCompanies.length === 0 && nonRetenues.length === 0) return null;
+            return (
+              <div className="rounded-md border border-orange-200 bg-orange-50 p-4 text-sm">
+                <p className="font-semibold text-orange-800 mb-2">⚠️ Motifs d'éviction / non-attribution</p>
+                {excludedCompanies.map((c) => (
+                  <p key={c.id} className="text-orange-700">
+                    <span className="font-medium">{c.name}</span> — Écartée : {c.exclusionReason || "Motif non précisé"}
+                  </p>
+                ))}
+                {nonRetenues.map((c) => (
+                  <p key={c.id} className="text-orange-700">
+                    <span className="font-medium">{c.name}</span> — Non retenue
+                  </p>
+                ))}
+              </div>
+            );
+          })()}
+
+          {nobodyRetained && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-destructive">Motif de non-attribution (obligatoire)</label>
+              <Textarea
+                className="text-sm border-destructive"
+                rows={3}
+                placeholder="Conformément à l'article L2152-4 du Code de la commande publique..."
+                value={evictionMotif}
+                onChange={(e) => setEvictionMotif(e.target.value)}
+                maxLength={3000}
+              />
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Commentaire technique (optionnel)</label>
+            <Textarea
+              className="text-sm"
+              rows={3}
+              placeholder="Commentaire libre sur la décision..."
+              value={validationComment}
+              onChange={(e) => setValidationComment(e.target.value)}
+              maxLength={3000}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setValidationDialogOpen(false)}>Annuler</Button>
+            <Button
+              onClick={() => {
+                if (version) {
+                  validateVersion(version.id);
+                  setValidationDialogOpen(false);
+                }
+              }}
+              disabled={nobodyRetained && !evictionMotif.trim()}
+            >
+              Confirmer la validation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Attributaire dialog */}
+      <Dialog open={attributaireDialogOpen} onOpenChange={setAttributaireDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Award className="h-5 w-5 text-green-600" />
+              Déclaration de l'attributaire
+            </DialogTitle>
+            <DialogDescription>Récapitulatif du scénario retenu</DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-border bg-muted/30 p-4 text-sm leading-relaxed">
+            {scenarioDescription}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAttributaireDialogOpen(false)}>Fermer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 };
