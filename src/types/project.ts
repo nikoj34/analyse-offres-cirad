@@ -142,6 +142,7 @@ export interface LotData {
   hasDualDpgf: boolean;
   estimationDpgf1: number | null;
   estimationDpgf2: number | null;
+  toleranceSeuil: number; // pourcentage ex: 20 = ±20%
   companies: Company[];
   lotLines: LotLine[];
   weightingCriteria: WeightingCriterion[];
@@ -218,6 +219,7 @@ export function createDefaultLot(label: string = "Lot 1"): LotData {
     hasDualDpgf: false,
     estimationDpgf1: null,
     estimationDpgf2: null,
+    toleranceSeuil: 20,
     companies: [{ id: 1, name: "", status: "non_defini", exclusionReason: "" }],
     lotLines: [{ id: 1, label: "", type: null, dpgfAssignment: "both", estimationDpgf1: null, estimationDpgf2: null }],
     weightingCriteria: DEFAULT_CRITERIA,
@@ -298,6 +300,7 @@ export function migrateToMultiLot(data: any): ProjectData {
     hasDualDpgf: data?.info?.hasDualDpgf ?? hasEst2,
     estimationDpgf1: data?.info?.estimationDpgf1 ?? null,
     estimationDpgf2: data?.info?.estimationDpgf2 ?? null,
+    toleranceSeuil: data?.toleranceSeuil ?? 20,
     companies: data?.companies ?? [{ id: 1, name: "", status: "non_defini", exclusionReason: "" }],
     lotLines,
     weightingCriteria: data?.weightingCriteria ?? DEFAULT_CRITERIA,

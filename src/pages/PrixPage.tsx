@@ -9,20 +9,24 @@ import { getCompanyColor, getCompanyBgColor } from "@/lib/companyColors";
 import { useWeightingValid } from "@/hooks/useWeightingValid";
 import { LotLine } from "@/types/project";
 
-function getDeviationColor(offer: number, estimation: number): string {
+function getDeviationColor(offer: number, estimation: number, seuil: number): string {
   if (estimation === 0) return "";
   const ratio = (offer - estimation) / Math.abs(estimation);
-  if (ratio <= 0.10) return "text-green-600";
-  if (ratio <= 0.20) return "text-orange-500";
+  const halfSeuil = seuil / 2 / 100;
+  if (ratio <= halfSeuil) return "text-green-600";
+  if (ratio <= seuil / 100) return "text-orange-500";
   return "text-red-600";
 }
 
-function getDeviationBg(offer: number, estimation: number): string {
+function getDeviationBg(offer: number, estimation: number, seuil: number): string {
   if (estimation === 0) return "";
   const ratio = (offer - estimation) / Math.abs(estimation);
-  if (ratio <= 0.10) return "bg-green-50";
-  if (ratio <= 0.20) return "bg-orange-50";
-  return "bg-red-50";
+  const seuilRatio = seuil / 100;
+  // Au-delà du seuil : affichage grisé
+  if (ratio > seuilRatio) return "bg-muted/60";
+  const halfSeuil = seuil / 2 / 100;
+  if (ratio <= halfSeuil) return "bg-green-50";
+  return "bg-orange-50";
 }
 
 function getAutoLabel(type: string | null, index: number): string {
@@ -61,6 +65,7 @@ const PrixPage = () => {
   const prixCriterion = weightingCriteria.find((c) => c.id === "prix");
   const prixWeight = prixCriterion?.weight ?? 40;
   const hasDualDpgf = lot.hasDualDpgf ?? false;
+  const toleranceSeuil = lot.toleranceSeuil ?? 20;
 
   const typeCounters = useMemo(() => buildTypeCounters(lotLines), [lotLines]);
 
@@ -144,7 +149,7 @@ const PrixPage = () => {
     const o = offer ?? 0;
     if (Math.abs(estimation) === 0 || o === 0) return <span className="text-muted-foreground">—</span>;
     const pct = ((o - estimation) / Math.abs(estimation)) * 100;
-    const color = getDeviationColor(o, estimation);
+    const color = getDeviationColor(o, estimation, toleranceSeuil);
     return <span className={`font-medium ${color}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(2)}%</span>;
   };
 
@@ -156,7 +161,7 @@ const PrixPage = () => {
   ) => {
     const est = estimation ?? 0;
     const val = value ?? 0;
-    const devBg = est !== 0 && val !== 0 ? getDeviationBg(val, est) : "";
+    const devBg = est !== 0 && val !== 0 ? getDeviationBg(val, est, toleranceSeuil) : "";
     return (
       <div className={`space-y-0.5 rounded px-1 ${devBg}`}>
         <Input

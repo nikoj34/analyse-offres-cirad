@@ -1,41 +1,15 @@
 import { useProjectStore } from "@/store/projectStore";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import {
-  AlertTriangle,
-  Plus,
-  Trash2,
-  MessageSquare,
-  Inbox,
-  ChevronDown,
-  ChevronRight,
-  Lock,
-  Unlock,
-} from "lucide-react";
-import { useState } from "react";
-import { cn } from "@/lib/utils";
-import { CompanyQuestionnaire } from "@/types/project";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { AlertTriangle, MessageSquare } from "lucide-react";
 
 const QuestionnairePage = () => {
-  const {
-    project,
-    addQuestion,
-    updateQuestion,
-    removeQuestion,
-    setReceptionMode,
-    setQuestionResponse,
-    setQuestionnaireDealine,
-  } = useProjectStore();
-
-  const { version, negoRound, activeCompanies } = useAnalysisContext();
-  const [openCompanies, setOpenCompanies] = useState<Record<number, boolean>>({});
-
-  const questionnaire = version?.questionnaire;
+  const { project, setQuestionnaireDealine, updateQuestion } = useProjectStore();
+  const { version, negoRound } = useAnalysisContext();
 
   if (!version || !negoRound) {
     return (
@@ -48,6 +22,8 @@ const QuestionnairePage = () => {
       </div>
     );
   }
+
+  const questionnaire = version.questionnaire;
 
   if (!questionnaire?.activated) {
     return (
@@ -65,42 +41,27 @@ const QuestionnairePage = () => {
     );
   }
 
-  const toggleCompany = (companyId: number) => {
-    setOpenCompanies((prev) => ({ ...prev, [companyId]: !prev[companyId] }));
-  };
-
+  const lot = project.lots[project.currentLotIndex];
   const getCompanyName = (companyId: number) => {
-    const company = project.lots[project.currentLotIndex].companies.find((c) => c.id === companyId);
+    const company = lot.companies.find((c) => c.id === companyId);
     return company ? `${company.id}. ${company.name}` : `Entreprise ${companyId}`;
   };
-
-  const totalQuestions = questionnaire.questionnaires.reduce((sum, q) => sum + q.questions.length, 0);
-  const answeredQuestions = questionnaire.questionnaires.reduce(
-    (sum, q) => sum + q.questions.filter((question) => question.response.trim() !== "").length,
-    0
-  );
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Questionnaire — Négociation {negoRound}</h1>
         <p className="text-sm text-muted-foreground">
-          Rédigez vos questions par entreprise, puis passez en mode réception pour saisir les réponses.
+          Rédigez les questions techniques et financières pour chaque entreprise retenue.
         </p>
       </div>
 
-      {/* Header: date limite */}
+      {/* Date limite */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <MessageSquare className="h-4 w-4" />
-            Paramètres du questionnaire
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-6">
+        <CardContent className="pt-4">
           <div className="flex items-center gap-3">
             <Label htmlFor="deadline" className="text-sm font-medium whitespace-nowrap">
-              Date limite de réponse :
+              Date limite de réponse attendue :
             </Label>
             <Input
               id="deadline"
@@ -110,159 +71,52 @@ const QuestionnairePage = () => {
               onChange={(e) => setQuestionnaireDealine(version.id, e.target.value)}
             />
           </div>
-          {totalQuestions > 0 && (
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="gap-1">
-                <MessageSquare className="h-3 w-3" />
-                {totalQuestions} question{totalQuestions > 1 ? "s" : ""}
-              </Badge>
-              {answeredQuestions > 0 && (
-                <Badge variant="secondary" className="gap-1 bg-green-100 text-green-800">
-                  <Inbox className="h-3 w-3" />
-                  {answeredQuestions} réponse{answeredQuestions > 1 ? "s" : ""} reçue{answeredQuestions > 1 ? "s" : ""}
-                </Badge>
-              )}
-            </div>
-          )}
         </CardContent>
       </Card>
 
-      {/* Company questionnaires */}
-      <div className="space-y-4">
-        {questionnaire.questionnaires.map((cq: CompanyQuestionnaire) => {
-          const isOpen = openCompanies[cq.companyId] !== false; // open by default
-          const isReception = cq.receptionMode;
-          const answeredCount = cq.questions.filter((q) => q.response.trim() !== "").length;
-
+      {/* Questions par entreprise */}
+      <div className="space-y-6">
+        {questionnaire.questionnaires.map((cq) => {
+          const companyQuestion = cq.questions[0] ?? { id: "default", text: "", response: "" };
+          // We use a single textarea per company (up to 10 000 chars)
           return (
-            <Card key={cq.companyId} className={cn("border", isReception ? "border-blue-200" : "border-border")}>
-              <CardHeader className="pb-2 cursor-pointer" onClick={() => toggleCompany(cq.companyId)}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {isOpen ? (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    )}
-                    <CardTitle className="text-base">{getCompanyName(cq.companyId)}</CardTitle>
-                    <Badge variant={isReception ? "secondary" : "outline"} className={cn("text-xs", isReception && "bg-blue-100 text-blue-800")}>
-                      {isReception ? (
-                        <><Inbox className="h-3 w-3 mr-1" />Mode réception</>
-                      ) : (
-                        <><MessageSquare className="h-3 w-3 mr-1" />Mode saisie</>
-                      )}
+            <Card key={cq.companyId}>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 text-primary" />
+                  {getCompanyName(cq.companyId)}
+                  {cq.questions[0]?.text?.trim() && (
+                    <Badge variant="secondary" className="text-xs">
+                      {cq.questions[0].text.length} / 10 000 car.
                     </Badge>
-                  </div>
-                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                    {cq.questions.length > 0 && (
-                      <span className="text-xs text-muted-foreground">
-                        {cq.questions.length} question{cq.questions.length > 1 ? "s" : ""}
-                        {isReception && answeredCount > 0 && ` — ${answeredCount} réponse${answeredCount > 1 ? "s" : ""}`}
-                      </span>
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className={cn("gap-1.5 text-xs", isReception ? "border-blue-300 text-blue-700 hover:bg-blue-50" : "")}
-                      onClick={() => setReceptionMode(version.id, cq.companyId, !isReception)}
-                    >
-                      {isReception ? (
-                        <><Unlock className="h-3 w-3" />Retour saisie</>
-                      ) : (
-                        <><Lock className="h-3 w-3" />Mode réception</>
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                {isReception && (
-                  <CardDescription className="text-xs text-blue-700 mt-1 ml-6">
-                    Les questions sont figées. Saisissez les réponses reçues de l'entreprise.
-                  </CardDescription>
-                )}
+                  )}
+                </CardTitle>
               </CardHeader>
-
-              {isOpen && (
-                <CardContent className="space-y-4 pt-0">
-                  {cq.questions.length === 0 && !isReception && (
-                    <p className="text-sm text-muted-foreground italic py-2">
-                      Aucune question. Cliquez sur "Ajouter une question" pour commencer.
-                    </p>
-                  )}
-
-                  {cq.questions.map((question, idx) => (
-                    <div
-                      key={question.id}
-                      className={cn(
-                        "rounded-lg border p-4 space-y-3",
-                        isReception ? "bg-muted/20 border-muted" : "bg-background border-border"
-                      )}
-                    >
-                      <div className="flex items-start gap-3">
-                        <span className="mt-2.5 text-xs font-bold text-muted-foreground w-5 shrink-0">{idx + 1}.</span>
-                        <div className="flex-1 space-y-1">
-                          <Label className="text-xs text-muted-foreground">Question</Label>
-                          <Textarea
-                            rows={2}
-                            placeholder={`Question ${idx + 1}...`}
-                            value={question.text}
-                            onChange={(e) => updateQuestion(version.id, cq.companyId, question.id, e.target.value)}
-                            disabled={isReception}
-                            className={cn(
-                              "text-sm resize-none",
-                              isReception && "bg-muted/40 text-muted-foreground cursor-not-allowed"
-                            )}
-                            maxLength={2000}
-                          />
-                        </div>
-                        {!isReception && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="shrink-0 mt-5 text-muted-foreground hover:text-destructive"
-                            onClick={() => removeQuestion(version.id, cq.companyId, question.id)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-
-                      {/* Réponse reçue — visible en mode réception ou si déjà remplie */}
-                      {(isReception || question.response.trim() !== "") && (
-                        <div className="ml-8 space-y-1">
-                          <Label className="text-xs font-medium text-blue-700 flex items-center gap-1">
-                            <Inbox className="h-3 w-3" />
-                            Réponse reçue
-                          </Label>
-                          <Textarea
-                            rows={2}
-                            placeholder="Saisissez la réponse de l'entreprise..."
-                            value={question.response}
-                            onChange={(e) => setQuestionResponse(version.id, cq.companyId, question.id, e.target.value)}
-                            disabled={!isReception}
-                            className={cn(
-                              "text-sm resize-none border-blue-200 focus-visible:ring-blue-400",
-                              !isReception && "bg-muted/40 text-muted-foreground cursor-not-allowed"
-                            )}
-                            maxLength={3000}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-
-                  {!isReception && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-1.5 w-full border-dashed"
-                      onClick={() => addQuestion(version.id, cq.companyId)}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      Ajouter une question
-                    </Button>
-                  )}
-                </CardContent>
-              )}
+              <CardContent>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">
+                    Questions techniques et financières (numérotez-les librement)
+                  </Label>
+                  <Textarea
+                    rows={8}
+                    maxLength={10000}
+                    placeholder={"1. Question technique...\n2. Question financière...\n3. ..."}
+                    value={cq.questions[0]?.text ?? ""}
+                    onChange={(e) => {
+                      if (cq.questions.length === 0) {
+                        // Initialiser une première question si vide
+                        updateQuestion(version.id, cq.companyId, "default", e.target.value);
+                      } else {
+                        updateQuestion(version.id, cq.companyId, cq.questions[0].id, e.target.value);
+                      }
+                    }}
+                    className="text-sm resize-y min-h-[160px]"
+                  />
+                  <p className="text-right text-xs text-muted-foreground">
+                    {(cq.questions[0]?.text?.length ?? 0).toLocaleString("fr-FR")} / 10 000
+                  </p>
+                </div>
+              </CardContent>
             </Card>
           );
         })}
@@ -270,9 +124,7 @@ const QuestionnairePage = () => {
 
       {questionnaire.questionnaires.length === 0 && (
         <div className="rounded-md border border-muted bg-muted/20 p-6 text-center">
-          <p className="text-sm text-muted-foreground">
-            Aucune entreprise retenue dans ce questionnaire.
-          </p>
+          <p className="text-sm text-muted-foreground">Aucune entreprise retenue dans ce questionnaire.</p>
         </div>
       )}
     </div>

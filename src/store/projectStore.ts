@@ -48,8 +48,8 @@ interface ProjectStore {
   switchLot: (index: number) => void;
   addLot: () => void;
   removeLot: (index: number) => void;
-  updateLotInfo: (updates: Partial<Pick<LotData, 'lotNumber' | 'lotAnalyzed' | 'hasDualDpgf' | 'estimationDpgf1' | 'estimationDpgf2' | 'label'>>) => void;
-  updateLotInfoByIndex: (index: number, updates: Partial<Pick<LotData, 'lotNumber' | 'lotAnalyzed' | 'hasDualDpgf' | 'estimationDpgf1' | 'estimationDpgf2' | 'label'>>) => void;
+  updateLotInfo: (updates: Partial<Pick<LotData, 'lotNumber' | 'lotAnalyzed' | 'hasDualDpgf' | 'estimationDpgf1' | 'estimationDpgf2' | 'label' | 'toleranceSeuil'>>) => void;
+  updateLotInfoByIndex: (index: number, updates: Partial<Pick<LotData, 'lotNumber' | 'lotAnalyzed' | 'hasDualDpgf' | 'estimationDpgf1' | 'estimationDpgf2' | 'label' | 'toleranceSeuil'>>) => void;
 
   // Company actions (operate on current lot)
   addCompany: () => void;
