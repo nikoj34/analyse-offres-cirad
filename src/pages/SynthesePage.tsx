@@ -81,15 +81,11 @@ const SynthesePage = () => {
   const [validationComment, setValidationComment] = useState("");
   const [validationDialogOpen, setValidationDialogOpen] = useState(false);
   const [evictionMotif, setEvictionMotif] = useState("");
-  // Trace les lignes PSE/Variante sur lesquelles l'utilisateur a explicitement interagi
-  const [pseVarianteInteracted, setPseVarianteInteracted] = useState<Record<number, boolean>>({});
+  // Choix OUI / NON explicite pour chaque PSE et Variante
+  const [pseVarianteChoice, setPseVarianteChoice] = useState<Record<number, "oui" | "non" | null>>({});
 
   const toggleLine = (id: number, lineType?: string | null) => {
     setEnabledLines((prev) => ({ ...prev, [id]: !prev[id] }));
-    // Marquer comme "explicitement renseignée" si c'est une PSE ou Variante
-    if (lineType === "PSE" || lineType === "VARIANTE") {
-      setPseVarianteInteracted((prev) => ({ ...prev, [id]: true }));
-    }
   };
 
   const hasPSE = pseLines.length > 0;
@@ -131,10 +127,10 @@ const SynthesePage = () => {
   const pseVarianteBlocksValidation = useMemo(() => {
     if (!hasAnyAttributaire) return false;
     if (pseLines.length === 0 && varianteLines.length === 0) return false;
-    // Bloque si au moins une ligne PSE ou Variante n'a jamais été explicitement bascule par l'utilisateur
+    // Bloque si au moins une ligne PSE ou Variante n'a pas de choix OUI/NON explicite
     const allPseVarianteLines = [...pseLines, ...varianteLines];
-    return allPseVarianteLines.some((l) => !pseVarianteInteracted[l.id]);
-  }, [hasAnyAttributaire, pseLines, varianteLines, pseVarianteInteracted]);
+    return allPseVarianteLines.some((l) => !pseVarianteChoice[l.id]);
+  }, [hasAnyAttributaire, pseLines, varianteLines, pseVarianteChoice]);
 
   // Helper: get price for a company on a specific lot line
   const getLinePrice = (companyId: number, lineId: number) => {
@@ -649,6 +645,127 @@ const SynthesePage = () => {
       )}
 
       {/* ═══════════════════════════════════════════════════ */}
+      {/* DÉCISION PSE / VARIANTES — OUI / NON               */}
+      {/* Affiché si PSE ou Variantes existent               */}
+      {/* ═══════════════════════════════════════════════════ */}
+      {(hasPSE || hasVariante) && (
+        <Card className="border-amber-200 dark:border-amber-800">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2 text-amber-800 dark:text-amber-300">
+              <CheckCircle className="h-4 w-4" />
+              Décision PSE / Variantes — Retenues au marché ?
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Indiquez pour chaque PSE et Variante si elle est retenue (OUI) ou non retenue (NON) dans le marché final.
+              Ce choix est obligatoire avant la validation lorsqu'un attributaire est désigné.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-4">
+              {hasPSE && (
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">PSE</span>
+                  <div className="flex flex-col gap-2">
+                    {pseLines.map((l) => {
+                      const choice = pseVarianteChoice[l.id] ?? null;
+                      return (
+                        <div key={l.id} className="flex items-center gap-3">
+                          <span className="text-sm min-w-[220px]">{getLineLabel(l)}</span>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: "oui" }))}
+                              disabled={isReadOnly || isValidated}
+                              className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
+                                choice === "oui"
+                                  ? "border-green-500 bg-green-500 text-white"
+                                  : "border-border bg-background text-muted-foreground hover:bg-muted"
+                              } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                            >
+                              OUI
+                            </button>
+                            <button
+                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: "non" }))}
+                              disabled={isReadOnly || isValidated}
+                              className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
+                                choice === "non"
+                                  ? "border-destructive bg-destructive text-destructive-foreground"
+                                  : "border-border bg-background text-muted-foreground hover:bg-muted"
+                              } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                            >
+                              NON
+                            </button>
+                          </div>
+                          {choice === null && hasAnyAttributaire && (
+                            <span className="text-xs text-orange-600 flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" /> À renseigner
+                            </span>
+                          )}
+                          {choice !== null && (
+                            <span className={`text-xs font-medium ${choice === "oui" ? "text-green-700" : "text-destructive"}`}>
+                              {choice === "oui" ? "✓ Retenue" : "✗ Non retenue"}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {hasVariante && (
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Variantes</span>
+                  <div className="flex flex-col gap-2">
+                    {varianteLines.map((l) => {
+                      const choice = pseVarianteChoice[l.id] ?? null;
+                      return (
+                        <div key={l.id} className="flex items-center gap-3">
+                          <span className="text-sm min-w-[220px]">{getLineLabel(l)}</span>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: "oui" }))}
+                              disabled={isReadOnly || isValidated}
+                              className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
+                                choice === "oui"
+                                  ? "border-green-500 bg-green-500 text-white"
+                                  : "border-border bg-background text-muted-foreground hover:bg-muted"
+                              } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                            >
+                              OUI
+                            </button>
+                            <button
+                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: "non" }))}
+                              disabled={isReadOnly || isValidated}
+                              className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
+                                choice === "non"
+                                  ? "border-destructive bg-destructive text-destructive-foreground"
+                                  : "border-border bg-background text-muted-foreground hover:bg-muted"
+                              } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                            >
+                              NON
+                            </button>
+                          </div>
+                          {choice === null && hasAnyAttributaire && (
+                            <span className="text-xs text-orange-600 flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" /> À renseigner
+                            </span>
+                          )}
+                          {choice !== null && (
+                            <span className={`text-xs font-medium ${choice === "oui" ? "text-green-700" : "text-destructive"}`}>
+                              {choice === "oui" ? "✓ Retenue" : "✗ Non retenue"}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══════════════════════════════════════════════════ */}
       {/* SECTION VALIDATION DE LA PHASE               */}
       {/* ═══════════════════════════════════════════════════ */}
       <Card>
@@ -687,8 +804,7 @@ const SynthesePage = () => {
                 <span className="text-sm font-semibold text-orange-800">Choix PSE / Variantes obligatoire</span>
               </div>
               <p className="text-xs text-orange-700">
-                Un attributaire est désigné. Vous devez indiquer explicitement OUI (inclus) ou NON (exclu) pour chaque PSE et chaque Variante avant de pouvoir valider la phase.
-                Utilisez les boutons de bascule ci-dessus dans le Classement Général.
+                Un attributaire est désigné. Veuillez renseigner OUI ou NON pour chaque PSE et Variante dans le pavé « Décision PSE / Variantes » ci-dessus avant de valider.
               </p>
             </div>
           )}
