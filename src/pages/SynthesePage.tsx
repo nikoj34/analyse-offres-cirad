@@ -258,58 +258,59 @@ const SynthesePage = () => {
     });
   }, [results]);
 
-  // Comparison rows for scenario section — PSE et Variantes uniquement (pas les TO)
-  const comparisonRows = useMemo(() => {
-    if (!version) return [];
-    const rows: {
-      key: string; companyId: number; companyName: string; optionLabel: string;
-      techScore: number; techniqueScore: number; envScore: number; planningScore: number;
-      priceTotal: number; priceScore: number; globalScore: number; hasMissing: boolean;
-    }[] = [];
+  // Active options from compareLines toggles (PSE + Variantes only, no TO)
+  const activeCompareLines = useMemo(() => {
+    return [...pseLines, ...varianteLines].filter((l) => !!compareLines[l.id]);
+  }, [pseLines, varianteLines, compareLines]);
 
-    // TO exclues des scénarios de comparaison
-    const optionLines = [...pseLines, ...varianteLines].filter((l) => !!compareLines[l.id]);
-    if (optionLines.length === 0) return [];
+  // Results augmentés avec les options actives des toggles de comparaison
+  const scenarioResults = useMemo(() => {
+    if (!version || activeCompareLines.length === 0) return results;
 
+    // Recalculate price totals with active compare lines added
     const eligibleCompanies = activeCompanies.filter((c) => c.status !== "ecartee");
+    const augmentedTotals: Record<number, number> = {};
+    const augmentedMissing: Record<number, string[]> = {};
 
-    for (const line of optionLines) {
-      const totals: Record<number, number> = {};
-      for (const company of eligibleCompanies) {
-        const baseTotal = getCompanyScenarioTotal(company.id);
-        const optionPrice = getLinePrice(company.id, line.id);
-        totals[company.id] = baseTotal + optionPrice;
+    for (const company of eligibleCompanies) {
+      const baseTotal = getCompanyScenarioTotal(company.id);
+      let extra = 0;
+      const missing: string[] = [];
+      for (const line of activeCompareLines) {
+        extra += getLinePrice(company.id, line.id);
+        if (!hasPrice(company.id, line.id)) missing.push(getLineLabel(line));
       }
-
-      const validPrices = Object.values(totals).filter((v) => v > 0);
-      const minP = validPrices.length > 0 ? Math.min(...validPrices) : 0;
-
-      // Ordre fixe : on parcourt activeCompanies (ordre initial), pas eligibleCompanies trié
-      for (const company of activeCompanies) {
-        if (company.status === "ecartee") continue;
-        const result = results.find((r) => r.company.id === company.id);
-        if (!result) continue;
-        const pt = totals[company.id] ?? 0;
-        const ps = pt > 0 ? (minP / pt) * prixWeight : 0;
-        const gs = result.techScore + ps;
-        const missing = !hasPrice(company.id, line.id);
-        rows.push({
-          key: `cmp-${line.id}-${company.id}`,
-          companyId: company.id,
-          companyName: `${company.id}. ${company.name}`,
-          optionLabel: getLineLabel(line),
-          techScore: result.techScore,
-          techniqueScore: result.techniqueScore,
-          envScore: result.envScore,
-          planningScore: result.planningScore,
-          priceTotal: pt, priceScore: ps, globalScore: gs, hasMissing: missing,
-        });
-      }
+      augmentedTotals[company.id] = baseTotal + extra;
+      augmentedMissing[company.id] = missing;
     }
-    // Pas de tri par score — ordre initial conservé
-    return rows;
+
+    const validPrices = Object.values(augmentedTotals).filter((v) => v > 0);
+    const minP = validPrices.length > 0 ? Math.min(...validPrices) : 0;
+
+    return results.map((row) => {
+      if (row.company.status === "ecartee") return row;
+      const pt = augmentedTotals[row.company.id] ?? row.priceTotal;
+      const ps = pt > 0 ? (minP / pt) * prixWeight : 0;
+      const gs = row.techScore + ps;
+      return {
+        ...row,
+        priceTotal: pt,
+        priceScore: ps,
+        globalScore: gs,
+        missingPrices: augmentedMissing[row.company.id] ?? row.missingPrices,
+      };
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [version, compareLines, pseLines, varianteLines, activeCompanies, results, prixWeight]);
+  }, [results, activeCompareLines, version, prixWeight]);
+
+  // Rang recalculé depuis scenarioResults (sans déplacer les lignes)
+  const scenarioSorted = useMemo(() => {
+    return [...scenarioResults].sort((a, b) => {
+      if (a.company.status === "ecartee" && b.company.status !== "ecartee") return 1;
+      if (a.company.status !== "ecartee" && b.company.status === "ecartee") return -1;
+      return b.globalScore - a.globalScore;
+    });
+  }, [scenarioResults]);
 
   const valueTechWeight = valueTechnique.reduce((s, c) => s + c.weight, 0);
   const envWeight = envCriterion?.weight ?? 0;
@@ -436,10 +437,12 @@ const SynthesePage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {results.map((row) => {
+              {scenarioResults.map((row) => {
                 const isExcluded = row.company.status === "ecartee";
-                // Calcul du rang : position dans le classement trié, indépendamment de l'ordre d'affichage
-                const rankInSorted = isExcluded ? null : sorted.filter((r) => r.company.status !== "ecartee").findIndex((r) => r.company.id === row.company.id) + 1;
+                // Rang recalculé depuis scenarioSorted (réactif aux toggles)
+                const rankInSorted = isExcluded
+                  ? null
+                  : scenarioSorted.filter((r) => r.company.status !== "ecartee").findIndex((r) => r.company.id === row.company.id) + 1;
                 const decision = getNegotiationDecision(row.company.id);
                 const availableDecisions = getAvailableDecisions(row.company.id);
                 return (
@@ -448,6 +451,11 @@ const SynthesePage = () => {
                     <TableCell className="font-medium">
                       <div className="flex flex-col gap-0.5">
                         <span>{row.company.id}. {row.company.name}</span>
+                        {activeCompareLines.length > 0 && !isExcluded && (
+                          <span className="text-xs text-muted-foreground italic">
+                            Base{activeCompareLines.map((l) => ` + ${getLineLabel(l)}`).join("")}
+                          </span>
+                        )}
                         {row.missingPrices.length > 0 && (
                           <span className="text-xs text-orange-600 flex items-center gap-1">
                             <AlertTriangle className="h-3 w-3" />
@@ -503,45 +511,6 @@ const SynthesePage = () => {
                   </TableRow>
                 );
               })}
-
-              {/* Lignes de comparaison individuelles */}
-              {comparisonRows.length > 0 && (
-                <>
-                  <TableRow className="bg-muted/20">
-                    <TableCell
-                      colSpan={7 + (envWeight > 0 ? 1 : 0) + (planWeight > 0 ? 1 : 0)}
-                      className="text-xs font-semibold text-muted-foreground uppercase tracking-wider py-2"
-                    >
-                      Lignes de comparaison (Base + Option individuelle)
-                    </TableCell>
-                  </TableRow>
-                  {comparisonRows.map((row) => (
-                    <TableRow key={row.key} className="bg-muted/10 italic text-muted-foreground">
-                      <TableCell className="font-semibold">—</TableCell>
-                      <TableCell className="font-medium">
-                        <div className="flex flex-col gap-0.5">
-                          <span>{row.companyName} — {row.optionLabel}</span>
-                          {row.hasMissing && (
-                            <span className="text-xs text-orange-600 flex items-center gap-1">
-                              <AlertTriangle className="h-3 w-3" />
-                              Prix manquant
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">{row.techniqueScore.toFixed(1)}</TableCell>
-                      {envWeight > 0 && <TableCell className="text-right">{row.envScore.toFixed(1)}</TableCell>}
-                      {planWeight > 0 && <TableCell className="text-right">{row.planningScore.toFixed(1)}</TableCell>}
-                      <TableCell className="text-right">{row.priceScore.toFixed(1)}</TableCell>
-                      <TableCell className="text-right">{fmt(row.priceTotal)}</TableCell>
-                      <TableCell className="text-right font-bold">{row.globalScore.toFixed(1)}</TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant="outline" className="text-xs">Comparaison</Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </>
-              )}
             </TableBody>
           </Table>
         </CardContent>
