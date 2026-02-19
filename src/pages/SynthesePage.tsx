@@ -594,7 +594,7 @@ const SynthesePage = () => {
                           <span className="text-sm min-w-[220px]">{getLineLabel(l)}</span>
                           <div className="flex gap-2">
                             <button
-                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: "oui" }))}
+                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: prev[l.id] === "oui" ? null : "oui" }))}
                               disabled={isReadOnly || isValidated}
                               className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
                                 choice === "oui"
@@ -605,7 +605,7 @@ const SynthesePage = () => {
                               OUI
                             </button>
                             <button
-                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: "non" }))}
+                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: prev[l.id] === "non" ? null : "non" }))}
                               disabled={isReadOnly || isValidated}
                               className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
                                 choice === "non"
@@ -643,7 +643,7 @@ const SynthesePage = () => {
                           <span className="text-sm min-w-[220px]">{getLineLabel(l)}</span>
                           <div className="flex gap-2">
                             <button
-                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: "oui" }))}
+                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: prev[l.id] === "oui" ? null : "oui" }))}
                               disabled={isReadOnly || isValidated}
                               className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
                                 choice === "oui"
@@ -654,7 +654,7 @@ const SynthesePage = () => {
                               OUI
                             </button>
                             <button
-                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: "non" }))}
+                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: prev[l.id] === "non" ? null : "non" }))}
                               disabled={isReadOnly || isValidated}
                               className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
                                 choice === "non"
