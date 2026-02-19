@@ -81,9 +81,15 @@ const SynthesePage = () => {
   const [validationComment, setValidationComment] = useState("");
   const [validationDialogOpen, setValidationDialogOpen] = useState(false);
   const [evictionMotif, setEvictionMotif] = useState("");
+  // Trace les lignes PSE/Variante sur lesquelles l'utilisateur a explicitement interagi
+  const [pseVarianteInteracted, setPseVarianteInteracted] = useState<Record<number, boolean>>({});
 
-  const toggleLine = (id: number) => {
+  const toggleLine = (id: number, lineType?: string | null) => {
     setEnabledLines((prev) => ({ ...prev, [id]: !prev[id] }));
+    // Marquer comme "explicitement renseignée" si c'est une PSE ou Variante
+    if (lineType === "PSE" || lineType === "VARIANTE") {
+      setPseVarianteInteracted((prev) => ({ ...prev, [id]: true }));
+    }
   };
 
   const hasPSE = pseLines.length > 0;
@@ -119,6 +125,16 @@ const SynthesePage = () => {
     if (eligibleCompanies.length === 0) return false;
     return allDecided && !hasAnyAttributaire && !hasAnyRetenue;
   }, [activeCompanies, allDecided, hasAnyAttributaire, hasAnyRetenue]);
+
+  // Bloque la validation attributaire si PSE ou Variantes non renseignées (OUI/NON)
+  // Cas négociation : pas de blocage — seule la phase finale avec attributaire bloque.
+  const pseVarianteBlocksValidation = useMemo(() => {
+    if (!hasAnyAttributaire) return false;
+    if (pseLines.length === 0 && varianteLines.length === 0) return false;
+    // Bloque si au moins une ligne PSE ou Variante n'a jamais été explicitement bascule par l'utilisateur
+    const allPseVarianteLines = [...pseLines, ...varianteLines];
+    return allPseVarianteLines.some((l) => !pseVarianteInteracted[l.id]);
+  }, [hasAnyAttributaire, pseLines, varianteLines, pseVarianteInteracted]);
 
   // Helper: get price for a company on a specific lot line
   const getLinePrice = (companyId: number, lineId: number) => {
@@ -246,16 +262,17 @@ const SynthesePage = () => {
     });
   }, [results]);
 
-  // Comparison rows for scenario section
+  // Comparison rows for scenario section — PSE et Variantes uniquement (pas les TO)
   const comparisonRows = useMemo(() => {
     if (!version) return [];
     const rows: {
-      key: string; companyName: string; optionLabel: string;
+      key: string; companyId: number; companyName: string; optionLabel: string;
       techScore: number; techniqueScore: number; envScore: number; planningScore: number;
       priceTotal: number; priceScore: number; globalScore: number; hasMissing: boolean;
     }[] = [];
 
-    const optionLines = [...pseLines, ...varianteLines, ...toLines].filter((l) => !!compareLines[l.id]);
+    // TO exclues des scénarios de comparaison
+    const optionLines = [...pseLines, ...varianteLines].filter((l) => !!compareLines[l.id]);
     if (optionLines.length === 0) return [];
 
     const eligibleCompanies = activeCompanies.filter((c) => c.status !== "ecartee");
@@ -271,7 +288,9 @@ const SynthesePage = () => {
       const validPrices = Object.values(totals).filter((v) => v > 0);
       const minP = validPrices.length > 0 ? Math.min(...validPrices) : 0;
 
-      for (const company of eligibleCompanies) {
+      // Ordre fixe : on parcourt activeCompanies (ordre initial), pas eligibleCompanies trié
+      for (const company of activeCompanies) {
+        if (company.status === "ecartee") continue;
         const result = results.find((r) => r.company.id === company.id);
         if (!result) continue;
         const pt = totals[company.id] ?? 0;
@@ -280,6 +299,7 @@ const SynthesePage = () => {
         const missing = !hasPrice(company.id, line.id);
         rows.push({
           key: `cmp-${line.id}-${company.id}`,
+          companyId: company.id,
           companyName: `${company.id}. ${company.name}`,
           optionLabel: getLineLabel(line),
           techScore: result.techScore,
@@ -290,10 +310,10 @@ const SynthesePage = () => {
         });
       }
     }
-    rows.sort((a, b) => b.globalScore - a.globalScore);
+    // Pas de tri par score — ordre initial conservé
     return rows;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [version, compareLines, pseLines, varianteLines, toLines, activeCompanies, results, prixWeight]);
+  }, [version, compareLines, pseLines, varianteLines, activeCompanies, results, prixWeight]);
 
   const valueTechWeight = valueTechnique.reduce((s, c) => s + c.weight, 0);
   const envWeight = envCriterion?.weight ?? 0;
@@ -399,7 +419,7 @@ const SynthesePage = () => {
       {/* ═══════════════════════════════════════════════════ */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">6.1 — Classement Général</CardTitle>
+          <CardTitle className="text-base">Classement Général</CardTitle>
           <CardDescription>
             Règle de calcul : TF + Σ(Tranches Conditionnelles). Les entreprises écartées sont affichées mais non classées.
           </CardDescription>
@@ -415,7 +435,7 @@ const SynthesePage = () => {
                   {pseLines.map((l) => (
                     <button
                       key={l.id}
-                      onClick={() => !isReadOnly && !isValidated && toggleLine(l.id)}
+                      onClick={() => !isReadOnly && !isValidated && toggleLine(l.id, l.type)}
                       className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                         enabledLines[l.id]
                           ? "border-blue-500 bg-blue-100 text-blue-800"
@@ -435,7 +455,7 @@ const SynthesePage = () => {
                   {varianteLines.map((l) => (
                     <button
                       key={l.id}
-                      onClick={() => !isReadOnly && !isValidated && toggleLine(l.id)}
+                      onClick={() => !isReadOnly && !isValidated && toggleLine(l.id, l.type)}
                       className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                         enabledLines[l.id]
                           ? "border-violet-500 bg-violet-100 text-violet-800"
@@ -458,7 +478,7 @@ const SynthesePage = () => {
                   {toLines.map((l) => (
                     <button
                       key={l.id}
-                      onClick={() => !isReadOnly && !isValidated && toggleLine(l.id)}
+                      onClick={() => !isReadOnly && !isValidated && toggleLine(l.id, null)}
                       className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                         enabledLines[l.id]
                           ? "border-green-500 bg-green-100 text-green-800"
@@ -603,15 +623,15 @@ const SynthesePage = () => {
       {/* ═══════════════════════════════════════════════════ */}
       {/* SECTION 6.2 — SCÉNARIOS DE COMPARAISON             */}
       {/* ═══════════════════════════════════════════════════ */}
-      {hasScenarioOptions && (
+      {(hasPSE || hasVariante) && (
         <Card className="border-blue-200 dark:border-blue-900">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2 text-blue-800 dark:text-blue-300">
               <Settings2 className="h-4 w-4" />
-              6.2 — Comparaison de Scénarios
+              Comparaison de Scénarios
             </CardTitle>
             <CardDescription className="text-xs">
-              Simulez l'impact de chaque option sur le classement. Ces lignes apparaissent dans le tableau à titre indicatif.
+              Simulez l'impact des PSE et Variantes sur le classement. Les Tranches Optionnelles sont intégrées à l'analyse de base uniquement.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -644,33 +664,19 @@ const SynthesePage = () => {
                   ))}
                 </div>
               )}
-              {hasTO && (
-                <div className="space-y-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tranches Optionnelles</span>
-                  {toLines.map((l) => (
-                    <div key={l.id} className="flex items-center gap-2">
-                      <Switch
-                        checked={!!compareLines[l.id]}
-                        onCheckedChange={(v) => setCompareLines((prev) => ({ ...prev, [l.id]: v }))}
-                      />
-                      <span className="text-sm">{getLineLabel(l)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </CardContent>
         </Card>
       )}
 
       {/* ═══════════════════════════════════════════════════ */}
-      {/* SECTION 6.3 — VALIDATION DE LA PHASE               */}
+      {/* SECTION VALIDATION DE LA PHASE               */}
       {/* ═══════════════════════════════════════════════════ */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-green-600" />
-            6.3 — Validation de la phase
+            Validation de la phase
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -694,12 +700,28 @@ const SynthesePage = () => {
             </div>
           )}
 
+          {/* Alerte blocage PSE/Variantes non renseignées pour attributaire */}
+          {pseVarianteBlocksValidation && !isValidated && !isReadOnly && (
+            <div className="rounded-md border border-orange-300 bg-orange-50 p-4 mb-2">
+              <div className="flex items-center gap-2 mb-1">
+                <AlertTriangle className="h-4 w-4 text-orange-600 shrink-0" />
+                <span className="text-sm font-semibold text-orange-800">Choix PSE / Variantes obligatoire</span>
+              </div>
+              <p className="text-xs text-orange-700">
+                Un attributaire est désigné. Vous devez indiquer explicitement OUI (inclus) ou NON (exclu) pour chaque PSE et chaque Variante avant de pouvoir valider la phase.
+                Utilisez les boutons de bascule ci-dessus dans le Classement Général.
+              </p>
+            </div>
+          )}
+
           {/* Boutons d'action */}
           <div className="flex items-center gap-3 flex-wrap">
             {version && allDecided && !isValidated && !isReadOnly && (
               <Button
                 className="gap-2 bg-green-600 hover:bg-green-700"
                 onClick={() => setValidationDialogOpen(true)}
+                disabled={pseVarianteBlocksValidation}
+                title={pseVarianteBlocksValidation ? "Renseignez OUI/NON pour chaque PSE et Variante d'abord" : undefined}
               >
                 <CheckCircle className="h-4 w-4" />
                 {versionHasAttributaire ? "Valider et clôturer la phase — Attribuer" : "Valider la Synthèse et clôturer la phase"}
@@ -804,7 +826,7 @@ const SynthesePage = () => {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm flex items-center gap-2 text-muted-foreground">
                 <GitBranch className="h-4 w-4" />
-                6.4 — Gestion des cycles de négociation
+                Gestion des cycles de négociation
               </CardTitle>
               <CardDescription className="text-xs">
                 Créez une phase de négociation après validation de l'analyse. Les données précédentes seront figées en lecture seule.
