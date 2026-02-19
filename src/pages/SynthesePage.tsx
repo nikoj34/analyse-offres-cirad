@@ -469,26 +469,6 @@ const SynthesePage = () => {
                 </p>
               </div>
             )}
-            {hasTO && (
-              <div className="space-y-1.5">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tranches Optionnelles</span>
-                <div className="flex flex-wrap gap-2">
-                  {toLines.map((l) => (
-                    <button
-                      key={l.id}
-                      onClick={() => !isReadOnly && !isValidated && toggleLine(l.id, null)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                        enabledLines[l.id]
-                          ? "border-green-500 bg-green-100 text-green-800"
-                          : "border-border bg-background text-muted-foreground hover:bg-muted"
-                      } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
-                    >
-                      {enabledLines[l.id] ? "✓ " : ""}{getLineLabel(l)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
