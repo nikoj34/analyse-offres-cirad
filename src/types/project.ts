@@ -69,6 +69,7 @@ export interface TechnicalNote {
   comment: string;
   commentPositif: string;
   commentNegatif: string;
+  questionResponse?: string;
 }
 
 export interface PriceEntry {

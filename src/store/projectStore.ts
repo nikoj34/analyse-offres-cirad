@@ -67,6 +67,7 @@ interface ProjectStore {
 
   setTechnicalNote: (companyId: number, criterionId: string, subCriterionId: string | undefined, notation: NotationLevel | null, comment: string, commentPositif?: string, commentNegatif?: string) => void;
   getTechnicalNote: (companyId: number, criterionId: string, subCriterionId?: string) => TechnicalNote | undefined;
+  setTechnicalNoteResponse: (companyId: number, criterionId: string, subCriterionId: string | undefined, response: string) => void;
 
   setPriceEntry: (companyId: number, lotLineId: number, dpgf1: number | null, dpgf2: number | null) => void;
   getPriceEntry: (companyId: number, lotLineId: number) => PriceEntry | undefined;
@@ -317,6 +318,28 @@ export const useProjectStore = create<ProjectStore>()(
             (n.subCriterionId ?? undefined) === subCriterionId
         );
       },
+
+      setTechnicalNoteResponse: (companyId, criterionId, subCriterionId, response) =>
+        set((state) => {
+          const lot = getLot(state);
+          const version = lot.versions.find((v) => v.id === lot.currentVersionId);
+          if (!version) return state;
+          const notes = [...version.technicalNotes];
+          const idx = notes.findIndex(
+            (n) => n.companyId === companyId && n.criterionId === criterionId &&
+              (n.subCriterionId ?? undefined) === subCriterionId
+          );
+          if (idx >= 0) {
+            notes[idx] = { ...notes[idx], questionResponse: response };
+          } else {
+            notes.push({ companyId, criterionId, subCriterionId, notation: null, comment: "", commentPositif: "", commentNegatif: "", questionResponse: response });
+          }
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === lot.currentVersionId ? { ...v, technicalNotes: notes } : v
+            ),
+          });
+        }),
 
       // === Price entries ===
       setPriceEntry: (companyId, lotLineId, dpgf1, dpgf2) =>
