@@ -3,6 +3,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/store/projectStore";
 import { useMultiProjectStore } from "@/store/multiProjectStore";
+import { getSyntheseLabel } from "@/types/project";
 import {
   FileText,
   Wrench,
@@ -189,7 +190,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           )}
                         >
                           <BarChart3 className="h-3.5 w-3.5 shrink-0" />
-                          Synthèse
+                          {getSyntheseLabel(l, 0)}
                         </button>
 
                         {/* Questions — visible si au moins une entreprise retenue pour négociation */}
@@ -268,7 +269,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                         )}
                                       >
                                         <BarChart3 className="h-3 w-3 shrink-0" />
-                                        Synthèse
+                                        {getSyntheseLabel(l, round)}
                                       </button>
                                     </div>
                                   );
