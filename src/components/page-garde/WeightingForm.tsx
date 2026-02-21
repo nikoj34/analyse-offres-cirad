@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useProjectStore } from "@/store/projectStore";
-import { Plus, Trash2, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, List } from "lucide-react";
 
 function isValidWeight(value: number): boolean {
   return value >= 0.5 && value <= 99.5 && (value * 2) % 1 === 0;
@@ -17,6 +17,9 @@ export function WeightingForm() {
     addSubCriterion,
     removeSubCriterion,
     updateSubCriterion,
+    addItem,
+    removeItem,
+    updateItemLabel,
   } = useProjectStore();
   const lot = project.lots[project.currentLotIndex];
   const { weightingCriteria } = lot;
@@ -79,34 +82,72 @@ export function WeightingForm() {
 
                 {/* Sub-criteria */}
                 {criterion.subCriteria.length > 0 && (
-                  <div className="ml-6 space-y-2">
+                  <div className="ml-6 space-y-3">
                     {criterion.subCriteria.map((sub) => (
-                      <div key={sub.id} className="flex items-center gap-2">
-                        <Input
-                          className="flex-1"
-                          value={sub.label}
-                          onChange={(e) =>
-                            updateSubCriterion(criterion.id, sub.id, { label: e.target.value })
-                          }
-                          placeholder="Sous-critère"
-                        />
-                        <Input
-                          type="number"
-                          className="w-20 text-center"
-                          value={sub.weight}
-                          onChange={(e) =>
-                            updateSubCriterion(criterion.id, sub.id, {
-                              weight: parseInt(e.target.value) || 0,
-                            })
-                          }
-                        />
-                        <span className="text-sm text-muted-foreground">%</span>
+                      <div key={sub.id} className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Input
+                            className="flex-1"
+                            value={sub.label}
+                            onChange={(e) =>
+                              updateSubCriterion(criterion.id, sub.id, { label: e.target.value })
+                            }
+                            placeholder="Sous-critère"
+                          />
+                          <Input
+                            type="number"
+                            className="w-20 text-center"
+                            value={sub.weight}
+                            onChange={(e) =>
+                              updateSubCriterion(criterion.id, sub.id, {
+                                weight: parseInt(e.target.value) || 0,
+                              })
+                            }
+                          />
+                          <span className="text-sm text-muted-foreground">%</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeSubCriterion(criterion.id, sub.id)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+
+                        {/* Items under sub-criterion */}
+                        {(sub.items || []).length > 0 && (
+                          <div className="ml-6 space-y-1.5">
+                            {(sub.items || []).map((item) => (
+                              <div key={item.id} className="flex items-center gap-2">
+                                <List className="h-3 w-3 text-muted-foreground shrink-0" />
+                                <Input
+                                  className="flex-1 h-8 text-sm"
+                                  value={item.label}
+                                  onChange={(e) =>
+                                    updateItemLabel(criterion.id, sub.id, item.id, e.target.value)
+                                  }
+                                  placeholder="Item…"
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  onClick={() => removeItem(criterion.id, sub.id, item.id)}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         <Button
                           variant="ghost"
-                          size="icon"
-                          onClick={() => removeSubCriterion(criterion.id, sub.id)}
+                          size="sm"
+                          className="ml-6 text-xs"
+                          onClick={() => addItem(criterion.id, sub.id)}
                         >
-                          <Trash2 className="h-3 w-3" />
+                          <Plus className="mr-1 h-3 w-3" />
+                          Item
                         </Button>
                       </div>
                     ))}
