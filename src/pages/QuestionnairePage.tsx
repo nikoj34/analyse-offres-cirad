@@ -5,13 +5,18 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, MessageSquare, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, MessageSquare, Plus, Trash2, Download, Upload } from "lucide-react";
+import { useRef } from "react";
+import { useToast } from "@/hooks/use-toast";
+import ExcelJS from "exceljs";
+import { saveAs } from "file-saver";
 
 const QuestionnairePage = () => {
-  const { project, activateQuestionnaire, setQuestionnaireDealine, addQuestion, updateQuestion, removeQuestion } = useProjectStore();
+  const { project, activateQuestionnaire, setQuestionnaireDealine, addQuestion, updateQuestion, removeQuestion, setQuestionResponse } = useProjectStore();
   const lot = project.lots[project.currentLotIndex];
+  const { toast } = useToast();
+  const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
-  // Find the first version (V0) that has retained companies
   const v0 = lot.versions[0];
   const retainedIds = v0
     ? Object.entries(v0.negotiationDecisions ?? {})
@@ -33,7 +38,6 @@ const QuestionnairePage = () => {
     );
   }
 
-  // Auto-activate questionnaire if not done
   if (!v0.questionnaire?.activated) {
     activateQuestionnaire(v0.id, retainedIds);
   }
@@ -43,7 +47,88 @@ const QuestionnairePage = () => {
 
   const getCompanyName = (companyId: number) => {
     const company = lot.companies.find((c) => c.id === companyId);
-    return company ? `${company.id}. ${company.name}` : `Entreprise ${companyId}`;
+    return company ? company.name || `Entreprise ${companyId}` : `Entreprise ${companyId}`;
+  };
+
+  const handleExport = async (companyId: number) => {
+    const cq = questionnaire.questionnaires.find(q => q.companyId === companyId);
+    if (!cq || cq.questions.length === 0) {
+      toast({ title: "Aucune question", description: "Ajoutez des questions avant d'exporter.", variant: "destructive" });
+      return;
+    }
+    const companyName = getCompanyName(companyId);
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Questions");
+    ws.getColumn(1).width = 8;
+    ws.getColumn(2).width = 60;
+    ws.getColumn(3).width = 60;
+
+    const border: Partial<ExcelJS.Borders> = {
+      top: { style: "thin" },
+      bottom: { style: "thin" },
+      left: { style: "thin" },
+      right: { style: "thin" },
+    };
+
+    ["N°", "Question", "Réponse"].forEach((h, i) => {
+      const cell = ws.getCell(1, i + 1);
+      cell.value = h;
+      cell.font = { bold: true, size: 11 };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "D6E4F0" } };
+      cell.border = border;
+      cell.alignment = { horizontal: "center" };
+    });
+
+    cq.questions.forEach((q, i) => {
+      const row = i + 2;
+      ws.getCell(row, 1).value = i + 1;
+      ws.getCell(row, 1).border = border;
+      ws.getCell(row, 1).alignment = { horizontal: "center", vertical: "top" };
+      ws.getCell(row, 2).value = q.text;
+      ws.getCell(row, 2).border = border;
+      ws.getCell(row, 2).alignment = { wrapText: true, vertical: "top" };
+      ws.getCell(row, 3).value = "";
+      ws.getCell(row, 3).border = border;
+      ws.getCell(row, 3).alignment = { wrapText: true, vertical: "top" };
+      ws.getRow(row).height = 60;
+    });
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const safeName = companyName.replace(/[^a-zA-Z0-9À-ÿ_\- ]/g, "_");
+    saveAs(new Blob([buffer]), `Questions_${safeName}.xlsx`);
+    toast({ title: "Export réussi", description: `Questions exportées pour ${companyName}.` });
+  };
+
+  const handleImport = async (companyId: number, file: File) => {
+    try {
+      const cq = questionnaire.questionnaires.find(q => q.companyId === companyId);
+      if (!cq) return;
+
+      const wb = new ExcelJS.Workbook();
+      const buffer = await file.arrayBuffer();
+      await wb.xlsx.load(buffer);
+      const ws = wb.getWorksheet(1);
+      if (!ws) {
+        toast({ title: "Erreur", description: "Impossible de lire le fichier Excel.", variant: "destructive" });
+        return;
+      }
+
+      let imported = 0;
+      ws.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return;
+        const response = (row.getCell(3).text || "").trim();
+        const qIndex = rowNumber - 2;
+        if (qIndex < cq.questions.length && response) {
+          setQuestionResponse(v0.id, companyId, cq.questions[qIndex].id, response);
+          imported++;
+        }
+      });
+
+      toast({ title: "Import réussi", description: `${imported} réponse${imported !== 1 ? "s" : ""} importée${imported !== 1 ? "s" : ""}.` });
+    } catch (err) {
+      console.error(err);
+      toast({ title: "Erreur d'import", description: "Le fichier n'a pas pu être lu.", variant: "destructive" });
+    }
   };
 
   return (
@@ -51,11 +136,10 @@ const QuestionnairePage = () => {
       <div>
         <h1 className="text-2xl font-bold text-foreground">Questions de négociation</h1>
         <p className="text-sm text-muted-foreground">
-          Rédigez les questions techniques et financières pour chaque entreprise retenue.
+          Rédigez les questions pour chaque entreprise retenue. Exportez en Excel, faites compléter, puis importez les réponses.
         </p>
       </div>
 
-      {/* Date limite */}
       <Card>
         <CardContent className="pt-4">
           <div className="flex items-center gap-3">
@@ -73,42 +157,86 @@ const QuestionnairePage = () => {
         </CardContent>
       </Card>
 
-      {/* Questions par entreprise */}
       <div className="space-y-6">
         {questionnaire.questionnaires
           .filter((cq) => retainedIds.includes(cq.companyId))
           .map((cq) => (
             <Card key={cq.companyId}>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
+                <CardTitle className="text-base flex items-center gap-2 flex-wrap">
                   <MessageSquare className="h-4 w-4 text-primary" />
-                  {getCompanyName(cq.companyId)}
+                  {cq.companyId}. {getCompanyName(cq.companyId)}
                   <Badge variant="secondary" className="text-xs">
                     {cq.questions.length} question{cq.questions.length !== 1 ? "s" : ""}
                   </Badge>
+                  <div className="flex gap-2 ml-auto">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1 text-xs"
+                      onClick={() => handleExport(cq.companyId)}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Export Excel
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1 text-xs"
+                      onClick={() => fileInputRefs.current[cq.companyId]?.click()}
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      Import réponses
+                    </Button>
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      className="hidden"
+                      ref={(el) => { fileInputRefs.current[cq.companyId] = el; }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          handleImport(cq.companyId, file);
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                  </div>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 {cq.questions.map((q, qIdx) => (
-                  <div key={q.id} className="flex gap-2 items-start">
-                    <span className="text-sm font-semibold text-muted-foreground mt-2 w-8 shrink-0">
-                      {qIdx + 1}.
-                    </span>
-                    <Textarea
-                      className="flex-1 text-sm resize-y min-h-[60px]"
-                      rows={2}
-                      placeholder={`Question ${qIdx + 1}…`}
-                      value={q.text}
-                      onChange={(e) => updateQuestion(v0.id, cq.companyId, q.id, e.target.value)}
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="shrink-0 text-destructive hover:text-destructive mt-1"
-                      onClick={() => removeQuestion(v0.id, cq.companyId, q.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                  <div key={q.id} className="space-y-1.5 border-b border-border pb-3 last:border-0">
+                    <div className="flex gap-2 items-start">
+                      <span className="text-sm font-semibold text-muted-foreground mt-2 w-8 shrink-0">
+                        {qIdx + 1}.
+                      </span>
+                      <Textarea
+                        className="flex-1 text-sm resize-y min-h-[60px]"
+                        rows={2}
+                        placeholder={`Question ${qIdx + 1}…`}
+                        value={q.text}
+                        onChange={(e) => updateQuestion(v0.id, cq.companyId, q.id, e.target.value)}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0 text-destructive hover:text-destructive mt-1"
+                        onClick={() => removeQuestion(v0.id, cq.companyId, q.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <div className="ml-8">
+                      <label className="text-xs text-blue-600 font-medium">💬 Réponse :</label>
+                      <Textarea
+                        className="text-sm border-blue-200 min-h-[40px] mt-1"
+                        rows={2}
+                        value={q.response}
+                        onChange={(e) => setQuestionResponse(v0.id, cq.companyId, q.id, e.target.value)}
+                        placeholder="Réponse de l'entreprise… (saisir manuellement ou importer via Excel)"
+                      />
+                    </div>
                   </div>
                 ))}
                 <Button

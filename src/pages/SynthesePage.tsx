@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getVersionDisplayLabel } from "@/types/project";
+import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getVersionDisplayLabel, getSyntheseLabel } from "@/types/project";
 import { useMemo, useState } from "react";
 import {
   Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle, Award,
@@ -42,7 +42,7 @@ const SynthesePage = () => {
   const { isValid: weightingValid, total: weightingTotal } = useWeightingValid();
   const { weightingCriteria, lotLines } = lot;
 
-  const technicalCriteria = weightingCriteria.filter((c) => c.id !== "prix");
+  const technicalCriteria = weightingCriteria.filter((c) => c.id !== "prix" && c.weight > 0);
   const prixCriterion = weightingCriteria.find((c) => c.id === "prix");
   const prixWeight = prixCriterion?.weight ?? 40;
   const activeLotLines = lotLines.filter((l) => l.label.trim() !== "");
@@ -319,7 +319,8 @@ const SynthesePage = () => {
   const fmt = (n: number) =>
     new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
-  const pageTitle = isNego ? `Synthèse — ${negoLabel}` : `Synthèse & Classement — ${displayLabel}`;
+  const versionIndex = isNego && negoRound !== null ? negoRound : 0;
+  const pageTitle = `${getSyntheseLabel(lot, versionIndex)} & Classement`;
 
   const attributaireResult = sorted.find(
     (r) => r.company.status !== "ecartee" && getNegotiationDecision(r.company.id) === "attributaire"
@@ -729,34 +730,6 @@ const SynthesePage = () => {
               </Button>
             )}
 
-            {/* Bouton questionnaire de négociation */}
-            {version && !isNego && hasAnyRetenue && !isValidated && (
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={() => {
-                  const retainedIds = Object.entries(version.negotiationDecisions ?? {})
-                    .filter(([, d]) => d === "retenue")
-                    .map(([id]) => Number(id));
-                  activateQuestionnaire(version.id, retainedIds);
-                }}
-              >
-                <MessageSquare className="h-4 w-4" />
-                Préparer le questionnaire de négociation
-              </Button>
-            )}
-
-            {/* Lien direct questionnaire si déjà en négo */}
-            {version && isNego && version.questionnaire?.activated && negoRound && (
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={() => navigate(`/nego/${negoRound}/questions`)}
-              >
-                <MessageSquare className="h-4 w-4" />
-                Voir le questionnaire de négociation
-              </Button>
-            )}
 
             {!allDecided && !isValidated && !isReadOnly && (
               <p className="text-xs text-muted-foreground">

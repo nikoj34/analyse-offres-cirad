@@ -57,7 +57,7 @@ const fmt = (n: number) =>
 const PrixPage = () => {
   const { project, setPriceEntry, getPriceEntry } = useProjectStore();
   const lot = project.lots[project.currentLotIndex];
-  const { activeCompanies, version, isReadOnly, isNego, negoLabel } = useAnalysisContext();
+  const { activeCompanies, version, isReadOnly, isNego, negoLabel, negoRound } = useAnalysisContext();
   const { lotLines, weightingCriteria } = lot;
   const { isValid: weightingValid, total: weightingTotal } = useWeightingValid();
 
@@ -66,6 +66,28 @@ const PrixPage = () => {
   const prixWeight = prixCriterion?.weight ?? 40;
   const hasDualDpgf = lot.hasDualDpgf ?? false;
   const toleranceSeuil = lot.toleranceSeuil ?? 20;
+
+  // Negotiation: reference versions for price comparison
+  const initialVersion = isNego ? lot.versions[0] : null;
+  const prevPhaseVersion = isNego && negoRound !== null && negoRound > 1 ? lot.versions[negoRound - 1] : initialVersion;
+
+  const getRefPrice = (companyId: number, lotLineId: number, dpgfNum: 1 | 2): number | null => {
+    if (!prevPhaseVersion) return null;
+    const entry = prevPhaseVersion.priceEntries.find(e => e.companyId === companyId && e.lotLineId === lotLineId);
+    return dpgfNum === 1 ? (entry?.dpgf1 ?? null) : (entry?.dpgf2 ?? null);
+  };
+
+  const getInitialTotal = (companyId: number): number => {
+    if (!initialVersion) return 0;
+    let total = 0;
+    const baseEntry = initialVersion.priceEntries.find(e => e.companyId === companyId && e.lotLineId === 0);
+    total += (baseEntry?.dpgf1 ?? 0) + (baseEntry?.dpgf2 ?? 0);
+    for (const line of activeLotLines) {
+      const entry = initialVersion.priceEntries.find(e => e.companyId === companyId && e.lotLineId === line.id);
+      total += (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
+    }
+    return total;
+  };
 
   const typeCounters = useMemo(() => buildTypeCounters(lotLines), [lotLines]);
 
@@ -157,7 +179,8 @@ const PrixPage = () => {
     value: number | null,
     estimation: number | null,
     disabled: boolean,
-    onChange: (val: number | null) => void
+    onChange: (val: number | null) => void,
+    prevPhasePrice?: number | null,
   ) => {
     const est = estimation ?? 0;
     const val = value ?? 0;
@@ -176,6 +199,11 @@ const PrixPage = () => {
         {est !== 0 && (
           <div className="text-right text-[10px] text-muted-foreground">
             Est. : {fmt(est)}
+          </div>
+        )}
+        {prevPhasePrice != null && prevPhasePrice !== 0 && (
+          <div className="text-right text-[10px] text-muted-foreground opacity-60 italic">
+            Phase préc. : {fmt(prevPhasePrice)}
           </div>
         )}
       </div>
@@ -258,7 +286,8 @@ const PrixPage = () => {
                           dpgfEntry?.dpgf1 ?? null,
                           est1 || null,
                           isReadOnly,
-                          (val) => setPriceEntry(company.id, 0, val, dpgfEntry?.dpgf2 ?? null)
+                          (val) => setPriceEntry(company.id, 0, val, dpgfEntry?.dpgf2 ?? null),
+                          isNego ? getRefPrice(company.id, 0, 1) : undefined
                         )}
                       </div>
                       <div className="text-right text-xs">
@@ -270,7 +299,8 @@ const PrixPage = () => {
                             dpgfEntry?.dpgf2 ?? null,
                             est2 || null,
                             isReadOnly,
-                            (val) => setPriceEntry(company.id, 0, dpgfEntry?.dpgf1 ?? null, val)
+                            (val) => setPriceEntry(company.id, 0, dpgfEntry?.dpgf1 ?? null, val),
+                            isNego ? getRefPrice(company.id, 0, 2) : undefined
                           )}
                         </div>
                       )}
@@ -306,7 +336,8 @@ const PrixPage = () => {
                             entry?.dpgf1 ?? null,
                             line.estimationDpgf1,
                             isReadOnly,
-                            (val) => setPriceEntry(company.id, line.id, val, entry?.dpgf2 ?? null)
+                            (val) => setPriceEntry(company.id, line.id, val, entry?.dpgf2 ?? null),
+                            isNego ? getRefPrice(company.id, line.id, 1) : undefined
                           )}
                         </div>
                       ) : (
@@ -323,7 +354,8 @@ const PrixPage = () => {
                             entry?.dpgf2 ?? null,
                             line.estimationDpgf2,
                             isReadOnly,
-                            (val) => setPriceEntry(company.id, line.id, entry?.dpgf1 ?? null, val)
+                            (val) => setPriceEntry(company.id, line.id, entry?.dpgf1 ?? null, val),
+                            isNego ? getRefPrice(company.id, line.id, 2) : undefined
                           )}
                         </div>
                       ) : (
@@ -348,6 +380,23 @@ const PrixPage = () => {
                     {hasDualDpgf && <span></span>}
                   </div>
                 )}
+                {isNego && companyTotals[company.id] && (() => {
+                  const initTotal = getInitialTotal(company.id);
+                  const currentTotal = companyTotals[company.id].total;
+                  if (initTotal === 0 || currentTotal === 0) return null;
+                  const gainPct = ((initTotal - currentTotal) / initTotal) * 100;
+                  return (
+                    <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 rounded-md border border-blue-200 bg-blue-50 p-2 text-sm`}>
+                      <span className="font-semibold text-blue-800">Gain négociation {negoRound} (vs initial)</span>
+                      <span className={`text-right font-bold ${gainPct >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {gainPct >= 0 ? "+" : ""}{gainPct.toFixed(2)}%
+                      </span>
+                      <span></span>
+                      {hasDualDpgf && <span></span>}
+                      {hasDualDpgf && <span></span>}
+                    </div>
+                  );
+                })()}
               </div>
             </CardContent>
           )}

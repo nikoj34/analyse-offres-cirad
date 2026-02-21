@@ -23,12 +23,12 @@ const TechniquePage = () => {
     ? lot.versions[negoRound - 1]
     : null;
 
-  const allTechnicalCriteria = weightingCriteria.filter((c) => c.id !== "prix");
+  const allTechnicalCriteria = weightingCriteria.filter((c) => c.id !== "prix" && c.weight > 0);
   const valueTechniqueCriteria = allTechnicalCriteria.filter(
     (c) => c.id !== "environnemental" && c.id !== "planning"
   );
-  const environnementalCriterion = weightingCriteria.find((c) => c.id === "environnemental");
-  const planningCriterion = weightingCriteria.find((c) => c.id === "planning");
+  const environnementalCriterion = weightingCriteria.find((c) => c.id === "environnemental" && c.weight > 0);
+  const planningCriterion = weightingCriteria.find((c) => c.id === "planning" && c.weight > 0);
 
   const scores = useMemo(() => {
     if (!version) return {};

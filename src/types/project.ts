@@ -98,6 +98,23 @@ export function getVersionDisplayLabel(label: string): string {
   return VERSION_DISPLAY_LABELS[label] ?? label;
 }
 
+export function getSyntheseLabel(lot: LotData, versionIndex: number): string {
+  const totalVersions = lot.versions.length;
+  const version = lot.versions[versionIndex];
+  if (totalVersions === 1) {
+    const decisions = version?.negotiationDecisions ?? {};
+    const vals = Object.values(decisions);
+    const hasAttrib = vals.some(d => d === "attributaire");
+    const allDecided = vals.length > 0 && vals.every(d => d !== "non_defini");
+    const hasRetenue = vals.some(d => d === "retenue");
+    if (hasAttrib || (allDecided && !hasRetenue && vals.length > 0)) return "Synthèse finale";
+    return "Synthèse";
+  }
+  if (versionIndex === 0) return "Synthèse initiale";
+  if (versionIndex === totalVersions - 1) return "Synthèse finale";
+  return "Synthèse intermédiaire";
+}
+
 // === Negotiation Questionnaire ===
 
 export interface NegotiationQuestion {

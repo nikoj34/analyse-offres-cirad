@@ -112,6 +112,23 @@ function buildDiffRichText(current: string, prev: string): ExcelJS.CellRichTextV
   return parts.length > 0 ? { richText: parts } : cur;
 }
 
+// ─── Dynamic Synthèse label for export ───────────────────────────────────────
+function getExportSyntheseLabel(versions: NegotiationVersion[], versionIndex: number): string {
+  const total = versions.length;
+  if (total === 1) {
+    const decisions = versions[0]?.negotiationDecisions ?? {};
+    const vals = Object.values(decisions);
+    const hasAttrib = vals.some(d => d === "attributaire");
+    const allDecided = vals.length > 0 && vals.every(d => d !== "non_defini");
+    const hasRetenue = vals.some(d => d === "retenue");
+    if (hasAttrib || (allDecided && !hasRetenue && vals.length > 0)) return "SYNTHESE_FINALE";
+    return "SYNTHESE";
+  }
+  if (versionIndex === 0) return "SYNTHESE_INITIALE";
+  if (versionIndex === total - 1) return "SYNTHESE_FINALE";
+  return "SYNTHESE_INTERMEDIAIRE";
+}
+
 // ─── Analyse Technique — Entreprises en colonnes ─────────────────────────────
 function buildTechSheet(
   wb: ExcelJS.Workbook,
@@ -125,10 +142,10 @@ function buildTechSheet(
   ws.properties.defaultRowHeight = 60; // taller rows for comments
 
   const technicalCriteria = project.weightingCriteria.filter(
-    (c) => c.id !== "prix" && c.id !== "environnemental" && c.id !== "planning"
+    (c) => c.id !== "prix" && c.id !== "environnemental" && c.id !== "planning" && c.weight > 0
   );
-  const envCrit = project.weightingCriteria.find((c) => c.id === "environnemental");
-  const planCrit = project.weightingCriteria.find((c) => c.id === "planning");
+  const envCrit = project.weightingCriteria.find((c) => c.id === "environnemental" && c.weight > 0);
+  const planCrit = project.weightingCriteria.find((c) => c.id === "planning" && c.weight > 0);
   const maxTechWeight = technicalCriteria.reduce((s, c) => s + c.weight, 0);
 
   const activeCompanies = companies.filter((c) => c.name.trim() !== "");
@@ -1174,7 +1191,7 @@ function buildSyntheseSheet(
   const synthSheet = wb.addWorksheet(sheetName);
   synthSheet.properties.defaultRowHeight = 18;
 
-  const technicalCriteria = project.weightingCriteria.filter((c) => c.id !== "prix");
+  const technicalCriteria = project.weightingCriteria.filter((c) => c.id !== "prix" && c.weight > 0);
   const prixCriterion = project.weightingCriteria.find((c) => c.id === "prix");
   const prixWeight = prixCriterion?.weight ?? 40;
   const activeLotLines = project.lotLines.filter((l) => l.label.trim() !== "");
@@ -1695,7 +1712,7 @@ function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
   methSheet.getCell(`B${row}`).font = { size: 10 };
   row += 2;
 
-  const techCriteria = project.weightingCriteria.filter((c) => c.id !== "prix");
+  const techCriteria = project.weightingCriteria.filter((c) => c.id !== "prix" && c.weight > 0);
   const notationHeaders = ["Appréciation", "Note / 5"];
   for (const c of techCriteria) {
     notationHeaders.push(`Sur ${c.weight} pts`);
@@ -1998,7 +2015,11 @@ export async function exportToExcel(project: ProjectData) {
   // =========== V0 Sheets ===========
   buildTechSheet(wb, "ANALYSE_TECHNIQUE", project, v0, activeCompanies);
   buildPrixSheet(wb, "ANALYSE_DES_PRIX", project, v0, activeCompanies);
-  buildSyntheseSheet(wb, "SYNTHESE", project, v0, activeCompanies);
+  // Only export synthèse for V0 if no negotiation rounds exist
+  if (project.versions.length === 1) {
+    const synthLabel = getExportSyntheseLabel(project.versions, 0);
+    buildSyntheseSheet(wb, synthLabel, project, v0, activeCompanies);
+  }
 
   // =========== Methodology ===========
   buildMethodologySheet(wb, project);
@@ -2019,7 +2040,11 @@ export async function exportToExcel(project: ProjectData) {
     if (negoCompanies.length > 0) {
       buildTechSheet(wb, `Négo ${negoRound} Analyse technique`, project, negoVersion, negoCompanies, prevVersion);
       buildPrixSheet(wb, `Négo ${negoRound} Analyse des prix`, project, negoVersion, negoCompanies);
-      buildSyntheseSheet(wb, `Négo ${negoRound} Synthèse`, project, negoVersion, negoCompanies);
+      // Only export synthèse for the last negotiation round
+      if (i === project.versions.length - 1) {
+        const synthLabel = getExportSyntheseLabel(project.versions, i);
+        buildSyntheseSheet(wb, synthLabel, project, negoVersion, negoCompanies);
+      }
     }
   }
 
