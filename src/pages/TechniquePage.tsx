@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { NOTATION_LABELS, NOTATION_VALUES, NotationLevel, WeightingCriterion, NegotiationVersion } from "@/types/project";
+import { NOTATION_LABELS, NOTATION_VALUES, NotationLevel, WeightingCriterion, SubCriterion, NegotiationVersion } from "@/types/project";
 import { useMemo } from "react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
 import { Lock, AlertTriangle } from "lucide-react";
@@ -12,23 +12,31 @@ import { useWeightingValid } from "@/hooks/useWeightingValid";
 
 const NOTATION_OPTIONS: NotationLevel[] = ["tres_bien", "bien", "moyen", "passable", "insuffisant"];
 
+/** Filter sub-criteria: only those with text AND weight > 0 */
+function getVisibleSubCriteria(criterion: WeightingCriterion): SubCriterion[] {
+  return criterion.subCriteria.filter((s) => s.label.trim() !== "" && s.weight > 0);
+}
+
 const TechniquePage = () => {
   const { project, setTechnicalNote, getTechnicalNote, setDocumentsToVerify, getDocumentsToVerify } = useProjectStore();
   const lot = project.lots[project.currentLotIndex];
   const { activeCompanies, version, isReadOnly, isNego, negoLabel, negoRound } = useAnalysisContext();
   const { weightingCriteria } = lot;
 
-  // Get previous version for visual diff in nego rounds
   const prevVersion = isNego && negoRound !== null && negoRound > 0
     ? lot.versions[negoRound - 1]
     : null;
 
-  const allTechnicalCriteria = weightingCriteria.filter((c) => c.id !== "prix" && c.weight > 0);
+  // Filter criteria with weight > 0 AND (has visible sub-criteria OR has label text for standalone criteria)
+  const allTechnicalCriteria = weightingCriteria.filter((c) => c.id !== "prix" && c.weight > 0).filter((c) => {
+    if (c.subCriteria.length > 0) return getVisibleSubCriteria(c).length > 0;
+    return c.label.trim() !== "";
+  });
   const valueTechniqueCriteria = allTechnicalCriteria.filter(
     (c) => c.id !== "environnemental" && c.id !== "planning"
   );
-  const environnementalCriterion = weightingCriteria.find((c) => c.id === "environnemental" && c.weight > 0);
-  const planningCriterion = weightingCriteria.find((c) => c.id === "planning" && c.weight > 0);
+  const environnementalCriterion = allTechnicalCriteria.find((c) => c.id === "environnemental");
+  const planningCriterion = allTechnicalCriteria.find((c) => c.id === "planning");
 
   const scores = useMemo(() => {
     if (!version) return {};
@@ -40,12 +48,13 @@ const TechniquePage = () => {
       let total = 0;
 
       for (const criterion of allTechnicalCriteria) {
-        if (criterion.subCriteria.length > 0) {
+        const visibleSubs = getVisibleSubCriteria(criterion);
+        if (visibleSubs.length > 0) {
           let criterionScore = 0;
-          const subTotal = criterion.subCriteria.reduce((s, sc) => s + sc.weight, 0);
-          for (const sub of criterion.subCriteria) {
+          const subTotal = visibleSubs.reduce((s, sc) => s + sc.weight, 0);
+          for (const sub of visibleSubs) {
             const note = version.technicalNotes.find(
-              (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
+              (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id && !n.itemId
             );
             if (note?.notation) {
               const subWeight = subTotal > 0 ? sub.weight / subTotal : 0;
@@ -57,7 +66,7 @@ const TechniquePage = () => {
           total += weightedScore;
         } else {
           const note = version.technicalNotes.find(
-            (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
+            (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId && !n.itemId
           );
           if (note?.notation) {
             const weightedScore = (NOTATION_VALUES[note.notation] / 5) * criterion.weight;
@@ -235,14 +244,13 @@ function CriterionBlock({
   isNego: boolean;
   prevVersion?: NegotiationVersion | null;
 }) {
-  const { setTechnicalNote, getTechnicalNote, setTechnicalNoteResponse } = useProjectStore();
+  const { setTechnicalNote, getTechnicalNote, setTechnicalNoteResponse, setItemNote, getItemNote } = useProjectStore();
 
-  // Helper to get previous note for diff
   const getPrevNote = (subId?: string) => {
     if (!prevVersion) return undefined;
     return prevVersion.technicalNotes.find(
       (n) => n.companyId === companyId && n.criterionId === criterion.id &&
-        (subId ? n.subCriterionId === subId : !n.subCriterionId)
+        (subId ? n.subCriterionId === subId : !n.subCriterionId) && !n.itemId
     );
   };
 
@@ -268,9 +276,7 @@ function CriterionBlock({
   const renderFieldDiff = (currentValue: string, prevValue: string, label?: string) => {
     if (!prevVersion) return null;
     if (prevValue === currentValue || (!prevValue && !currentValue)) return null;
-    // Deletion: text was removed
     const hasDeleted = prevValue && prevValue !== currentValue;
-    // Addition: new text added or changed
     const hasAdded = currentValue && currentValue !== prevValue;
     if (!hasDeleted && !hasAdded) return null;
     return (
@@ -286,7 +292,9 @@ function CriterionBlock({
     );
   };
 
-  if (criterion.subCriteria.length > 0) {
+  const visibleSubs = getVisibleSubCriteria(criterion);
+
+  if (visibleSubs.length > 0) {
     return (
       <div className="rounded-md border border-border p-3 space-y-3">
         <div className="flex items-center justify-between">
@@ -295,8 +303,9 @@ function CriterionBlock({
           </h4>
           <span className="text-xs text-muted-foreground">{score.toFixed(1)} pts</span>
         </div>
-        {criterion.subCriteria.map((sub) => {
+        {visibleSubs.map((sub) => {
           const note = getTechnicalNote(companyId, criterion.id, sub.id);
+          const visibleItems = (sub.items || []).filter((it) => it.label.trim() !== "");
           return (
             <div key={sub.id} className="ml-4 space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">
@@ -369,6 +378,67 @@ function CriterionBlock({
                   {renderFieldDiff(note?.commentNegatif ?? "", getPrevNote(sub.id)?.commentNegatif ?? "", "Points Négatifs")}
                 </div>
               </div>
+
+              {/* Items (appreciation only, no scoring impact) */}
+              {visibleItems.length > 0 && (
+                <div className="ml-6 mt-2 space-y-3 border-l-2 border-muted pl-3">
+                  {visibleItems.map((item) => {
+                    const itemNote = getItemNote(companyId, criterion.id, sub.id, item.id);
+                    return (
+                      <div key={item.id} className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-muted-foreground">📋 {item.label}</span>
+                          <Select
+                            disabled={disabled}
+                            value={itemNote?.notation ?? "none"}
+                            onValueChange={(v) =>
+                              setItemNote(companyId, criterion.id, sub.id, item.id, v === "none" ? null : (v as NotationLevel), itemNote?.commentPositif ?? "", itemNote?.commentNegatif ?? "")
+                            }
+                          >
+                            <SelectTrigger className="w-32 h-7 text-xs">
+                              <SelectValue placeholder="Appréciation" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">—</SelectItem>
+                              {NOTATION_OPTIONS.map((n) => (
+                                <SelectItem key={n} value={n}>{NOTATION_LABELS[n]}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] text-green-700 font-medium">✅ Positifs</label>
+                            <Textarea
+                              disabled={disabled || isNego}
+                              className={`min-h-[40px] text-xs border-green-200 ${isNego ? 'opacity-60' : ''}`}
+                              rows={2}
+                              value={itemNote?.commentPositif ?? ""}
+                              onChange={(e) =>
+                                setItemNote(companyId, criterion.id, sub.id, item.id, itemNote?.notation ?? null, e.target.value, itemNote?.commentNegatif ?? "")
+                              }
+                              placeholder="Points positifs…"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-red-600 font-medium">❌ Négatifs</label>
+                            <Textarea
+                              disabled={disabled || isNego}
+                              className={`min-h-[40px] text-xs border-red-200 ${isNego ? 'opacity-60' : ''}`}
+                              rows={2}
+                              value={itemNote?.commentNegatif ?? ""}
+                              onChange={(e) =>
+                                setItemNote(companyId, criterion.id, sub.id, item.id, itemNote?.notation ?? null, itemNote?.commentPositif ?? "", e.target.value)
+                              }
+                              placeholder="Points négatifs…"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}

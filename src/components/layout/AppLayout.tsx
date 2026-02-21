@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useRef, useEffect } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/store/projectStore";
@@ -59,6 +59,15 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const lot = project.lots[project.currentLotIndex];
 
+  // Redirect to /lot on first mount (project open)
+  const hasRedirected = useRef(false);
+  useEffect(() => {
+    if (!hasRedirected.current) {
+      hasRedirected.current = true;
+      navigate('/lot');
+    }
+  }, []);
+
   // Track which lots are expanded in the sidebar
   const [openLots, setOpenLots] = useState<Record<number, boolean>>(() => {
     const init: Record<number, boolean> = {};
@@ -87,6 +96,16 @@ export function AppLayout({ children }: { children: ReactNode }) {
   // Current lot for page header
   const isProjectPage = location.pathname === "/";
   const currentLotLabel = lotLabel(lot, project.currentLotIndex);
+
+  /** Determine dynamic Questions label for a lot */
+  const getQuestionsLabel = (l: typeof lot, round?: number): string => {
+    const totalVersions = l.versions.length;
+    if (totalVersions >= 3) {
+      // 2 negotiation rounds → "Questions négo 1" / "Questions négo 2"
+      return round === 2 ? "Questions négo 2" : "Questions négo 1";
+    }
+    return "Questions";
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -119,6 +138,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
               const isOpen = openLots[idx] ?? false;
               const isActive = idx === project.currentLotIndex;
               const negoVersions = l.versions.slice(1);
+
+              // Check if questions tab should be visible (after initial synthese)
+              const hasRetainedInitial = l.versions[0]
+                ? Object.values(l.versions[0].negotiationDecisions ?? {}).some(d => d === "retenue")
+                : false;
 
               return (
                 <div key={l.id} className="mt-1">
@@ -194,26 +218,20 @@ export function AppLayout({ children }: { children: ReactNode }) {
                         </button>
 
                         {/* Questions — visible si au moins une entreprise retenue pour négociation */}
-                        {(() => {
-                          const hasRetained = l.versions.some(v =>
-                            Object.values(v.negotiationDecisions ?? {}).some(d => d === "retenue")
-                          );
-                          if (!hasRetained) return null;
-                          return (
-                            <button
-                              onClick={() => handleLotSubNav(idx, "/questions")}
-                              className={cn(
-                                "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                                isActive && location.pathname === "/questions"
-                                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
-                              )}
-                            >
-                              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                              Questions
-                            </button>
-                          );
-                        })()}
+                        {hasRetainedInitial && (
+                          <button
+                            onClick={() => handleLotSubNav(idx, "/questions")}
+                            className={cn(
+                              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
+                              isActive && location.pathname === "/questions"
+                                ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                                : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
+                            )}
+                          >
+                            <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                            {getQuestionsLabel(l)}
+                          </button>
+                        )}
 
                         {/* Négociations */}
                         {negoVersions.length > 0 && (
@@ -230,6 +248,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                     {negoVersions.map((v, i) => {
                                   const round = i + 1;
                                   const negoLabel = `Négo ${round}`;
+
+                                  // Check if questions négo 2 should show after this round's synthese
+                                  const hasRetainedThisRound = Object.values(v.negotiationDecisions ?? {}).some(d => d === "retenue");
+                                  const showQuestionsAfterThisRound = round === 1 && hasRetainedThisRound && negoVersions.length >= 2;
+
                                   return (
                                     <div key={v.id} className="space-y-0.5">
                                       <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -271,6 +294,22 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                         <BarChart3 className="h-3 w-3 shrink-0" />
                                         {getSyntheseLabel(l, round)}
                                       </button>
+
+                                      {/* Questions négo 2 — after négo 1 synthese */}
+                                      {showQuestionsAfterThisRound && (
+                                        <button
+                                          onClick={() => handleLotSubNav(idx, "/questions/2")}
+                                          className={cn(
+                                            "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
+                                            isActive && location.pathname === "/questions/2"
+                                              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                                              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
+                                          )}
+                                        >
+                                          <MessageSquare className="h-3 w-3 shrink-0" />
+                                          {getQuestionsLabel(l, 2)}
+                                        </button>
+                                      )}
                                     </div>
                                   );
                                 })}

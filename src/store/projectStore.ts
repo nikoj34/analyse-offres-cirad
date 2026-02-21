@@ -6,6 +6,7 @@ import {
   Company,
   LotLine,
   WeightingCriterion,
+  SubCriterionItem,
   ProjectInfo,
   createDefaultProject,
   createDefaultLot,
@@ -64,6 +65,11 @@ interface ProjectStore {
   addSubCriterion: (criterionId: string) => void;
   removeSubCriterion: (criterionId: string, subId: string) => void;
   updateSubCriterion: (criterionId: string, subId: string, updates: { label?: string; weight?: number }) => void;
+  addItem: (criterionId: string, subId: string) => void;
+  removeItem: (criterionId: string, subId: string, itemId: string) => void;
+  updateItemLabel: (criterionId: string, subId: string, itemId: string, label: string) => void;
+  setItemNote: (companyId: number, criterionId: string, subCriterionId: string, itemId: string, notation: NotationLevel | null, commentPositif: string, commentNegatif: string) => void;
+  getItemNote: (companyId: number, criterionId: string, subCriterionId: string, itemId: string) => TechnicalNote | undefined;
 
   setTechnicalNote: (companyId: number, criterionId: string, subCriterionId: string | undefined, notation: NotationLevel | null, comment: string, commentPositif?: string, commentNegatif?: string) => void;
   getTechnicalNote: (companyId: number, criterionId: string, subCriterionId?: string) => TechnicalNote | undefined;
@@ -241,7 +247,7 @@ export const useProjectStore = create<ProjectStore>()(
           return setLot(state, {
             weightingCriteria: lot.weightingCriteria.map((c) => {
               if (c.id !== criterionId) return c;
-              const newSub = { id: crypto.randomUUID(), label: "", weight: 0 };
+              const newSub = { id: crypto.randomUUID(), label: "", weight: 0, items: [] };
               return { ...c, subCriteria: [...c.subCriteria, newSub] };
             }),
           });
@@ -271,6 +277,92 @@ export const useProjectStore = create<ProjectStore>()(
             }),
           });
         }),
+
+      // === Item actions (sub-criterion items) ===
+      addItem: (criterionId, subId) =>
+        set((state) => {
+          const lot = getLot(state);
+          return setLot(state, {
+            weightingCriteria: lot.weightingCriteria.map((c) => {
+              if (c.id !== criterionId) return c;
+              return {
+                ...c,
+                subCriteria: c.subCriteria.map((s) => {
+                  if (s.id !== subId) return s;
+                  return { ...s, items: [...(s.items || []), { id: crypto.randomUUID(), label: "" }] };
+                }),
+              };
+            }),
+          });
+        }),
+
+      removeItem: (criterionId, subId, itemId) =>
+        set((state) => {
+          const lot = getLot(state);
+          return setLot(state, {
+            weightingCriteria: lot.weightingCriteria.map((c) => {
+              if (c.id !== criterionId) return c;
+              return {
+                ...c,
+                subCriteria: c.subCriteria.map((s) => {
+                  if (s.id !== subId) return s;
+                  return { ...s, items: (s.items || []).filter((it) => it.id !== itemId) };
+                }),
+              };
+            }),
+          });
+        }),
+
+      updateItemLabel: (criterionId, subId, itemId, label) =>
+        set((state) => {
+          const lot = getLot(state);
+          return setLot(state, {
+            weightingCriteria: lot.weightingCriteria.map((c) => {
+              if (c.id !== criterionId) return c;
+              return {
+                ...c,
+                subCriteria: c.subCriteria.map((s) => {
+                  if (s.id !== subId) return s;
+                  return { ...s, items: (s.items || []).map((it) => it.id === itemId ? { ...it, label } : it) };
+                }),
+              };
+            }),
+          });
+        }),
+
+      setItemNote: (companyId, criterionId, subCriterionId, itemId, notation, commentPositif, commentNegatif) =>
+        set((state) => {
+          const lot = getLot(state);
+          const version = lot.versions.find((v) => v.id === lot.currentVersionId);
+          if (!version) return state;
+          const notes = [...version.technicalNotes];
+          const idx = notes.findIndex(
+            (n) => n.companyId === companyId && n.criterionId === criterionId &&
+              n.subCriterionId === subCriterionId && n.itemId === itemId
+          );
+          const newNote: TechnicalNote = {
+            companyId, criterionId, subCriterionId, itemId, notation,
+            comment: "", commentPositif, commentNegatif,
+          };
+          if (idx >= 0) notes[idx] = newNote;
+          else notes.push(newNote);
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === lot.currentVersionId ? { ...v, technicalNotes: notes } : v
+            ),
+          });
+        }),
+
+      getItemNote: (companyId, criterionId, subCriterionId, itemId) => {
+        const state = get();
+        const lot = getLot(state);
+        const version = lot.versions.find((v) => v.id === lot.currentVersionId);
+        if (!version) return undefined;
+        return version.technicalNotes.find(
+          (n) => n.companyId === companyId && n.criterionId === criterionId &&
+            n.subCriterionId === subCriterionId && n.itemId === itemId
+        );
+      },
 
       // === Technical notes ===
       setTechnicalNote: (companyId, criterionId, subCriterionId, notation, comment, commentPositif, commentNegatif) =>
@@ -461,23 +553,7 @@ export const useProjectStore = create<ProjectStore>()(
             }
           }
 
-          // Copy questionnaire config if it was prepared
-          let newQuestionnaire: NegotiationQuestionnaire | undefined = undefined;
-          if (currentVersion.questionnaire?.activated) {
-            newQuestionnaire = {
-              deadlineDate: currentVersion.questionnaire.deadlineDate,
-              activated: true,
-              questionnaires: retainedIds.map((companyId) => {
-                // Preserve existing questions for this company if already set
-                const existing = currentVersion.questionnaire!.questionnaires.find(
-                  (q) => q.companyId === companyId
-                );
-                return existing
-                  ? { ...existing, receptionMode: false }
-                  : { companyId, questions: [], receptionMode: false };
-              }),
-            };
-          }
+          // Don't copy questionnaire — each round starts fresh
 
           const newVersion: NegotiationVersion = {
             id: newVersionId,
@@ -491,7 +567,7 @@ export const useProjectStore = create<ProjectStore>()(
             validatedAt: null,
             negotiationDecisions: {},
             documentsToVerify: newDocsToVerify,
-            questionnaire: newQuestionnaire,
+            questionnaire: undefined,
           };
 
           // Lock the current version as read-only (frozen + validated)

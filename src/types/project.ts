@@ -47,10 +47,16 @@ export interface WeightingCriterion {
   subCriteria: SubCriterion[];
 }
 
+export interface SubCriterionItem {
+  id: string;
+  label: string;
+}
+
 export interface SubCriterion {
   id: string;
   label: string;
   weight: number;
+  items: SubCriterionItem[];
 }
 
 export interface ProjectInfo {
@@ -65,6 +71,7 @@ export interface TechnicalNote {
   companyId: number;
   criterionId: string;
   subCriterionId?: string;
+  itemId?: string;
   notation: NotationLevel | null;
   comment: string;
   commentPositif: string;
@@ -219,8 +226,8 @@ export const DEFAULT_CRITERIA: WeightingCriterion[] = [
     label: "Valeur technique",
     weight: 40,
     subCriteria: [
-      { id: "tech_1", label: "Sous-critère 1", weight: 50 },
-      { id: "tech_2", label: "Sous-critère 2", weight: 50 },
+      { id: "tech_1", label: "Sous-critère 1", weight: 50, items: [] },
+      { id: "tech_2", label: "Sous-critère 2", weight: 50, items: [] },
     ],
   },
   { id: "environnemental", label: "Environnemental", weight: 10, subCriteria: [] },
@@ -295,6 +302,17 @@ export function migrateToMultiLot(data: any): ProjectData {
         commentPositif: n.commentPositif ?? "",
         commentNegatif: n.commentNegatif ?? "",
       })),
+      // Migrate sub-criteria items
+    }));
+
+  // Ensure all sub-criteria have items array
+  const migrateWeightingCriteria = (criteria: any[]) =>
+    (criteria ?? []).map((c: any) => ({
+      ...c,
+      subCriteria: (c.subCriteria ?? []).map((s: any) => ({
+        ...s,
+        items: s.items ?? [],
+      })),
     }));
 
   const versions = migrateVersions(data?.versions ?? []);
@@ -321,7 +339,7 @@ export function migrateToMultiLot(data: any): ProjectData {
     toleranceSeuil: data?.toleranceSeuil ?? 20,
     companies: data?.companies ?? [{ id: 1, name: "", status: "non_defini", exclusionReason: "" }],
     lotLines,
-    weightingCriteria: data?.weightingCriteria ?? DEFAULT_CRITERIA,
+    weightingCriteria: migrateWeightingCriteria(data?.weightingCriteria ?? DEFAULT_CRITERIA),
     versions: versions.length > 0 ? versions : [{
       id: versionId,
       label: "V0",

@@ -7,22 +7,41 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, MessageSquare, Plus, Trash2, Download, Upload } from "lucide-react";
 import { useRef } from "react";
+import { useParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 
 const QuestionnairePage = () => {
+  const { round } = useParams<{ round?: string }>();
   const { project, activateQuestionnaire, setQuestionnaireDealine, addQuestion, updateQuestion, removeQuestion, setQuestionResponse } = useProjectStore();
   const lot = project.lots[project.currentLotIndex];
   const { toast } = useToast();
   const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
-  const v0 = lot.versions[0];
-  const retainedIds = v0
-    ? Object.entries(v0.negotiationDecisions ?? {})
-        .filter(([, d]) => d === "retenue")
-        .map(([id]) => Number(id))
-    : [];
+  // Determine which version holds this round's questionnaire
+  // /questions → v0 (initial), /questions/2 → v1 (nego 1)
+  const roundNum = round ? parseInt(round) : 1;
+  const versionIndex = roundNum - 1;
+  const targetVersion = lot.versions[versionIndex];
+
+  if (!targetVersion) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold text-foreground">Questions de négociation</h1>
+        <div className="rounded-md border border-destructive bg-destructive/10 p-4 flex items-center gap-3">
+          <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
+          <p className="text-sm text-destructive">
+            Cette phase de négociation n'existe pas encore.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const retainedIds = Object.entries(targetVersion.negotiationDecisions ?? {})
+    .filter(([, d]) => d === "retenue")
+    .map(([id]) => Number(id));
 
   if (retainedIds.length === 0) {
     return (
@@ -38,12 +57,20 @@ const QuestionnairePage = () => {
     );
   }
 
-  if (!v0.questionnaire?.activated) {
-    activateQuestionnaire(v0.id, retainedIds);
+  if (!targetVersion.questionnaire?.activated) {
+    activateQuestionnaire(targetVersion.id, retainedIds);
   }
 
-  const questionnaire = v0.questionnaire;
+  const questionnaire = targetVersion.questionnaire;
   if (!questionnaire) return null;
+
+  const versionId = targetVersion.id;
+
+  // Dynamic title
+  const totalVersions = lot.versions.length;
+  const pageTitle = totalVersions >= 3
+    ? `Questions négo ${roundNum}`
+    : "Questions de négociation";
 
   const getCompanyName = (companyId: number) => {
     const company = lot.companies.find((c) => c.id === companyId);
@@ -119,7 +146,7 @@ const QuestionnairePage = () => {
         const response = (row.getCell(3).text || "").trim();
         const qIndex = rowNumber - 2;
         if (qIndex < cq.questions.length && response) {
-          setQuestionResponse(v0.id, companyId, cq.questions[qIndex].id, response);
+          setQuestionResponse(versionId, companyId, cq.questions[qIndex].id, response);
           imported++;
         }
       });
@@ -134,7 +161,7 @@ const QuestionnairePage = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Questions de négociation</h1>
+        <h1 className="text-2xl font-bold text-foreground">{pageTitle}</h1>
         <p className="text-sm text-muted-foreground">
           Rédigez les questions pour chaque entreprise retenue. Exportez en Excel, faites compléter, puis importez les réponses.
         </p>
@@ -151,7 +178,7 @@ const QuestionnairePage = () => {
               type="date"
               className="w-44"
               value={questionnaire.deadlineDate}
-              onChange={(e) => setQuestionnaireDealine(v0.id, e.target.value)}
+              onChange={(e) => setQuestionnaireDealine(versionId, e.target.value)}
             />
           </div>
         </CardContent>
@@ -216,13 +243,13 @@ const QuestionnairePage = () => {
                         rows={2}
                         placeholder={`Question ${qIdx + 1}…`}
                         value={q.text}
-                        onChange={(e) => updateQuestion(v0.id, cq.companyId, q.id, e.target.value)}
+                        onChange={(e) => updateQuestion(versionId, cq.companyId, q.id, e.target.value)}
                       />
                       <Button
                         variant="ghost"
                         size="icon"
                         className="shrink-0 text-destructive hover:text-destructive mt-1"
-                        onClick={() => removeQuestion(v0.id, cq.companyId, q.id)}
+                        onClick={() => removeQuestion(versionId, cq.companyId, q.id)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -233,7 +260,7 @@ const QuestionnairePage = () => {
                         className="text-sm border-blue-200 min-h-[40px] mt-1"
                         rows={2}
                         value={q.response}
-                        onChange={(e) => setQuestionResponse(v0.id, cq.companyId, q.id, e.target.value)}
+                        onChange={(e) => setQuestionResponse(versionId, cq.companyId, q.id, e.target.value)}
                         placeholder="Réponse de l'entreprise… (saisir manuellement ou importer via Excel)"
                       />
                     </div>
@@ -243,7 +270,7 @@ const QuestionnairePage = () => {
                   variant="outline"
                   size="sm"
                   className="gap-1"
-                  onClick={() => addQuestion(v0.id, cq.companyId)}
+                  onClick={() => addQuestion(versionId, cq.companyId)}
                 >
                   <Plus className="h-3.5 w-3.5" />
                   Ajouter une question
