@@ -192,6 +192,28 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           Synthèse
                         </button>
 
+                        {/* Questions — visible si au moins une entreprise retenue pour négociation */}
+                        {(() => {
+                          const hasRetained = l.versions.some(v =>
+                            Object.values(v.negotiationDecisions ?? {}).some(d => d === "retenue")
+                          );
+                          if (!hasRetained) return null;
+                          return (
+                            <button
+                              onClick={() => handleLotSubNav(idx, "/questions")}
+                              className={cn(
+                                "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
+                                isActive && location.pathname === "/questions"
+                                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
+                              )}
+                            >
+                              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                              Questions
+                            </button>
+                          );
+                        })()}
+
                         {/* Négociations */}
                         {negoVersions.length > 0 && (
                           <Collapsible defaultOpen={isActive && negoVersions.length > 0}>
@@ -207,11 +229,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                     {negoVersions.map((v, i) => {
                                   const round = i + 1;
                                   const negoLabel = `Négo ${round}`;
-                                  // Afficher Questions seulement si synthèse validée ET au moins une entreprise retenue
-                                  const hasRetainedCompany = Object.values(v.negotiationDecisions ?? {}).some(
-                                    (d) => d === "retenue" || d === "attributaire"
-                                  );
-                                  const showQuestions = v.validated && hasRetainedCompany;
                                   return (
                                     <div key={v.id} className="space-y-0.5">
                                       <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -253,20 +270,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                         <BarChart3 className="h-3 w-3 shrink-0" />
                                         Synthèse
                                       </button>
-                                      {showQuestions && (
-                                        <button
-                                          onClick={() => handleLotSubNav(idx, `/nego/${round}/questions`)}
-                                          className={cn(
-                                            "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
-                                            isActive && location.pathname === `/nego/${round}/questions`
-                                              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                                              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50"
-                                          )}
-                                        >
-                                          <MessageSquare className="h-3 w-3 shrink-0" />
-                                          Questions
-                                        </button>
-                                      )}
                                     </div>
                                   );
                                 })}

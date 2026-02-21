@@ -1,47 +1,46 @@
 import { useProjectStore } from "@/store/projectStore";
-import { useAnalysisContext } from "@/hooks/useAnalysisContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, MessageSquare } from "lucide-react";
+import { AlertTriangle, MessageSquare, Plus, Trash2 } from "lucide-react";
 
 const QuestionnairePage = () => {
-  const { project, setQuestionnaireDealine, updateQuestion } = useProjectStore();
-  const { version, negoRound } = useAnalysisContext();
+  const { project, activateQuestionnaire, setQuestionnaireDealine, addQuestion, updateQuestion, removeQuestion } = useProjectStore();
+  const lot = project.lots[project.currentLotIndex];
 
-  if (!version || !negoRound) {
+  // Find the first version (V0) that has retained companies
+  const v0 = lot.versions[0];
+  const retainedIds = v0
+    ? Object.entries(v0.negotiationDecisions ?? {})
+        .filter(([, d]) => d === "retenue")
+        .map(([id]) => Number(id))
+    : [];
+
+  if (retainedIds.length === 0) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-foreground">Questionnaire de négociation</h1>
+        <h1 className="text-2xl font-bold text-foreground">Questions de négociation</h1>
         <div className="rounded-md border border-destructive bg-destructive/10 p-4 flex items-center gap-3">
           <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
-          <p className="text-sm text-destructive">Cette page n'est accessible que depuis une phase de négociation.</p>
-        </div>
-      </div>
-    );
-  }
-
-  const questionnaire = version.questionnaire;
-
-  if (!questionnaire?.activated) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-foreground">Questionnaire — Négociation {negoRound}</h1>
-        <div className="rounded-md border border-muted bg-muted/30 p-6 text-center">
-          <MessageSquare className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">
-            Le questionnaire n'a pas encore été activé. Rendez-vous sur la page{" "}
-            <strong>Synthèse</strong> de la phase précédente et cliquez sur{" "}
-            <strong>"Préparer le questionnaire de négociation"</strong>.
+          <p className="text-sm text-destructive">
+            Aucune entreprise n'est retenue pour la négociation. Rendez-vous dans la Synthèse pour désigner des entreprises.
           </p>
         </div>
       </div>
     );
   }
 
-  const lot = project.lots[project.currentLotIndex];
+  // Auto-activate questionnaire if not done
+  if (!v0.questionnaire?.activated) {
+    activateQuestionnaire(v0.id, retainedIds);
+  }
+
+  const questionnaire = v0.questionnaire;
+  if (!questionnaire) return null;
+
   const getCompanyName = (companyId: number) => {
     const company = lot.companies.find((c) => c.id === companyId);
     return company ? `${company.id}. ${company.name}` : `Entreprise ${companyId}`;
@@ -50,7 +49,7 @@ const QuestionnairePage = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Questionnaire — Négociation {negoRound}</h1>
+        <h1 className="text-2xl font-bold text-foreground">Questions de négociation</h1>
         <p className="text-sm text-muted-foreground">
           Rédigez les questions techniques et financières pour chaque entreprise retenue.
         </p>
@@ -68,7 +67,7 @@ const QuestionnairePage = () => {
               type="date"
               className="w-44"
               value={questionnaire.deadlineDate}
-              onChange={(e) => setQuestionnaireDealine(version.id, e.target.value)}
+              onChange={(e) => setQuestionnaireDealine(v0.id, e.target.value)}
             />
           </div>
         </CardContent>
@@ -76,57 +75,55 @@ const QuestionnairePage = () => {
 
       {/* Questions par entreprise */}
       <div className="space-y-6">
-        {questionnaire.questionnaires.map((cq) => {
-          const companyQuestion = cq.questions[0] ?? { id: "default", text: "", response: "" };
-          // We use a single textarea per company (up to 10 000 chars)
-          return (
+        {questionnaire.questionnaires
+          .filter((cq) => retainedIds.includes(cq.companyId))
+          .map((cq) => (
             <Card key={cq.companyId}>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <MessageSquare className="h-4 w-4 text-primary" />
                   {getCompanyName(cq.companyId)}
-                  {cq.questions[0]?.text?.trim() && (
-                    <Badge variant="secondary" className="text-xs">
-                      {cq.questions[0].text.length} / 10 000 car.
-                    </Badge>
-                  )}
+                  <Badge variant="secondary" className="text-xs">
+                    {cq.questions.length} question{cq.questions.length !== 1 ? "s" : ""}
+                  </Badge>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">
-                    Questions techniques et financières (numérotez-les librement)
-                  </Label>
-                  <Textarea
-                    rows={8}
-                    maxLength={10000}
-                    placeholder={"1. Question technique...\n2. Question financière...\n3. ..."}
-                    value={cq.questions[0]?.text ?? ""}
-                    onChange={(e) => {
-                      if (cq.questions.length === 0) {
-                        // Initialiser une première question si vide
-                        updateQuestion(version.id, cq.companyId, "default", e.target.value);
-                      } else {
-                        updateQuestion(version.id, cq.companyId, cq.questions[0].id, e.target.value);
-                      }
-                    }}
-                    className="text-sm resize-y min-h-[160px]"
-                  />
-                  <p className="text-right text-xs text-muted-foreground">
-                    {(cq.questions[0]?.text?.length ?? 0).toLocaleString("fr-FR")} / 10 000
-                  </p>
-                </div>
+              <CardContent className="space-y-3">
+                {cq.questions.map((q, qIdx) => (
+                  <div key={q.id} className="flex gap-2 items-start">
+                    <span className="text-sm font-semibold text-muted-foreground mt-2 w-8 shrink-0">
+                      {qIdx + 1}.
+                    </span>
+                    <Textarea
+                      className="flex-1 text-sm resize-y min-h-[60px]"
+                      rows={2}
+                      placeholder={`Question ${qIdx + 1}…`}
+                      value={q.text}
+                      onChange={(e) => updateQuestion(v0.id, cq.companyId, q.id, e.target.value)}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0 text-destructive hover:text-destructive mt-1"
+                      onClick={() => removeQuestion(v0.id, cq.companyId, q.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1"
+                  onClick={() => addQuestion(v0.id, cq.companyId)}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Ajouter une question
+                </Button>
               </CardContent>
             </Card>
-          );
-        })}
+          ))}
       </div>
-
-      {questionnaire.questionnaires.length === 0 && (
-        <div className="rounded-md border border-muted bg-muted/20 p-6 text-center">
-          <p className="text-sm text-muted-foreground">Aucune entreprise retenue dans ce questionnaire.</p>
-        </div>
-      )}
     </div>
   );
 };
