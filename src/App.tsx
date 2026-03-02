@@ -25,6 +25,7 @@ const VersionsPage = lazy(() => import("./pages/VersionsPage"));
 const ExportPage = lazy(() => import("./pages/ExportPage"));
 const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
 const QuestionnairePage = lazy(() => import("./pages/QuestionnairePage"));
+const ReponsesPage = lazy(() => import("./pages/ReponsesPage"));
 const ConfigurationPage = lazy(() => import("./pages/ConfigurationPage"));
 const StatistiquesPage = lazy(() => import("./pages/StatistiquesPage"));
 const FAQPage = lazy(() => import("./pages/FAQPage"));
@@ -138,6 +139,7 @@ const App = () => {
                 <Route path="/prix" element={<PrixPage />} />
                 <Route path="/synthese" element={<SynthesePage />} />
                 <Route path="/questions" element={<QuestionnairePage />} />
+                <Route path="/reponses" element={<ReponsesPage />} />
                 <Route path="/questions/:round" element={<QuestionnairePage />} />
                 <Route path="/nego/:round/technique/:companyIndex" element={<TechniquePage />} />
                 <Route path="/nego/:round/technique" element={<TechniquePage />} />

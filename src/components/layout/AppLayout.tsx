@@ -16,6 +16,7 @@ import {
   ArrowLeft,
   Package,
   MessageSquare,
+  Reply,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +34,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import ciradLogo from "@/assets/cirad-logo.png";
+import ciradLogo from "@/assets/ditam-logo.png";
 import { Footer } from "@/components/Footer";
 
 function SidebarLink({
@@ -150,7 +151,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         {/* Sidebar : menu lots + Configuration tout en bas */}
         <aside className="w-64 shrink-0 border-r border-border bg-sidebar flex flex-col min-h-screen">
           <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4 shrink-0">
-            <img src={ciradLogo} alt="CIRAD" className="h-8" />
+            <img src={ciradLogo} alt="DITAM" className="h-8" />
             <span className="text-sm font-bold text-sidebar-foreground leading-tight">
               Analyse d'offres
             </span>
@@ -211,7 +212,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           className={cn(
                             "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
                             isActive && location.pathname === "/lot"
-                              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                              ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
                               : "text-sidebar-foreground hover:bg-sidebar-accent/20"
                           )}
                         >
@@ -222,8 +223,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           onClick={() => handleLotSubNav(idx, "/prix")}
                           className={cn(
                             "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                            isActive && location.pathname === "/prix"
-                              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                            isActive &&
+                              (location.pathname === "/prix" ||
+                                location.pathname.startsWith("/prix/"))
+                              ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
                               : "text-sidebar-foreground hover:bg-sidebar-accent/20"
                           )}
                         >
@@ -234,8 +237,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           onClick={() => handleLotSubNav(idx, "/technique")}
                           className={cn(
                             "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                            isActive && location.pathname === "/technique"
-                              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                            isActive &&
+                              (location.pathname === "/technique" ||
+                                location.pathname.startsWith("/technique/"))
+                              ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
                               : "text-sidebar-foreground hover:bg-sidebar-accent/20"
                           )}
                         >
@@ -247,7 +252,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           className={cn(
                             "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
                             isActive && location.pathname === "/synthese"
-                              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                              ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
                               : "text-sidebar-foreground hover:bg-sidebar-accent/20"
                           )}
                         >
@@ -257,18 +262,32 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
                         {/* Questions — visible si au moins une entreprise retenue pour négociation */}
                         {hasRetainedInitial && (
-                          <button
-                            onClick={() => handleLotSubNav(idx, "/questions")}
-                            className={cn(
-                              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                              isActive && location.pathname === "/questions"
-                                ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                                : "text-sidebar-foreground hover:bg-sidebar-accent/20"
-                            )}
-                          >
-                            <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                            {getQuestionsLabel(l)}
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleLotSubNav(idx, "/questions")}
+                              className={cn(
+                                "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
+                                isActive && location.pathname === "/questions"
+                                  ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
+                                  : "text-sidebar-foreground hover:bg-sidebar-accent/20"
+                              )}
+                            >
+                              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                              {getQuestionsLabel(l)}
+                            </button>
+                            <button
+                              onClick={() => handleLotSubNav(idx, "/reponses")}
+                              className={cn(
+                                "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
+                                isActive && location.pathname === "/reponses"
+                                  ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
+                                  : "text-sidebar-foreground hover:bg-sidebar-accent/20"
+                              )}
+                            >
+                              <Reply className="h-3.5 w-3.5 shrink-0" />
+                              Réponses
+                            </button>
+                          </>
                         )}
 
                         {/* Négociations */}
@@ -300,8 +319,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                         onClick={() => handleLotSubNav(idx, `/nego/${round}/prix`)}
                                         className={cn(
                                           "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
-                                          isActive && location.pathname === `/nego/${round}/prix`
-                                            ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                                          isActive &&
+                                            (location.pathname === `/nego/${round}/prix` ||
+                                              location.pathname.startsWith(`/nego/${round}/prix/`))
+                                            ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
                                             : "text-sidebar-foreground hover:bg-sidebar-accent/20"
                                         )}
                                       >
@@ -312,8 +333,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                         onClick={() => handleLotSubNav(idx, `/nego/${round}/technique`)}
                                         className={cn(
                                           "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
-                                          isActive && location.pathname === `/nego/${round}/technique`
-                                            ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                                          isActive &&
+                                            (location.pathname === `/nego/${round}/technique` ||
+                                              location.pathname.startsWith(
+                                                `/nego/${round}/technique/`
+                                              ))
+                                            ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
                                             : "text-sidebar-foreground hover:bg-sidebar-accent/20"
                                         )}
                                       >
@@ -325,7 +350,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                         className={cn(
                                           "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
                                           isActive && location.pathname === `/nego/${round}/synthese`
-                                            ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                                            ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
                                             : "text-sidebar-foreground hover:bg-sidebar-accent/20"
                                         )}
                                       >
@@ -339,8 +364,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                           onClick={() => handleLotSubNav(idx, "/questions/2")}
                                           className={cn(
                                             "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
-                                            isActive && location.pathname === "/questions/2"
-                                              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                                            isActive && location.pathname.startsWith("/questions/2")
+                                              ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
                                               : "text-sidebar-foreground hover:bg-sidebar-accent/20"
                                           )}
                                         >
@@ -362,7 +387,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           className={cn(
                             "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
                             isActive && location.pathname === "/export"
-                              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                              ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
                               : "text-sidebar-foreground hover:bg-sidebar-accent/20"
                           )}
                         >

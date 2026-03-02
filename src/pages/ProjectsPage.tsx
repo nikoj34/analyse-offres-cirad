@@ -18,7 +18,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import ciradLogo from "@/assets/cirad-logo.png";
+import ciradLogo from "@/assets/ditam-logo.png";
 import { getVersionDisplayLabel, migrateToMultiLot, type ProjectData } from "@/types/project";
 import { ImportedProjectSchema } from "@/lib/projectValidation";
 import { getRepository } from "@/lib/storageRepository";
@@ -245,7 +245,7 @@ const ProjectsPage = () => {
     <div className="min-h-screen bg-background flex flex-col">
       <header className="border-b border-border bg-card px-6 py-4">
         <div className="mx-auto max-w-4xl flex items-center gap-3">
-          <img src={ciradLogo} alt="CIRAD" className="h-10" width="119" height="40" />
+          <img src={ciradLogo} alt="DITAM" className="h-10" width="119" height="40" />
           <div>
             <h1 className="text-xl font-bold text-foreground">Analyse d'offres - Etudes & Travaux</h1>
             <p className="text-xs text-muted-foreground">Gestion des analyses de marchés publics</p>

@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { Settings, FolderOpen, BarChart3, HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import ciradLogo from "@/assets/cirad-logo.png";
+import ciradLogo from "@/assets/ditam-logo.png";
 
 /**
  * Sidebar minimale affichée quand aucun projet n'est ouvert.
@@ -11,7 +11,7 @@ export function GlobalSidebar() {
   return (
     <aside className="w-64 shrink-0 border-r border-border bg-sidebar flex flex-col min-h-screen">
       <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4 shrink-0">
-        <img src={ciradLogo} alt="CIRAD" className="h-8" />
+        <img src={ciradLogo} alt="DITAM" className="h-8" />
         <span className="text-sm font-bold text-sidebar-foreground leading-tight">
           Analyse d'offres
         </span>

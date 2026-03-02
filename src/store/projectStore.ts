@@ -116,6 +116,11 @@ interface ProjectStore {
   setCompanyProposedVariante: (companyId: number, value: boolean) => void;
   getCompanyProposedVariante: (companyId: number) => boolean;
 
+  setScenarioEnabledLine: (lineId: number, enabled: boolean) => void;
+  getScenarioEnabledLines: (activeLotLineIds: { id: number; type: string | null }[]) => Record<number, boolean>;
+  setPseVarianteChoice: (lineId: number, choice: "oui" | "non" | null) => void;
+  getPseVarianteChoice: (lineId: number) => "oui" | "non" | undefined;
+
   createVersion: (label: string, analysisDate: string) => void;
   switchVersion: (versionId: string) => void;
   deleteVersion: (versionId: string) => void;
@@ -130,6 +135,7 @@ interface ProjectStore {
 
   // Questionnaire actions
   activateQuestionnaire: (versionId: string, retainedCompanyIds: number[]) => void;
+  syncQuestionnaireCompanies: (versionId: string, retainedCompanyIds: number[]) => void;
   setQuestionnaireDealine: (versionId: string, date: string) => void;
   addQuestion: (versionId: string, companyId: number) => void;
   updateQuestion: (versionId: string, companyId: number, questionId: string, text: string) => void;
@@ -607,6 +613,56 @@ export const useProjectStore = create<ProjectStore>()(
         return version?.companyProposedVariante?.[companyId] ?? false;
       },
 
+      setScenarioEnabledLine: (lineId, enabled) =>
+        set((state) => {
+          const lot = getLot(state);
+          const version = lot.versions.find((v) => v.id === lot.currentVersionId);
+          if (!version) return state;
+          const scenarioEnabledLines = { ...(version.scenarioEnabledLines ?? {}), [lineId]: enabled };
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === lot.currentVersionId ? { ...v, scenarioEnabledLines } : v
+            ),
+          });
+        }),
+
+      getScenarioEnabledLines: (activeLotLines) => {
+        const state = get();
+        const lot = getLot(state);
+        const version = lot.versions.find((v) => v.id === lot.currentVersionId);
+        const defaults: Record<number, boolean> = {};
+        for (const l of activeLotLines) defaults[l.id] = l.type === "T_OPTIONNELLE";
+        return { ...defaults, ...version?.scenarioEnabledLines };
+      },
+
+      setPseVarianteChoice: (lineId, choice) =>
+        set((state) => {
+          const lot = getLot(state);
+          const version = lot.versions.find((v) => v.id === lot.currentVersionId);
+          if (!version) return state;
+          const prev = version.pseVarianteChoice ?? {};
+          const pseVarianteChoice =
+            choice === null
+              ? (() => {
+                  const next = { ...prev };
+                  delete next[lineId];
+                  return Object.keys(next).length > 0 ? next : undefined;
+                })()
+              : { ...prev, [lineId]: choice };
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === lot.currentVersionId ? { ...v, pseVarianteChoice } : v
+            ),
+          });
+        }),
+
+      getPseVarianteChoice: (lineId) => {
+        const state = get();
+        const lot = getLot(state);
+        const version = lot.versions.find((v) => v.id === lot.currentVersionId);
+        return version?.pseVarianteChoice?.[lineId];
+      },
+
       // === Version management ===
       hasAttributaire: (versionId) => {
         const state = get();
@@ -670,6 +726,10 @@ export const useProjectStore = create<ProjectStore>()(
             documentsToVerify: newDocsToVerify,
             companyProposedVariante: currentVersion.companyProposedVariante
               ? { ...currentVersion.companyProposedVariante } : undefined,
+            scenarioEnabledLines: currentVersion.scenarioEnabledLines
+              ? { ...currentVersion.scenarioEnabledLines } : undefined,
+            pseVarianteChoice: currentVersion.pseVarianteChoice
+              ? { ...currentVersion.pseVarianteChoice } : undefined,
             questionnaire: undefined,
           };
 
@@ -773,6 +833,41 @@ export const useProjectStore = create<ProjectStore>()(
           return setLot(state, {
             versions: lot.versions.map((v) =>
               v.id === versionId ? { ...v, questionnaire } : v
+            ),
+          });
+        }),
+
+      syncQuestionnaireCompanies: (versionId, retainedCompanyIds) =>
+        set((state) => {
+          const lot = getLot(state);
+          const version = lot.versions.find((v) => v.id === versionId);
+          const questionnaire = version?.questionnaire;
+          if (!version || !questionnaire) return state;
+
+          const existingIds = new Set(
+            questionnaire.questionnaires.map((q) => q.companyId)
+          );
+          const newCompanyIds = retainedCompanyIds.filter(
+            (id) => !existingIds.has(id)
+          );
+          if (newCompanyIds.length === 0) return state;
+
+          const extra: CompanyQuestionnaire[] = newCompanyIds.map(
+            (companyId) => ({
+              companyId,
+              questions: [],
+              receptionMode: false,
+            })
+          );
+
+          const updatedQuestionnaire: NegotiationQuestionnaire = {
+            ...questionnaire,
+            questionnaires: [...questionnaire.questionnaires, ...extra],
+          };
+
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === versionId ? { ...v, questionnaire: updatedQuestionnaire } : v
             ),
           });
         }),

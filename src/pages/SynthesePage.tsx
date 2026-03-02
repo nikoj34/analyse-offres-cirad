@@ -14,6 +14,7 @@ import {
   Settings2, MessageSquare, Plus, GitBranch, ArrowRight, Trash2,
 } from "lucide-react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
+import { getCompanyColor, getCompanyBgColor } from "@/lib/companyColors";
 import { useNavigate } from "react-router-dom";
 import { useWeightingValid } from "@/hooks/useWeightingValid";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -458,16 +459,32 @@ const SynthesePage = () => {
             <TableBody>
               {scenarioResults.map((row) => {
                 const isExcluded = row.company.status === "ecartee";
+                const companyIndex = Math.max(
+                  0,
+                  activeCompanies.findIndex((c) => c.id === row.company.id)
+                );
                 // Rang recalculé depuis scenarioSorted (réactif aux toggles)
                 const rankInSorted = isExcluded
                   ? null
-                  : scenarioSorted.filter((r) => r.company.status !== "ecartee").findIndex((r) => r.company.id === row.company.id) + 1;
+                  : scenarioSorted
+                      .filter((r) => r.company.status !== "ecartee")
+                      .findIndex((r) => r.company.id === row.company.id) + 1;
                 const decision = getNegotiationDecision(row.company.id);
                 const availableDecisions = getAvailableDecisions(row.company.id);
                 return (
                   <TableRow key={row.company.id} className={isExcluded ? "opacity-50" : ""}>
                     <TableCell className="font-semibold">{isExcluded ? "—" : rankInSorted}</TableCell>
-                    <TableCell className="font-medium">
+                    <TableCell
+                      className="font-medium"
+                      style={
+                        isExcluded
+                          ? undefined
+                          : {
+                              borderLeft: `4px solid ${getCompanyColor(companyIndex)}`,
+                              backgroundColor: getCompanyBgColor(companyIndex),
+                            }
+                      }
+                    >
                       <div className="flex flex-col gap-0.5">
                         <span>{row.company.id}. {row.company.name}</span>
                         {activeCompareLines.length > 0 && !isExcluded && (

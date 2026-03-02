@@ -166,6 +166,10 @@ export interface NegotiationVersion {
   documentsToVerify: Record<number, string>;
   /** Entreprise a proposé une variante (pour afficher la saisie prix variante si autorisée) */
   companyProposedVariante?: Record<number, boolean>;
+  /** Lignes optionnelles incluses dans le scénario (TO = true par défaut). Utilisé pour le montant scénario Synthèse / Réponses. */
+  scenarioEnabledLines?: Record<number, boolean>;
+  /** PSE / Variantes retenues au marché (OUI = inclus dans le montant scénario). */
+  pseVarianteChoice?: Record<number, "oui" | "non">;
   questionnaire?: NegotiationQuestionnaire;
 }
 

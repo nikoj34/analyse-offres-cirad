@@ -5,17 +5,68 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, MessageSquare, Plus, Trash2, Download, Upload, Unlock } from "lucide-react";
-import { useRef } from "react";
+import { AlertTriangle, MessageSquare, Plus, Trash2, Download, Upload, Unlock, Euro } from "lucide-react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { useAnalysisContext } from "@/hooks/useAnalysisContext";
+import { getCompanyColor, getCompanyBgColor } from "@/lib/companyColors";
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
+import type { LotLine } from "@/types/project";
+
+const fmt = (n: number) =>
+  new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+
+function getDeviationColor(offer: number, estimation: number, seuil: number): string {
+  if (estimation === 0) return "";
+  const ratio = (offer - estimation) / Math.abs(estimation);
+  const absRatio = Math.abs(ratio);
+  const halfSeuil = seuil / 2 / 100;
+  const seuilRatio = seuil / 100;
+  if (absRatio <= halfSeuil) return "text-green-600 dark:text-green-500";
+  if (absRatio <= seuilRatio) return "text-orange-600 dark:text-orange-500";
+  return "text-red-600 dark:text-red-400 font-semibold";
+}
+
+function getDeviationBg(offer: number, estimation: number, seuil: number): string {
+  if (estimation === 0) return "";
+  const ratio = (offer - estimation) / Math.abs(estimation);
+  const absRatio = Math.abs(ratio);
+  const halfSeuil = seuil / 2 / 100;
+  const seuilRatio = seuil / 100;
+  if (absRatio > seuilRatio) return "bg-red-50 dark:bg-red-950/30";
+  if (absRatio <= halfSeuil) return "bg-green-50 dark:bg-green-950/30";
+  return "bg-orange-50 dark:bg-orange-950/30";
+}
+
+function getAutoLabel(type: string | null, index: number): string {
+  if (!type) return "";
+  switch (type) {
+    case "PSE": return `PSE ${index}`;
+    case "VARIANTE": return `Variante ${index}`;
+    case "T_OPTIONNELLE": return index === 1 ? "Tranche Optionnelle" : `Tranche Optionnelle ${index - 1}`;
+    default: return "";
+  }
+}
+
+function buildTypeCounters(lotLines: LotLine[]): Record<number, string> {
+  const counters: Record<string, number> = {};
+  const result: Record<number, string> = {};
+  for (const line of lotLines) {
+    if (line.type) {
+      counters[line.type] = (counters[line.type] ?? 0) + 1;
+      result[line.id] = getAutoLabel(line.type, counters[line.type]);
+    }
+  }
+  return result;
+}
 
 const QuestionnairePage = () => {
   const { round } = useParams<{ round?: string }>();
-  const { project, activateQuestionnaire, setQuestionnaireDealine, addQuestion, updateQuestion, removeQuestion, setReceptionMode, setQuestionResponse } = useProjectStore();
+  const { project, activateQuestionnaire, syncQuestionnaireCompanies, setQuestionnaireDealine, addQuestion, updateQuestion, removeQuestion, setReceptionMode, setQuestionResponse } = useProjectStore();
   const lot = project.lots[project.currentLotIndex];
+  const { activeCompanies } = useAnalysisContext();
   const { toast } = useToast();
   const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
@@ -65,6 +116,76 @@ const QuestionnairePage = () => {
   if (!questionnaire) return null;
 
   const versionId = targetVersion.id;
+
+  useEffect(() => {
+    if (!versionId) return;
+    syncQuestionnaireCompanies(versionId, retainedIds);
+  }, [versionId, retainedIds, syncQuestionnaireCompanies]);
+
+  const retainedQuestionnaires = questionnaire.questionnaires.filter((cq) =>
+    retainedIds.includes(cq.companyId)
+  );
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  useEffect(() => {
+    if (retainedQuestionnaires.length === 0) {
+      if (currentIndex !== 0) setCurrentIndex(0);
+      return;
+    }
+    if (currentIndex > retainedQuestionnaires.length - 1) {
+      setCurrentIndex(retainedQuestionnaires.length - 1);
+    }
+  }, [retainedQuestionnaires.length, currentIndex]);
+
+  const currentCq = retainedQuestionnaires[currentIndex];
+  const hasPrev = currentIndex > 0;
+  const hasNext = currentIndex < retainedQuestionnaires.length - 1;
+
+  const lotLines = lot?.lotLines ?? [];
+  const activeLotLines = useMemo(() => lotLines.filter((l) => l.label.trim() !== ""), [lotLines]);
+  const hasDualDpgf = lot?.hasDualDpgf ?? false;
+  const toleranceSeuil = lot?.toleranceSeuil ?? 20;
+  const typeCounters = useMemo(() => buildTypeCounters(lotLines), [lotLines]);
+
+  const getPriceEntry = (companyId: number, lotLineId: number) =>
+    targetVersion?.priceEntries?.find((e) => e.companyId === companyId && e.lotLineId === lotLineId);
+
+  const companyPriceTotal = useMemo(() => {
+    if (!currentCq || !targetVersion?.priceEntries) return null;
+    const companyId = currentCq.companyId;
+    let dpgf1 = 0, dpgf2 = 0;
+    const base = getPriceEntry(companyId, 0);
+    dpgf1 += base?.dpgf1 ?? 0;
+    dpgf2 += base?.dpgf2 ?? 0;
+    for (const line of activeLotLines) {
+      const e = getPriceEntry(companyId, line.id);
+      dpgf1 += e?.dpgf1 ?? 0;
+      dpgf2 += e?.dpgf2 ?? 0;
+    }
+    return { dpgf1, dpgf2, total: dpgf1 + dpgf2 };
+  }, [currentCq, targetVersion?.priceEntries, activeLotLines]);
+
+  const renderDeviationCell = (offer: number | null, estimation: number) => {
+    const o = offer ?? 0;
+    if (Math.abs(estimation) === 0 || o === 0) return <span className="text-muted-foreground">—</span>;
+    const pct = ((o - estimation) / Math.abs(estimation)) * 100;
+    const color = getDeviationColor(o, estimation, toleranceSeuil);
+    return <span className={`font-medium ${color}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(2)}%</span>;
+  };
+
+  const renderPriceReadOnly = (value: number | null, estimation: number | null) => {
+    const est = estimation ?? 0;
+    const val = value ?? 0;
+    const devBg = est !== 0 && val !== 0 ? getDeviationBg(val, est, toleranceSeuil) : "";
+    return (
+      <div className={`space-y-0.5 rounded px-1 text-right text-sm ${devBg}`}>
+        <div className="font-medium">{val !== 0 ? fmt(val) : "—"}</div>
+        <div className="text-[10px] text-muted-foreground">
+          Est. : {estimation != null && estimation !== 0 ? fmt(estimation) : "—"}
+        </div>
+      </div>
+    );
+  };
 
   // Dynamic title
   const totalVersions = lot.versions.length;
@@ -192,23 +313,41 @@ const QuestionnairePage = () => {
       </Card>
 
       <div className="space-y-6">
-        {questionnaire.questionnaires
-          .filter((cq) => retainedIds.includes(cq.companyId))
-          .map((cq) => (
-            <Card key={cq.companyId}>
+        {retainedQuestionnaires.length > 1 && (
+          <div className="flex items-center rounded-lg border border-border bg-muted/30 px-4 py-2">
+            <span className="text-sm font-medium text-muted-foreground">
+              Entreprise {currentIndex + 1} / {retainedQuestionnaires.length}
+            </span>
+          </div>
+        )}
+
+        {currentCq && (() => {
+          const companyIndex = Math.max(
+            0,
+            activeCompanies.findIndex((c) => c.id === currentCq.companyId)
+          );
+          return (
+            <Card
+              key={currentCq.companyId}
+              style={{
+                borderLeft: `4px solid ${getCompanyColor(companyIndex)}`,
+                backgroundColor: getCompanyBgColor(companyIndex),
+              }}
+            >
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2 flex-wrap">
                   <MessageSquare className="h-4 w-4 text-primary" />
-                  {cq.companyId}. {getCompanyName(cq.companyId)}
+                  {currentCq.companyId}. {getCompanyName(currentCq.companyId)}
                   <Badge variant="secondary" className="text-xs">
-                    {cq.questions.length} question{cq.questions.length !== 1 ? "s" : ""}
+                    {currentCq.questions.length} question
+                    {currentCq.questions.length !== 1 ? "s" : ""}
                   </Badge>
                   <div className="flex gap-2 ml-auto">
                     <Button
                       variant="outline"
                       size="sm"
                       className="gap-1 text-xs"
-                      onClick={() => handleExport(cq.companyId, false)}
+                      onClick={() => handleExport(currentCq.companyId, false)}
                     >
                       <Download className="h-3.5 w-3.5" />
                       Export questions
@@ -217,18 +356,20 @@ const QuestionnairePage = () => {
                       variant="outline"
                       size="sm"
                       className="gap-1 text-xs"
-                      onClick={() => handleExport(cq.companyId, true)}
+                      onClick={() => handleExport(currentCq.companyId, true)}
                     >
                       <Download className="h-3.5 w-3.5" />
                       Export Q&R
                     </Button>
-                    {!cq.receptionMode && (
+                    {!currentCq.receptionMode && (
                       <>
                         <Button
                           variant="outline"
                           size="sm"
                           className="gap-1 text-xs"
-                          onClick={() => fileInputRefs.current[cq.companyId]?.click()}
+                          onClick={() =>
+                            fileInputRefs.current[currentCq.companyId]?.click()
+                          }
                         >
                           <Upload className="h-3.5 w-3.5" />
                           Import réponses
@@ -237,18 +378,20 @@ const QuestionnairePage = () => {
                           type="file"
                           accept=".xlsx,.xls"
                           className="hidden"
-                          ref={(el) => { fileInputRefs.current[cq.companyId] = el; }}
+                          ref={(el) => {
+                            fileInputRefs.current[currentCq.companyId] = el;
+                          }}
                           onChange={(e) => {
                             const file = e.target.files?.[0];
                             if (file) {
-                              handleImport(cq.companyId, file);
+                              handleImport(currentCq.companyId, file);
                               e.target.value = "";
                             }
                           }}
                         />
                       </>
                     )}
-                    {cq.receptionMode && (
+                    {currentCq.receptionMode && (
                       <div className="flex items-center gap-2">
                         <Badge variant="secondary" className="text-xs">
                           Réponses importées — non modifiable
@@ -257,7 +400,13 @@ const QuestionnairePage = () => {
                           variant="outline"
                           size="sm"
                           className="gap-1 text-xs"
-                          onClick={() => setReceptionMode(versionId, cq.companyId, false)}
+                          onClick={() =>
+                            setReceptionMode(
+                              versionId,
+                              currentCq.companyId,
+                              false
+                            )
+                          }
                         >
                           <Unlock className="h-3.5 w-3.5" />
                           Réouvrir les questions / réponses
@@ -268,8 +417,97 @@ const QuestionnairePage = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {cq.questions.map((q, qIdx) => (
-                  <div key={q.id} className="space-y-1.5 border-b border-border pb-3 last:border-0">
+                {/* Tableau des prix (même type que Nego 1 / Prix) — lecture seule */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <Euro className="h-4 w-4" />
+                    Tableau des prix
+                  </h3>
+                  <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 text-xs font-medium text-muted-foreground px-1`}>
+                    <span>Ligne</span>
+                    <span className="text-right">DPGF 1 (€ HT)</span>
+                    <span className="text-right">Écart</span>
+                    {hasDualDpgf && <span className="text-right">DPGF 2 (€ HT)</span>}
+                    {hasDualDpgf && <span className="text-right">Écart</span>}
+                  </div>
+                  {/* Ligne DPGF (Tranche ferme) */}
+                  {(() => {
+                    const entry = getPriceEntry(currentCq.companyId, 0);
+                    const est1 = lot?.estimationDpgf1 ?? 0;
+                    const est2 = lot?.estimationDpgf2 ?? 0;
+                    return (
+                      <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 items-center rounded-md border-2 border-primary/30 bg-primary/5 p-2`}>
+                        <div className="text-sm font-semibold">DPGF (Tranche Ferme)</div>
+                        <div>{renderPriceReadOnly(entry?.dpgf1 ?? null, est1 || null)}</div>
+                        <div className="text-right text-xs">{renderDeviationCell(entry?.dpgf1 ?? null, est1)}</div>
+                        {hasDualDpgf && (
+                          <>
+                            <div>{renderPriceReadOnly(entry?.dpgf2 ?? null, est2 || null)}</div>
+                            <div className="text-right text-xs">{renderDeviationCell(entry?.dpgf2 ?? null, est2)}</div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  {/* Lignes PSE / TO / variantes */}
+                  {activeLotLines.map((line) => {
+                    const entry = getPriceEntry(currentCq.companyId, line.id);
+                    const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
+                    const showDpgf2 = hasDualDpgf && (line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both");
+                    const autoNum = typeCounters[line.id];
+                    return (
+                      <div
+                        key={line.id}
+                        className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 items-center rounded-md border border-border p-2`}
+                      >
+                        <div className="text-sm">
+                          <span className="font-medium">{line.label}</span>
+                          {autoNum && (
+                            <Badge variant="outline" className="ml-2 text-xs">
+                              {autoNum}
+                            </Badge>
+                          )}
+                        </div>
+                        {showDpgf1 ? (
+                          <div>{renderPriceReadOnly(entry?.dpgf1 ?? null, line.estimationDpgf1 ?? null)}</div>
+                        ) : (
+                          <span className="text-center text-xs text-muted-foreground">—</span>
+                        )}
+                        <div className="text-right text-xs">
+                          {showDpgf1 ? renderDeviationCell(entry?.dpgf1 ?? null, line.estimationDpgf1 ?? 0) : <span className="text-muted-foreground">—</span>}
+                        </div>
+                        {hasDualDpgf && (
+                          showDpgf2 ? (
+                            <>
+                              <div>{renderPriceReadOnly(entry?.dpgf2 ?? null, line.estimationDpgf2 ?? null)}</div>
+                              <div className="text-right text-xs">{renderDeviationCell(entry?.dpgf2 ?? null, line.estimationDpgf2 ?? 0)}</div>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-center text-xs text-muted-foreground">—</span>
+                              <span className="text-muted-foreground">—</span>
+                            </>
+                          )
+                        )}
+                      </div>
+                    );
+                  })}
+                  {companyPriceTotal && (
+                    <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 rounded-md bg-muted/50 p-2 text-sm font-semibold`}>
+                      <span>Total</span>
+                      <span className="text-right">{fmt(companyPriceTotal.dpgf1)}</span>
+                      <span />
+                      {hasDualDpgf && <span className="text-right">{fmt(companyPriceTotal.dpgf2)}</span>}
+                      {hasDualDpgf && <span />}
+                    </div>
+                  )}
+                </div>
+
+                {currentCq.questions.map((q, qIdx) => (
+                  <div
+                    key={q.id}
+                    className="space-y-1.5 border-b border-border pb-3 last:border-0"
+                  >
                     <div className="flex gap-2 items-start">
                       <span className="text-sm font-semibold text-muted-foreground mt-2 w-8 shrink-0">
                         {qIdx + 1}.
@@ -280,42 +518,66 @@ const QuestionnairePage = () => {
                         placeholder={`Question ${qIdx + 1}…`}
                         value={q.text}
                         maxLength={10000}
-                        onChange={(e) => updateQuestion(versionId, cq.companyId, q.id, e.target.value)}
-                        readOnly={cq.receptionMode}
-                        disabled={cq.receptionMode}
+                        onChange={(e) =>
+                          updateQuestion(
+                            versionId,
+                            currentCq.companyId,
+                            q.id,
+                            e.target.value
+                          )
+                        }
+                        readOnly={currentCq.receptionMode}
+                        disabled={currentCq.receptionMode}
                       />
-                      {!cq.receptionMode && (
+                      {!currentCq.receptionMode && (
                         <Button
                           variant="ghost"
                           size="icon"
                           className="shrink-0 text-destructive hover:text-destructive mt-1"
-                          onClick={() => removeQuestion(versionId, cq.companyId, q.id)}
+                          onClick={() =>
+                            removeQuestion(
+                              versionId,
+                              currentCq.companyId,
+                              q.id
+                            )
+                          }
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       )}
                     </div>
                     <div className="ml-8">
-                      <label className="text-xs text-blue-600 font-medium">💬 Réponse :</label>
+                      <label className="text-xs text-blue-600 font-medium">
+                        💬 Réponse :
+                      </label>
                       <Textarea
                         className="text-sm border-blue-200 min-h-[40px] mt-1 bg-muted/50"
                         rows={2}
                         value={q.response}
                         maxLength={10000}
-                        onChange={(e) => setQuestionResponse(versionId, cq.companyId, q.id, e.target.value)}
+                        onChange={(e) =>
+                          setQuestionResponse(
+                            versionId,
+                            currentCq.companyId,
+                            q.id,
+                            e.target.value
+                          )
+                        }
                         placeholder="Réponse de l'entreprise… (saisir manuellement ou importer via Excel)"
-                        readOnly={cq.receptionMode}
-                        disabled={cq.receptionMode}
+                        readOnly={currentCq.receptionMode}
+                        disabled={currentCq.receptionMode}
                       />
                     </div>
                   </div>
                 ))}
-                {!cq.receptionMode && (
+                {!currentCq.receptionMode && (
                   <Button
                     variant="outline"
                     size="sm"
                     className="gap-1"
-                    onClick={() => addQuestion(versionId, cq.companyId)}
+                    onClick={() =>
+                      addQuestion(versionId, currentCq.companyId)
+                    }
                   >
                     <Plus className="h-3.5 w-3.5" />
                     Ajouter une question
@@ -323,7 +585,39 @@ const QuestionnairePage = () => {
                 )}
               </CardContent>
             </Card>
-          ))}
+          );
+        })()}
+
+        {retainedQuestionnaires.length > 1 && (
+          <div className="mt-6 flex items-center justify-end rounded-lg border border-border bg-muted/30 px-4 py-2">
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!hasPrev}
+                onClick={() =>
+                  setCurrentIndex((idx) => Math.max(0, idx - 1))
+                }
+              >
+                Entreprise précédente
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!hasNext}
+                onClick={() =>
+                  setCurrentIndex((idx) =>
+                    Math.min(retainedQuestionnaires.length - 1, idx + 1)
+                  )
+                }
+              >
+                Entreprise suivante
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
