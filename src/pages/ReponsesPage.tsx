@@ -44,28 +44,31 @@ function getCompanyScenarioTotalInVersion(
   return getCompanyScenarioTotal(version, activeLotLines, companyId);
 }
 
-/** Total calculé à partir des lignes (TF + PSE, TO, …) et des ajustements saisis. */
-function getTotalFromLineAdjustments(
+/** Total "Nouveau prix" = somme des nouvelles propositions par ligne ; si un champ est vide, on utilise le montant initial saisi en Analyse des prix. */
+function getTotalFromLineNewProposals(
   version: NegotiationVersion | undefined,
   activeLotLines: { id: number; type: string | null }[],
   companyId: number,
-  lineAdjustments: Record<string, string>
+  lineNewDpgf1: Record<string, string>,
+  lineNewDpgf2: Record<string, string>
 ): number {
   if (!version?.priceEntries) return 0;
   let total = 0;
   const key0 = `${companyId}:0`;
   const entry0 = version.priceEntries.find((e) => e.companyId === companyId && e.lotLineId === 0);
-  const base0 = (entry0?.dpgf1 ?? 0) + (entry0?.dpgf2 ?? 0);
-  const raw0 = lineAdjustments[key0] ?? "";
-  const delta0 = raw0.trim() === "" ? 0 : parseFloat(raw0.replace(",", "."));
-  total += base0 + (Number.isNaN(delta0) ? 0 : delta0);
+  const raw1_0 = (lineNewDpgf1[key0] ?? "").trim();
+  const raw2_0 = (lineNewDpgf2[key0] ?? "").trim();
+  const v1_0 = raw1_0 === "" ? (entry0?.dpgf1 ?? 0) : (parseFloat(raw1_0.replace(",", ".")) || 0);
+  const v2_0 = raw2_0 === "" ? (entry0?.dpgf2 ?? 0) : (parseFloat(raw2_0.replace(",", ".")) || 0);
+  total += (Number.isNaN(v1_0) ? (entry0?.dpgf1 ?? 0) : v1_0) + (Number.isNaN(v2_0) ? (entry0?.dpgf2 ?? 0) : v2_0);
   for (const line of activeLotLines) {
     const entry = version.priceEntries.find((e) => e.companyId === companyId && e.lotLineId === line.id);
-    const lineTotal = (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
     const key = `${companyId}:${line.id}`;
-    const raw = lineAdjustments[key] ?? "";
-    const delta = raw.trim() === "" ? 0 : parseFloat(raw.replace(",", "."));
-    total += lineTotal + (Number.isNaN(delta) ? 0 : delta);
+    const raw1 = (lineNewDpgf1[key] ?? "").trim();
+    const raw2 = (lineNewDpgf2[key] ?? "").trim();
+    const v1 = raw1 === "" ? (entry?.dpgf1 ?? 0) : (parseFloat(raw1.replace(",", ".")) || 0);
+    const v2 = raw2 === "" ? (entry?.dpgf2 ?? 0) : (parseFloat(raw2.replace(",", ".")) || 0);
+    total += (Number.isNaN(v1) ? (entry?.dpgf1 ?? 0) : v1) + (Number.isNaN(v2) ? (entry?.dpgf2 ?? 0) : v2);
   }
   return total;
 }
@@ -136,20 +139,21 @@ const ReponsesPage = () => {
   );
 
   const [localPriceByCompany, setLocalPriceByCompany] = useState<Record<number, string>>({});
-  const [lineAdjustments, setLineAdjustments] = useState<Record<string, string>>({});
+  const [lineNewDpgf1, setLineNewDpgf1] = useState<Record<string, string>>({});
+  const [lineNewDpgf2, setLineNewDpgf2] = useState<Record<string, string>>({});
 
-  // Total "Nouveau prix" = somme des lignes (TF + PSE, TO, …) + ajustements ; se met à jour quand on modifie une ligne
+  // Total "Nouveau prix" = somme des nouvelles propositions par ligne ; se met à jour quand on modifie une ligne
   useEffect(() => {
     if (!version || companies.length === 0) return;
     setLocalPriceByCompany((prev) => {
       const next = { ...prev };
       for (const c of companies) {
-        const total = getTotalFromLineAdjustments(version, activeLotLines, c.id, lineAdjustments);
+        const total = getTotalFromLineNewProposals(version, activeLotLines, c.id, lineNewDpgf1, lineNewDpgf2);
         next[c.id] = total > 0 ? String(total) : "";
       }
       return next;
     });
-  }, [lineAdjustments, version?.id, companyIdsKey, companies.length, activeLotLines]);
+  }, [lineNewDpgf1, lineNewDpgf2, version?.id, companyIdsKey, companies.length, activeLotLines]);
 
   const estimationTotale =
     (lot?.estimationDpgf1 ?? 0) + (lot?.estimationDpgf2 ?? 0);
@@ -162,28 +166,6 @@ const ReponsesPage = () => {
         (c) => c.id !== "prix" && (c.weight ?? 0) > 0
       ),
     [weightingCriteria]
-  );
-
-  const handleValidatePrice = useCallback(
-    (companyId: number) => {
-      const raw = localPriceByCompany[companyId] ?? "";
-      if (raw.trim() === "") return;
-      const val = parseFloat(raw.replace(",", "."));
-      if (Number.isNaN(val) || val < 0) return;
-      const normalised = val.toFixed(2).replace(".", ",");
-      setLocalPriceByCompany((prev) => ({
-        ...prev,
-        [companyId]: normalised,
-      }));
-    },
-    [localPriceByCompany]
-  );
-
-  const handleBlurPrice = useCallback(
-    (companyId: number) => {
-      handleValidatePrice(companyId);
-    },
-    [handleValidatePrice]
   );
 
   if (!lot) {
@@ -302,24 +284,18 @@ const ReponsesPage = () => {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor={`new-price-${company.id}`}>
+                <Label className="text-muted-foreground">
                   Nouveau prix
                 </Label>
-                <Input
-                  id={`new-price-${company.id}`}
-                  type="text"
-                  inputMode="decimal"
-                  value={localVal}
-                  onChange={(e) =>
-                    setLocalPriceByCompany((prev) => ({
-                      ...prev,
-                      [company.id]: e.target.value,
-                    }))
-                  }
-                  onBlur={() => handleBlurPrice(company.id)}
-                  placeholder="0,00"
-                  className="font-mono"
-                />
+                <div className="rounded-md border border-input bg-muted/50 px-3 py-2 text-sm font-mono">
+                  {localVal !== "" ? (() => {
+                    const n = parseFloat(localVal.replace(",", "."));
+                    return Number.isNaN(n) ? "—" : fmt(n);
+                  })() : "—"}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Total de toutes les lignes (Nouvelle proposition DPGF 1 + DPGF 2), comparé à l&apos;ancien prix.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label className="text-muted-foreground">
@@ -361,10 +337,10 @@ const ReponsesPage = () => {
               Détail des prix (DPGF, PSE, TO, variantes)
             </h3>
             <p className="text-xs text-muted-foreground">
-              Les montants ci-dessous sont ceux saisis dans « Analyse des prix » (figés). Vous pouvez saisir en face un ajustement de négociation sans modifier les prix initiaux.
+              Les montants ci-dessous sont ceux saisis dans « Analyse des prix » (figés). Saisissez les nouvelles propositions DPGF 1 et DPGF 2 par ligne ; le Nouveau prix ci-dessus est le total de toutes les lignes.
             </p>
 
-            <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_120px_120px_140px_140px]" : "grid-cols-[1fr_140px_140px]"} gap-2 text-xs font-medium text-muted-foreground px-1`}>
+            <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_120px_120px_140px_140px_140px]" : "grid-cols-[1fr_140px_140px_140px]"} gap-2 text-xs font-medium text-muted-foreground px-1`}>
               <span>Ligne</span>
               {hasDualDpgf ? (
                 <>
@@ -374,11 +350,12 @@ const ReponsesPage = () => {
               ) : (
                 <span className="text-right">Prix initial (€ HT)</span>
               )}
-              <span className="text-right">Ajustement (€)</span>
+              <span className="text-right">Nouvelle proposition DPGF 1 (€ HT)</span>
+              <span className="text-right">Nouvelle proposition DPGF 2 (€ HT)</span>
               {hasDualDpgf && <span className="text-right">Nouveau total indicatif</span>}
             </div>
 
-            {/* Ligne DPGF (Tranche ferme) — mêmes colonnes qu'en Analyse des prix */}
+            {/* Ligne DPGF (Tranche ferme) — reprend les montants Analyse des prix, modifiables à la hausse/baisse */}
             {(() => {
               const entry = version.priceEntries.find(
                 (e) => e.companyId === company.id && e.lotLineId === 0
@@ -387,12 +364,14 @@ const ReponsesPage = () => {
               const dpgf2 = entry?.dpgf2 ?? 0;
               const baseTotal = dpgf1 + dpgf2;
               const key = `${company.id}:0`;
-              const rawDelta = lineAdjustments[key] ?? "";
-              const delta = rawDelta.trim() === "" ? 0 : parseFloat(rawDelta.replace(",", "."));
-              const newTotal = baseTotal + (Number.isNaN(delta) ? 0 : delta);
+              const disp1 = lineNewDpgf1[key] !== undefined ? lineNewDpgf1[key] : (entry?.dpgf1 != null ? entry.dpgf1.toFixed(2).replace(".", ",") : "");
+              const disp2 = lineNewDpgf2[key] !== undefined ? lineNewDpgf2[key] : (entry?.dpgf2 != null ? entry.dpgf2.toFixed(2).replace(".", ",") : "");
+              const v1 = (lineNewDpgf1[key] ?? "").trim() === "" ? dpgf1 : (parseFloat((lineNewDpgf1[key] ?? "").replace(",", ".")) || 0);
+              const v2 = (lineNewDpgf2[key] ?? "").trim() === "" ? dpgf2 : (parseFloat((lineNewDpgf2[key] ?? "").replace(",", ".")) || 0);
+              const newTotal = (Number.isNaN(v1) ? dpgf1 : v1) + (Number.isNaN(v2) ? dpgf2 : v2);
               return (
                 <div
-                  className={`grid ${hasDualDpgf ? "grid-cols-[1fr_120px_120px_140px_140px]" : "grid-cols-[1fr_140px_140px]"} gap-2 items-center rounded-md border border-border p-2 bg-muted/40`}
+                  className={`grid ${hasDualDpgf ? "grid-cols-[1fr_120px_120px_140px_140px_140px]" : "grid-cols-[1fr_140px_140px_140px]"} gap-2 items-center rounded-md border border-border p-2 bg-muted/40`}
                 >
                   <div className="text-sm font-semibold">DPGF (Tranche ferme)</div>
                   {hasDualDpgf ? (
@@ -413,9 +392,22 @@ const ReponsesPage = () => {
                     type="text"
                     inputMode="decimal"
                     className="text-right text-sm"
-                    value={rawDelta}
+                    value={disp1}
                     onChange={(e) =>
-                      setLineAdjustments((prev) => ({
+                      setLineNewDpgf1((prev) => ({
+                        ...prev,
+                        [key]: e.target.value,
+                      }))
+                    }
+                    placeholder="0,00"
+                  />
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    className="text-right text-sm"
+                    value={disp2}
+                    onChange={(e) =>
+                      setLineNewDpgf2((prev) => ({
                         ...prev,
                         [key]: e.target.value,
                       }))
@@ -424,14 +416,14 @@ const ReponsesPage = () => {
                   />
                   {hasDualDpgf && (
                     <div className="text-right text-xs text-muted-foreground">
-                      {baseTotal > 0 || delta !== 0 ? fmt(Number.isNaN(newTotal) ? baseTotal : newTotal) : "—"}
+                      {baseTotal > 0 || disp1 !== "" || disp2 !== "" ? fmt(Number.isNaN(newTotal) ? baseTotal : newTotal) : "—"}
                     </div>
                   )}
                 </div>
               );
             })()}
 
-            {/* Lignes PSE / TO / autres (lotLines actifs) — mêmes colonnes et montants qu'en Analyse des prix */}
+            {/* Lignes PSE / TO / autres — reprennent les montants Analyse des prix, modifiables à la hausse/baisse */}
             {activeLotLines.map((line) => {
               const entry = version.priceEntries.find(
                 (e) => e.companyId === company.id && e.lotLineId === line.id
@@ -442,9 +434,11 @@ const ReponsesPage = () => {
               const dpgf2 = entry?.dpgf2 ?? 0;
               const lineTotal = dpgf1 + dpgf2;
               const key = `${company.id}:${line.id}`;
-              const rawDelta = lineAdjustments[key] ?? "";
-              const delta = rawDelta.trim() === "" ? 0 : parseFloat(rawDelta.replace(",", "."));
-              const newTotal = lineTotal + (Number.isNaN(delta) ? 0 : delta);
+              const disp1 = lineNewDpgf1[key] !== undefined ? lineNewDpgf1[key] : (entry?.dpgf1 != null ? entry.dpgf1.toFixed(2).replace(".", ",") : "");
+              const disp2 = lineNewDpgf2[key] !== undefined ? lineNewDpgf2[key] : (entry?.dpgf2 != null ? entry.dpgf2.toFixed(2).replace(".", ",") : "");
+              const v1 = (lineNewDpgf1[key] ?? "").trim() === "" ? dpgf1 : (parseFloat((lineNewDpgf1[key] ?? "").replace(",", ".")) || 0);
+              const v2 = (lineNewDpgf2[key] ?? "").trim() === "" ? dpgf2 : (parseFloat((lineNewDpgf2[key] ?? "").replace(",", ".")) || 0);
+              const newTotal = (Number.isNaN(v1) ? dpgf1 : v1) + (Number.isNaN(v2) ? dpgf2 : v2);
               const badgeLabel =
                 line.type === "PSE"
                   ? "PSE"
@@ -456,7 +450,7 @@ const ReponsesPage = () => {
               return (
                 <div
                   key={line.id}
-                  className={`grid ${hasDualDpgf ? "grid-cols-[1fr_120px_120px_140px_140px]" : "grid-cols-[1fr_140px_140px]"} gap-2 items-center rounded-md border border-border p-2`}
+                  className={`grid ${hasDualDpgf ? "grid-cols-[1fr_120px_120px_140px_140px_140px]" : "grid-cols-[1fr_140px_140px_140px]"} gap-2 items-center rounded-md border border-border p-2`}
                 >
                   <div className="text-sm">
                     <span className="font-medium">{line.label}</span>
@@ -484,9 +478,22 @@ const ReponsesPage = () => {
                     type="text"
                     inputMode="decimal"
                     className="text-right text-sm"
-                    value={rawDelta}
+                    value={disp1}
                     onChange={(e) =>
-                      setLineAdjustments((prev) => ({
+                      setLineNewDpgf1((prev) => ({
+                        ...prev,
+                        [key]: e.target.value,
+                      }))
+                    }
+                    placeholder="0,00"
+                  />
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    className="text-right text-sm"
+                    value={disp2}
+                    onChange={(e) =>
+                      setLineNewDpgf2((prev) => ({
                         ...prev,
                         [key]: e.target.value,
                       }))
@@ -495,7 +502,7 @@ const ReponsesPage = () => {
                   />
                   {hasDualDpgf && (
                     <div className="text-right text-xs text-muted-foreground col-span-1">
-                      {lineTotal > 0 || delta !== 0 ? fmt(Number.isNaN(newTotal) ? lineTotal : newTotal) : "—"}
+                      {lineTotal > 0 || disp1 !== "" || disp2 !== "" ? fmt(Number.isNaN(newTotal) ? lineTotal : newTotal) : "—"}
                     </div>
                   )}
                 </div>
@@ -503,20 +510,21 @@ const ReponsesPage = () => {
             })}
           </div>
 
-          {/* Section ANALYSE TECHNIQUE (Lecture seule — notes V0) */}
+          {/* Section ANALYSE TECHNIQUE (Lecture seule — notes V0 + commentaires en gris) */}
           <div className="space-y-3 opacity-60 bg-muted/30 rounded-lg p-4 pointer-events-none">
             <h3 className="text-sm font-semibold flex items-center gap-2">
               <Wrench className="h-4 w-4" />
               Analyse technique
             </h3>
             <p className="text-xs text-muted-foreground">
-              Récapitulatif des sous-critères avec la note initiale (V0). Données figées.
+              Récapitulatif des sous-critères avec la note initiale (V0) et les commentaires de l&apos;analyse technique. Données figées.
             </p>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[200px]">Sous-critère</TableHead>
-                  <TableHead className="text-right">Note initiale (V0)</TableHead>
+                  <TableHead className="text-right w-[140px]">Note initiale (V0)</TableHead>
+                  <TableHead className="text-muted-foreground">Commentaires</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -529,6 +537,7 @@ const ReponsesPage = () => {
                         !n.subCriterionId &&
                         !n.itemId
                     );
+                    const hasComment = note && ((note.comment ?? "").trim() !== "" || (note.commentPositif ?? "").trim() !== "" || (note.commentNegatif ?? "").trim() !== "");
                     return (
                       <TableRow key={criterion.id}>
                         <TableCell className="font-medium">
@@ -538,6 +547,15 @@ const ReponsesPage = () => {
                           {note?.notation
                             ? NOTATION_LABELS[note.notation]
                             : "—"}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground align-top">
+                          {hasComment ? (
+                            <div className="space-y-1.5 whitespace-pre-wrap">
+                              {(note!.comment ?? "").trim() !== "" && <div>{note!.comment}</div>}
+                              {(note!.commentPositif ?? "").trim() !== "" && <div><span className="font-medium">Points positifs :</span> {note!.commentPositif}</div>}
+                              {(note!.commentNegatif ?? "").trim() !== "" && <div><span className="font-medium">Points négatifs :</span> {note!.commentNegatif}</div>}
+                            </div>
+                          ) : "—"}
                         </TableCell>
                       </TableRow>
                     );
@@ -549,6 +567,7 @@ const ReponsesPage = () => {
                         n.subCriterionId === sub.id &&
                         !n.itemId
                     );
+                    const hasComment = note && ((note.comment ?? "").trim() !== "" || (note.commentPositif ?? "").trim() !== "" || (note.commentNegatif ?? "").trim() !== "");
                     return (
                       <TableRow key={`${criterion.id}-${sub.id}`}>
                         <TableCell className="font-medium">
@@ -558,6 +577,15 @@ const ReponsesPage = () => {
                           {note?.notation
                             ? NOTATION_LABELS[note.notation]
                             : "—"}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground align-top">
+                          {hasComment ? (
+                            <div className="space-y-1.5 whitespace-pre-wrap">
+                              {(note!.comment ?? "").trim() !== "" && <div>{note!.comment}</div>}
+                              {(note!.commentPositif ?? "").trim() !== "" && <div><span className="font-medium">Points positifs :</span> {note!.commentPositif}</div>}
+                              {(note!.commentNegatif ?? "").trim() !== "" && <div><span className="font-medium">Points négatifs :</span> {note!.commentNegatif}</div>}
+                            </div>
+                          ) : "—"}
                         </TableCell>
                       </TableRow>
                     );
