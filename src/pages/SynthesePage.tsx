@@ -7,8 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getVersionDisplayLabel, getSyntheseLabel } from "@/types/project";
-import { useMemo, useState } from "react";
+import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getVersionDisplayLabel, getSyntheseLabel, type Company, type VarianteLine } from "@/types/project";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle, Award,
   Settings2, MessageSquare, Plus, GitBranch, ArrowRight, Trash2,
@@ -36,6 +36,8 @@ const SynthesePage = () => {
     project, setNegotiationDecision, getNegotiationDecision,
     validateVersion, unvalidateVersion, hasAttributaire,
     activateQuestionnaire, createVersion, switchVersion, deleteVersion,
+    updateStatutVariante,
+    updateDecisionVariante,
   } = useProjectStore();
   const navigate = useNavigate();
   const lot = project.lots[project.currentLotIndex];
@@ -84,17 +86,43 @@ const SynthesePage = () => {
   const [validationComment, setValidationComment] = useState("");
   const [validationDialogOpen, setValidationDialogOpen] = useState(false);
   const [evictionMotif, setEvictionMotif] = useState("");
-  // Choix OUI / NON explicite pour chaque PSE et Variante
-  const [pseVarianteChoice, setPseVarianteChoice] = useState<Record<number, "oui" | "non" | null>>({});
+  // Choix OUI / NON explicite pour chaque PSE et Variante — par défaut OUI pour que le montant Synthèse = total offre de base (PSE + TO)
+  const [pseVarianteChoice, setPseVarianteChoice] = useState<Record<number, "oui" | "non" | null>>(() => {
+    const init: Record<number, "oui" | "non" | null> = {};
+    for (const l of [...pseLines, ...varianteLines]) {
+      init[l.id] = "oui";
+    }
+    return init;
+  });
 
   const toggleLine = (id: number, lineType?: string | null) => {
     setEnabledLines((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
+  // Lors d’un changement de lot, mettre OUI par défaut pour les PSE/Variantes du lot courant
+  useEffect(() => {
+    const allPseVar = [...pseLines, ...varianteLines];
+    if (allPseVar.length === 0) return;
+    setPseVarianteChoice((prev) => {
+      let next: Record<number, "oui" | "non" | null> | null = null;
+      for (const l of allPseVar) {
+        if (prev[l.id] === undefined || prev[l.id] === null) {
+          if (!next) next = { ...prev };
+          next[l.id] = "oui";
+        }
+      }
+      return next ?? prev;
+    });
+  }, [lot.id, pseLines.length, varianteLines.length]);
+
   const hasPSE = pseLines.length > 0;
   const hasVariante = varianteLines.length > 0;
   const hasTO = toLines.length > 0;
   const hasScenarioOptions = hasPSE || hasVariante || hasTO;
+
+  /** Lignes de variantes (config lot, id négatifs) pour les lignes Synthèse par variante */
+  const varianteLinesConfig: VarianteLine[] = lot.varianteLines ?? [];
+  const showVarianteRows = (lot.varianteAutorisee || lot.varianteExigee) && varianteLinesConfig.length > 0;
 
   const versionHasAttributaire = version ? hasAttributaire(version.id) : false;
   const isValidated = version?.validated ?? false;
@@ -111,6 +139,9 @@ const SynthesePage = () => {
     Object.values(decisions).some((d) => d === "retenue"), [decisions]);
   const hasAnyQuestions = useMemo(() =>
     Object.values(decisions).some((d) => d === "questions_reponses"), [decisions]);
+  const hasAnyWithQuestionsStatus = useMemo(() =>
+    hasAnyQuestions || activeCompanies.some((c) => c.hasQuestions ?? false),
+    [hasAnyQuestions, activeCompanies]);
 
   const eligibleCompanies = useMemo(
     () => activeCompanies.filter((c) => c.status !== "ecartee"),
@@ -155,10 +186,131 @@ const SynthesePage = () => {
     return (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
   };
 
+  /** Score technique d'une variante (même pondération que l'offre de base : Très bien=100%, Bien=75%, etc.) */
+  const getVarianteTechScore = (company: Company, varianteId: string) => {
+    const byVariante = company.scoresTechniquesVariantes?.[varianteId];
+    if (!byVariante) return { total: 0, technique: 0, env: 0, planning: 0 };
+    let total = 0, technique = 0, env = 0, planning = 0;
+    for (const criterion of technicalCriteria) {
+      let criterionScore = 0;
+      if (criterion.subCriteria.length > 0) {
+        let raw = 0;
+        const subTotal = criterion.subCriteria.reduce((s, sc) => s + sc.weight, 0);
+        for (const sub of criterion.subCriteria) {
+          const noteVal = byVariante[`${criterion.id}_${sub.id}`];
+          const notation = noteVal && (noteVal === "tres_bien" || noteVal === "bien" || noteVal === "moyen" || noteVal === "passable" || noteVal === "insuffisant") ? noteVal : null;
+          if (notation) {
+            const subWeight = subTotal > 0 ? sub.weight / subTotal : 0;
+            raw += NOTATION_VALUES[notation as keyof typeof NOTATION_VALUES] * subWeight;
+          }
+        }
+        criterionScore = (raw / 5) * criterion.weight;
+      } else {
+        const noteVal = byVariante[criterion.id];
+        const notation = noteVal && (noteVal === "tres_bien" || noteVal === "bien" || noteVal === "moyen" || noteVal === "passable" || noteVal === "insuffisant") ? noteVal : null;
+        if (notation) {
+          criterionScore = (NOTATION_VALUES[notation as keyof typeof NOTATION_VALUES] / 5) * criterion.weight;
+        }
+      }
+      if (criterion.id === "environnemental") env = criterionScore;
+      else if (criterion.id === "planning") planning = criterionScore;
+      else technique += criterionScore;
+      total += criterionScore;
+    }
+    return { total, technique, env, planning };
+  };
+
   const hasPrice = (companyId: number, lineId: number) => {
     if (!version) return false;
     const entry = version.priceEntries.find((e) => e.companyId === companyId && e.lotLineId === lineId);
     return entry !== undefined && ((entry.dpgf1 ?? 0) !== 0 || (entry.dpgf2 ?? 0) !== 0);
+  };
+
+  /** Toutes les cases affichées dans Analyse prix (ligne + colonne) avec libellé : chaque entreprise doit y mettre un prix (non vide et ≠ 0). */
+  const requiredPriceCells = useMemo(() => {
+    const hasDualDpgf = lot.hasDualDpgf ?? false;
+    const cells: { lotLineId: number; needDpgf1: boolean; needDpgf2: boolean; label: string }[] = [];
+    cells.push({
+      lotLineId: 0,
+      needDpgf1: true,
+      needDpgf2: hasDualDpgf,
+      label: "DPGF (Tranche Ferme)",
+    });
+    const baseLotLines = activeLotLines.filter((l) => l.type !== "VARIANTE");
+    for (const line of baseLotLines) {
+      const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
+      const showDpgf2 = hasDualDpgf && (line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both");
+      const existing = cells.find((c) => c.lotLineId === line.id);
+      const lineLabel = getLineLabel(line);
+      if (existing) {
+        if (showDpgf1) existing.needDpgf1 = true;
+        if (showDpgf2) existing.needDpgf2 = true;
+      } else {
+        cells.push({
+          lotLineId: line.id,
+          needDpgf1: showDpgf1,
+          needDpgf2: showDpgf2,
+          label: lineLabel,
+        });
+      }
+    }
+    varianteLinesConfig.forEach((line, idx) => {
+      const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
+      const showDpgf2 = hasDualDpgf && (line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both");
+      const existing = cells.find((c) => c.lotLineId === line.id);
+      const lineLabel = line.label?.trim() ? `Variante ${idx + 1} : ${line.label}` : `Variante ${idx + 1}`;
+      if (existing) {
+        if (showDpgf1) existing.needDpgf1 = true;
+        if (showDpgf2) existing.needDpgf2 = true;
+      } else {
+        cells.push({
+          lotLineId: line.id,
+          needDpgf1: showDpgf1,
+          needDpgf2: showDpgf2,
+          label: lineLabel,
+        });
+      }
+    });
+    return cells;
+  }, [lot.hasDualDpgf, activeLotLines, varianteLinesConfig]);
+
+  /** true si la valeur est absente ou nulle (sans prix ou à 0) */
+  const isPriceMissingOrZero = (val: number | null | undefined): boolean =>
+    val == null || Number(val) === 0;
+
+  const varianteLineIds = useMemo(() => new Set(varianteLinesConfig.map((l) => l.id)), [varianteLinesConfig]);
+
+  /** Libellés des prix manquants pour une liste de cells (helper interne). */
+  const getMissingLabelsForCells = (companyId: number, cells: { lotLineId: number; needDpgf1: boolean; needDpgf2: boolean; label: string }[]): string[] => {
+    if (!version) return [];
+    const labels: string[] = [];
+    for (const cell of cells) {
+      const entry = version.priceEntries.find((e) => e.companyId === companyId && e.lotLineId === cell.lotLineId);
+      const miss1 = cell.needDpgf1 && isPriceMissingOrZero(entry?.dpgf1);
+      const miss2 = cell.needDpgf2 && isPriceMissingOrZero(entry?.dpgf2);
+      if (miss1 || miss2) {
+        if (miss1 && miss2) {
+          labels.push(cell.label);
+        } else if (miss1) {
+          labels.push(cell.needDpgf2 ? `${cell.label} (DPGF 1)` : cell.label);
+        } else {
+          labels.push(`${cell.label} (DPGF 2)`);
+        }
+      }
+    }
+    return labels;
+  };
+
+  /** Prix manquants pour l’offre de base uniquement (DPGF, PSE, TO — pas les variantes). */
+  const getMissingRequiredPriceLabelsBase = (companyId: number): string[] => {
+    const baseCells = requiredPriceCells.filter((c) => !varianteLineIds.has(c.lotLineId));
+    return getMissingLabelsForCells(companyId, baseCells);
+  };
+
+  /** Prix manquants pour une variante donnée uniquement. */
+  const getMissingRequiredPriceLabelsVariante = (companyId: number, varianteLineId: number): string[] => {
+    const varianteCells = requiredPriceCells.filter((c) => c.lotLineId === varianteLineId);
+    return getMissingLabelsForCells(companyId, varianteCells);
   };
 
   // Compute TF total (sum of base lines) + enabled TCs
@@ -242,6 +394,12 @@ const SynthesePage = () => {
       missingPrices[company.id] = missing;
     }
 
+    const missingRequiredPriceLabels: Record<number, string[]> = {};
+    for (const company of activeCompanies) {
+      if (company.status === "ecartee") continue;
+      missingRequiredPriceLabels[company.id] = getMissingRequiredPriceLabelsBase(company.id);
+    }
+
     const validPrices = Object.values(companyPriceTotals).filter((v) => v > 0);
     const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : 0;
 
@@ -256,15 +414,17 @@ const SynthesePage = () => {
       const priceTotal = company.status === "ecartee" ? 0 : (companyPriceTotals[company.id] ?? 0);
       const globalScore = ts.total + priceScore;
       const missing = missingPrices[company.id] ?? [];
+      const missingRequired = missingRequiredPriceLabels[company.id] ?? [];
 
       return {
         company, techScore: ts.total, techniqueScore: ts.technique,
         envScore: ts.env, planningScore: ts.planning,
         priceScore, priceTotal, globalScore, missingPrices: missing,
+        missingRequiredPriceLabels: missingRequired,
       };
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCompanies, technicalCriteria, version, prixWeight, activeLotLines, enabledLines]);
+  }, [activeCompanies, technicalCriteria, version, prixWeight, activeLotLines, enabledLines, requiredPriceCells]);
 
   const sorted = useMemo(() => {
     return [...results].sort((a, b) => {
@@ -314,6 +474,7 @@ const SynthesePage = () => {
         priceScore: ps,
         globalScore: gs,
         missingPrices: augmentedMissing[row.company.id] ?? row.missingPrices,
+        missingRequiredPriceLabels: row.missingRequiredPriceLabels,
       };
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -327,6 +488,69 @@ const SynthesePage = () => {
       return b.globalScore - a.globalScore;
     });
   }, [scenarioResults]);
+
+  /** Montant minimum parmi toutes les offres (base + variantes) pour le calcul note prix variantes */
+  const minPriceAllOffers = useMemo(() => {
+    if (!version || !showVarianteRows) return 0;
+    const amounts: number[] = [];
+    for (const company of activeCompanies) {
+      if (company.status === "ecartee") continue;
+      amounts.push(getCompanyScenarioTotal(company.id));
+      for (const line of varianteLinesConfig) {
+        const p = getLinePrice(company.id, line.id);
+        if (p > 0) amounts.push(p);
+      }
+    }
+    return amounts.length > 0 ? Math.min(...amounts) : 0;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version, activeCompanies, showVarianteRows, varianteLinesConfig, scenarioResults]);
+
+  /** Données par ligne variante (company + varianteLine) pour le tableau Synthèse */
+  const varianteRowsData = useMemo(() => {
+    if (!showVarianteRows) return [];
+    const rows: { company: Company; varianteLine: VarianteLine; idx: number; techScore: number; techniqueScore: number; envScore: number; planningScore: number; priceTotal: number; priceScore: number; globalScore: number }[] = [];
+    for (const company of activeCompanies) {
+      if (company.status === "ecartee") continue;
+      varianteLinesConfig.forEach((line, idx) => {
+        const ts = getVarianteTechScore(company, String(line.id));
+        const priceTotal = getLinePrice(company.id, line.id);
+        const priceScore = minPriceAllOffers > 0 && priceTotal > 0 ? (minPriceAllOffers / priceTotal) * prixWeight : 0;
+        const globalScore = ts.total + priceScore;
+        rows.push({
+          company,
+          varianteLine: line,
+          idx,
+          techScore: ts.total,
+          techniqueScore: ts.technique,
+          envScore: ts.env,
+          planningScore: ts.planning,
+          priceTotal,
+          priceScore,
+          globalScore,
+        });
+      });
+    }
+    return rows;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showVarianteRows, activeCompanies, varianteLinesConfig, minPriceAllOffers, prixWeight, version]);
+
+  /** Rang global : offres de base + variantes mélangées par score global (1 = meilleur). Utilisé pour afficher le rang à gauche des variantes comme pour l'offre de base. */
+  const globalRankByKey = useMemo(() => {
+    const items: { key: string; globalScore: number }[] = [];
+    for (const row of scenarioResults) {
+      if (row.company.status === "ecartee") continue;
+      items.push({ key: `base-${row.company.id}`, globalScore: row.globalScore });
+    }
+    for (const vr of varianteRowsData) {
+      items.push({ key: `variante-${vr.company.id}-${vr.varianteLine.id}`, globalScore: vr.globalScore });
+    }
+    items.sort((a, b) => b.globalScore - a.globalScore);
+    const rankByKey = new Map<string, number>();
+    items.forEach((item, index) => {
+      rankByKey.set(item.key, index + 1);
+    });
+    return rankByKey;
+  }, [scenarioResults, varianteRowsData]);
 
   const valueTechWeight = valueTechnique.reduce((s, c) => s + c.weight, 0);
   const envWeight = envCriterion?.weight ?? 0;
@@ -354,16 +578,19 @@ const SynthesePage = () => {
   }, [attributaireResult, activeLotLines, enabledLines]);
 
   const getAvailableDecisions = (companyId: number): NegotiationDecision[] => {
+    const company = activeCompanies.find((c) => c.id === companyId);
+    const hasQuestions = company?.hasQuestions ?? false;
+    if (hasQuestions) {
+      return ["questions_reponses"];
+    }
     const currentDecision = decisions[companyId] ?? "non_defini";
-    // Si un attributaire est déjà désigné, les autres ne peuvent être que "Non retenue" (ou — en attente)
     if (hasAnyAttributaire && currentDecision !== "attributaire") {
       return ["non_defini", "non_retenue"];
     }
-    return DECISION_OPTIONS.filter((d) => {
-      // Au plus un attributaire : masquer "Attributaire" pour les autres si déjà un attributaire
-      if (d === "attributaire" && hasAnyAttributaire && currentDecision !== "attributaire") return false;
-      return true;
-    });
+    if (hasAnyWithQuestionsStatus) {
+      return ["non_defini", "non_retenue", "retenue"];
+    }
+    return ["non_defini", "non_retenue", "retenue", "attributaire"];
   };
 
   if (!weightingValid) {
@@ -447,11 +674,11 @@ const SynthesePage = () => {
               <TableRow>
                 <TableHead className="w-12">Rang</TableHead>
                 <TableHead>Entreprise</TableHead>
+                <TableHead className="text-right">Montant scénario</TableHead>
+                <TableHead className="text-right">Prix / {prixWeight}</TableHead>
                 <TableHead className="text-right">Technique / {valueTechWeight}</TableHead>
                 {envWeight > 0 && <TableHead className="text-right">Enviro. / {envWeight}</TableHead>}
                 {planWeight > 0 && <TableHead className="text-right">Planning / {planWeight}</TableHead>}
-                <TableHead className="text-right">Prix / {prixWeight}</TableHead>
-                <TableHead className="text-right">Montant scénario</TableHead>
                 <TableHead className="text-right">Globale / {maxTotal}</TableHead>
                 <TableHead className="text-center min-w-[260px]">Statut / Décision</TableHead>
               </TableRow>
@@ -463,88 +690,141 @@ const SynthesePage = () => {
                   0,
                   activeCompanies.findIndex((c) => c.id === row.company.id)
                 );
-                // Rang recalculé depuis scenarioSorted (réactif aux toggles)
                 const rankInSorted = isExcluded
                   ? null
-                  : scenarioSorted
+                  : (showVarianteRows ? globalRankByKey.get(`base-${row.company.id}`) : scenarioSorted
                       .filter((r) => r.company.status !== "ecartee")
-                      .findIndex((r) => r.company.id === row.company.id) + 1;
+                      .findIndex((r) => r.company.id === row.company.id) + 1);
                 const decision = getNegotiationDecision(row.company.id);
                 const availableDecisions = getAvailableDecisions(row.company.id);
+                const companyVarianteRows = showVarianteRows ? varianteRowsData.filter((vr) => vr.company.id === row.company.id) : [];
                 return (
-                  <TableRow key={row.company.id} className={isExcluded ? "opacity-50" : ""}>
-                    <TableCell className="font-semibold">{isExcluded ? "—" : rankInSorted}</TableCell>
-                    <TableCell
-                      className="font-medium"
-                      style={
-                        isExcluded
-                          ? undefined
-                          : {
+                  <React.Fragment key={row.company.id}>
+                    <TableRow className={isExcluded ? "opacity-50" : ""}>
+                      <TableCell className="font-semibold">{isExcluded ? "—" : (rankInSorted ?? "—")}</TableCell>
+                      <TableCell
+                        className="font-medium"
+                        style={
+                          isExcluded
+                            ? undefined
+                            : {
+                                borderLeft: `4px solid ${getCompanyColor(companyIndex)}`,
+                                backgroundColor: getCompanyBgColor(companyIndex),
+                              }
+                        }
+                      >
+                        <div className="flex flex-col gap-0.5">
+                          <span>{row.company.id}. {row.company.name}</span>
+                          {activeCompareLines.length > 0 && !isExcluded && (
+                            <span className="text-xs text-muted-foreground italic">
+                              Base{activeCompareLines.map((l) => ` + ${getLineLabel(l)}`).join("")}
+                            </span>
+                          )}
+                          {row.missingRequiredPriceLabels?.length > 0 && (
+                            <span className="text-xs text-red-600 dark:text-red-400 font-medium flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" />
+                              Prix manquant : {row.missingRequiredPriceLabels.join(", ")}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">{isExcluded ? "—" : fmt(row.priceTotal)}</TableCell>
+                      <TableCell className="text-right">{isExcluded ? "—" : row.priceScore.toFixed(1)}</TableCell>
+                      <TableCell className="text-right">{isExcluded ? "—" : row.techniqueScore.toFixed(1)}</TableCell>
+                      {envWeight > 0 && (
+                        <TableCell className="text-right">{isExcluded ? "—" : row.envScore.toFixed(1)}</TableCell>
+                      )}
+                      {planWeight > 0 && (
+                        <TableCell className="text-right">{isExcluded ? "—" : row.planningScore.toFixed(1)}</TableCell>
+                      )}
+                      <TableCell className="text-right font-bold">{isExcluded ? "—" : row.globalScore.toFixed(1)}</TableCell>
+                      <TableCell className="text-center min-w-[260px]">
+                        {isExcluded ? (
+                          <HoverCard>
+                            <HoverCardTrigger asChild>
+                              <Badge variant="destructive" className="cursor-help max-w-[180px] truncate">
+                                Écartée{row.company.exclusionReason ? ` — ${row.company.exclusionReason.substring(0, 20)}${row.company.exclusionReason.length > 20 ? "…" : ""}` : ""}
+                              </Badge>
+                            </HoverCardTrigger>
+                            {row.company.exclusionReason && (
+                              <HoverCardContent className="text-sm">
+                                <p className="font-semibold mb-1">Motif d'éviction :</p>
+                                <p>{row.company.exclusionReason}</p>
+                              </HoverCardContent>
+                            )}
+                          </HoverCard>
+                        ) : (
+                          <Select
+                            value={row.company.hasQuestions ? "questions_reponses" : decision}
+                            onValueChange={(v) => setNegotiationDecision(row.company.id, v as NegotiationDecision)}
+                            disabled={isReadOnly || isValidated || (row.company.hasQuestions ?? false)}
+                          >
+                            <SelectTrigger className={`w-[260px] ${row.company.hasQuestions ? "opacity-70 cursor-not-allowed" : ""}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableDecisions.map((d) => (
+                                <SelectItem key={d} value={d}>
+                                  {NEGOTIATION_DECISION_LABELS[d]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                    {companyVarianteRows.map((vr) => {
+                      const varianteId = String(vr.varianteLine.id);
+                      const decisionVariante = (row.company.decisionVariantes?.[varianteId] ?? "non_defini") as NegotiationDecision;
+                      const varianteRank = globalRankByKey.get(`variante-${row.company.id}-${vr.varianteLine.id}`) ?? "—";
+                      return (
+                        <TableRow key={`variante-${row.company.id}-${vr.varianteLine.id}`} className="bg-muted/20">
+                          <TableCell className="font-semibold">{varianteRank}</TableCell>
+                          <TableCell
+                            className="font-medium text-muted-foreground"
+                            style={{
                               borderLeft: `4px solid ${getCompanyColor(companyIndex)}`,
                               backgroundColor: getCompanyBgColor(companyIndex),
-                            }
-                      }
-                    >
-                      <div className="flex flex-col gap-0.5">
-                        <span>{row.company.id}. {row.company.name}</span>
-                        {activeCompareLines.length > 0 && !isExcluded && (
-                          <span className="text-xs text-muted-foreground italic">
-                            Base{activeCompareLines.map((l) => ` + ${getLineLabel(l)}`).join("")}
-                          </span>
-                        )}
-                        {row.missingPrices.length > 0 && (
-                          <span className="text-xs text-orange-600 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            Prix manquant : {row.missingPrices.join(", ")}
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">{isExcluded ? "—" : row.techniqueScore.toFixed(1)}</TableCell>
-                    {envWeight > 0 && (
-                      <TableCell className="text-right">{isExcluded ? "—" : row.envScore.toFixed(1)}</TableCell>
-                    )}
-                    {planWeight > 0 && (
-                      <TableCell className="text-right">{isExcluded ? "—" : row.planningScore.toFixed(1)}</TableCell>
-                    )}
-                    <TableCell className="text-right">{isExcluded ? "—" : row.priceScore.toFixed(1)}</TableCell>
-                    <TableCell className="text-right">{isExcluded ? "—" : fmt(row.priceTotal)}</TableCell>
-                    <TableCell className="text-right font-bold">{isExcluded ? "—" : row.globalScore.toFixed(1)}</TableCell>
-                    <TableCell className="text-center min-w-[260px]">
-                      {isExcluded ? (
-                        <HoverCard>
-                          <HoverCardTrigger asChild>
-                            <Badge variant="destructive" className="cursor-help max-w-[180px] truncate">
-                              Écartée{row.company.exclusionReason ? ` — ${row.company.exclusionReason.substring(0, 20)}${row.company.exclusionReason.length > 20 ? "…" : ""}` : ""}
-                            </Badge>
-                          </HoverCardTrigger>
-                          {row.company.exclusionReason && (
-                            <HoverCardContent className="text-sm">
-                              <p className="font-semibold mb-1">Motif d'éviction :</p>
-                              <p>{row.company.exclusionReason}</p>
-                            </HoverCardContent>
-                          )}
-                        </HoverCard>
-                      ) : (
-                        <Select
-                          value={decision}
-                          onValueChange={(v) => setNegotiationDecision(row.company.id, v as NegotiationDecision)}
-                          disabled={isReadOnly || isValidated}
-                        >
-                          <SelectTrigger className="min-w-[260px] w-full max-w-[320px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availableDecisions.map((d) => (
-                              <SelectItem key={d} value={d}>
-                                {NEGOTIATION_DECISION_LABELS[d]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    </TableCell>
-                  </TableRow>
+                            }}
+                          >
+                            <div className="flex flex-col gap-0.5">
+                              <span>{row.company.name} — Variante {vr.idx + 1}{vr.varianteLine.label?.trim() ? ` : ${vr.varianteLine.label}` : ""}</span>
+                              {getMissingRequiredPriceLabelsVariante(row.company.id, vr.varianteLine.id).length > 0 && (
+                                <span className="text-xs text-red-600 dark:text-red-400 font-medium flex items-center gap-1">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  Prix manquant : {getMissingRequiredPriceLabelsVariante(row.company.id, vr.varianteLine.id).join(", ")}
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">{fmt(vr.priceTotal)}</TableCell>
+                          <TableCell className="text-right">{vr.priceScore.toFixed(1)}</TableCell>
+                          <TableCell className="text-right">{vr.techniqueScore.toFixed(1)}</TableCell>
+                          {envWeight > 0 && <TableCell className="text-right">{vr.envScore.toFixed(1)}</TableCell>}
+                          {planWeight > 0 && <TableCell className="text-right">{vr.planningScore.toFixed(1)}</TableCell>}
+                          <TableCell className="text-right font-bold">{vr.globalScore.toFixed(1)}</TableCell>
+                          <TableCell className="text-center min-w-[260px] flex flex-wrap items-center justify-center">
+                            <Select
+                              value={row.company.hasQuestions ? "questions_reponses" : decisionVariante}
+                              onValueChange={(v) => updateDecisionVariante(row.company.id, varianteId, v)}
+                              disabled={isReadOnly || isValidated || (row.company.hasQuestions ?? false)}
+                            >
+                              <SelectTrigger className={`w-[260px] ${row.company.hasQuestions ? "opacity-70 cursor-not-allowed" : ""}`}>
+                                <SelectValue placeholder="Décision" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getAvailableDecisions(row.company.id).map((d) => (
+                                  <SelectItem key={d} value={d}>
+                                    {NEGOTIATION_DECISION_LABELS[d]}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </React.Fragment>
                 );
               })}
             </TableBody>

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { NOTATION_LABELS, NOTATION_VALUES, NotationLevel, WeightingCriterion, SubCriterion, NegotiationVersion } from "@/types/project";
+import { NOTATION_LABELS, NOTATION_VALUES, NotationLevel, WeightingCriterion, SubCriterion, NegotiationVersion, type VarianteLine } from "@/types/project";
 import { useMemo, useEffect } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
@@ -11,6 +11,8 @@ import { Lock, AlertTriangle } from "lucide-react";
 import { getCompanyColor, getCompanyBgColor } from "@/lib/companyColors";
 import { useWeightingValid } from "@/hooks/useWeightingValid";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 
 const NOTATION_OPTIONS: NotationLevel[] = ["tres_bien", "bien", "moyen", "passable", "insuffisant"];
 
@@ -20,10 +22,14 @@ function getVisibleSubCriteria(criterion: WeightingCriterion): SubCriterion[] {
 }
 
 const TechniquePage = () => {
-  const { project, setTechnicalNote, getTechnicalNote, setDocumentsToVerify, getDocumentsToVerify } = useProjectStore();
+  const { project, setTechnicalNote, getTechnicalNote, setDocumentsToVerify, getDocumentsToVerify, updateCompany, getVarianteTechnicalNote, setVarianteTechnicalNote, updateNoteVariante } = useProjectStore();
   const lot = project.lots[project.currentLotIndex];
   const { activeCompanies, version, isReadOnly, isNego, negoLabel, negoRound } = useAnalysisContext();
   const { weightingCriteria } = lot;
+  const varianteExigee = lot?.varianteExigee ?? false;
+  const varianteOptional = (lot?.varianteInterdite === false || (lot?.varianteAutorisee ?? false)) && !varianteExigee;
+  const showVarianteSection = varianteExigee || varianteOptional;
+  const varianteLinesFromConfig: VarianteLine[] = Array.isArray(lot?.varianteLines) ? lot.varianteLines : [];
   const { companyIndex: companyIndexParam } = useParams<{ companyIndex?: string; round?: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -214,6 +220,11 @@ const TechniquePage = () => {
                       disabled={isReadOnly}
                       isNego={isNego}
                       prevVersion={prevVersion}
+                      showVarianteSection={showVarianteSection}
+                      varianteLines={varianteLinesFromConfig}
+                      getVarianteTechnicalNote={getVarianteTechnicalNote}
+                      setVarianteTechnicalNote={setVarianteTechnicalNote}
+                      updateNoteVariante={updateNoteVariante}
                     />
                   ))}
                 </div>
@@ -228,6 +239,11 @@ const TechniquePage = () => {
                     disabled={isReadOnly}
                     isNego={isNego}
                     prevVersion={prevVersion}
+                    showVarianteSection={showVarianteSection}
+                    varianteLines={varianteLinesFromConfig}
+                    getVarianteTechnicalNote={getVarianteTechnicalNote}
+                    setVarianteTechnicalNote={setVarianteTechnicalNote}
+                    updateNoteVariante={updateNoteVariante}
                   />
                 </div>
               )}
@@ -241,6 +257,11 @@ const TechniquePage = () => {
                     disabled={isReadOnly}
                     isNego={isNego}
                     prevVersion={prevVersion}
+                    showVarianteSection={showVarianteSection}
+                    varianteLines={varianteLinesFromConfig}
+                    getVarianteTechnicalNote={getVarianteTechnicalNote}
+                    setVarianteTechnicalNote={setVarianteTechnicalNote}
+                    updateNoteVariante={updateNoteVariante}
                   />
                 </div>
               )}
@@ -262,6 +283,19 @@ const TechniquePage = () => {
           )}
         </Card>
       ))}
+
+      {activeCompanies.length > 0 && activeCompanies[safeIndex] && (
+        <div className="mt-6 mb-4 flex items-center space-x-2">
+          <Checkbox
+            id="has-questions-technique"
+            checked={activeCompanies[safeIndex].hasQuestions ?? false}
+            onCheckedChange={(checked) => updateCompany(activeCompanies[safeIndex].id, { hasQuestions: !!checked })}
+          />
+          <Label htmlFor="has-questions-technique">
+            Question(s) à poser à {activeCompanies[safeIndex].name || "cette entreprise"}
+          </Label>
+        </div>
+      )}
 
       {activeCompanies.length > 1 && (
         <div className="mt-6 flex items-center justify-end rounded-lg border border-border bg-muted/30 px-4 py-2">
@@ -301,6 +335,11 @@ function CriterionBlock({
   disabled,
   isNego,
   prevVersion,
+  showVarianteSection,
+  varianteLines = [],
+  getVarianteTechnicalNote,
+  setVarianteTechnicalNote,
+  updateNoteVariante,
 }: {
   criterion: WeightingCriterion;
   companyId: number;
@@ -308,8 +347,76 @@ function CriterionBlock({
   disabled: boolean;
   isNego: boolean;
   prevVersion?: NegotiationVersion | null;
+  showVarianteSection?: boolean;
+  varianteLines?: VarianteLine[];
+  getVarianteTechnicalNote: (companyId: number, varianteLineId: number, criterionId: string, subCriterionId?: string) => string | null;
+  setVarianteTechnicalNote: (companyId: number, varianteLineId: number, criterionId: string, subCriterionId: string | undefined, notation: NotationLevel | null) => void;
+  updateNoteVariante?: (companyId: number, varianteId: string, critereId: string, note: string) => void;
 }) {
   const { setTechnicalNote, getTechnicalNote, setTechnicalNoteResponse, setItemNote, getItemNote } = useProjectStore();
+
+  /** Colonne des menus de notation : label au-dessus de chaque Select (Offre de base, puis Variante 1, 2, …). */
+  const renderNotationColumn = (
+    subCriterionId: string | undefined,
+    baseValue: string,
+    onBaseChange: (v: NotationLevel | null) => void
+  ) => {
+    const critereKey = subCriterionId ? `${criterion.id}_${subCriterionId}` : criterion.id;
+    return (
+    <div className="flex flex-col gap-3 w-40 shrink-0">
+      <div className="space-y-1">
+        <label className="text-xs font-medium text-muted-foreground block">Offre de base</label>
+        <Select
+          disabled={disabled}
+          value={baseValue}
+          onValueChange={(v) => onBaseChange(v === "none" ? null : (v as NotationLevel))}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="Notation" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">—</SelectItem>
+            {NOTATION_OPTIONS.map((n) => (
+              <SelectItem key={n} value={n}>{NOTATION_LABELS[n]}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {showVarianteSection && varianteLines.length > 0 && getVarianteTechnicalNote && (updateNoteVariante || setVarianteTechnicalNote) &&
+        varianteLines.map((line, idx) => {
+          const value = getVarianteTechnicalNote(companyId, line.id, criterion.id, subCriterionId) ?? "none";
+          const varianteLabel = line.label?.trim() || "Sans nom";
+          return (
+            <div key={line.id} className="space-y-1">
+              <label className="text-xs font-medium text-destructive block">{`Variante ${idx + 1} : ${varianteLabel}`}</label>
+              <Select
+                disabled={disabled}
+                value={value}
+                onValueChange={(v) => {
+                  const note = v === "none" ? null : (v as NotationLevel);
+                  if (updateNoteVariante) {
+                    updateNoteVariante(companyId, String(line.id), critereKey, note ?? "none");
+                  } else if (setVarianteTechnicalNote) {
+                    setVarianteTechnicalNote(companyId, line.id, criterion.id, subCriterionId, note);
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Notation" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">—</SelectItem>
+                  {NOTATION_OPTIONS.map((n) => (
+                    <SelectItem key={n} value={n}>{NOTATION_LABELS[n]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          );
+        })}
+    </div>
+  );
+  };
 
   const getPrevNote = (subId?: string) => {
     if (!prevVersion) return undefined;
@@ -368,33 +475,21 @@ function CriterionBlock({
           </h4>
           <span className="text-xs text-muted-foreground">{score.toFixed(1)} pts</span>
         </div>
-        {visibleSubs.map((sub) => {
+        {visibleSubs.map((sub, subIdx) => {
           const note = getTechnicalNote(companyId, criterion.id, sub.id);
           const visibleItems = (sub.items || []).filter((it) => it.label.trim() !== "");
           return (
             <div key={sub.id} className="ml-4 space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">
-                {sub.label} ({sub.weight}%)
+                Sous-critère {subIdx + 1} — {sub.label} ({sub.weight}%)
                 {renderNotationDiff(note?.notation, sub.id)}
               </label>
-              <div className="flex gap-2">
-                <Select
-                  disabled={disabled}
-                  value={note?.notation ?? "none"}
-                  onValueChange={(v) =>
-                    setTechnicalNote(companyId, criterion.id, sub.id, v === "none" ? null : (v as NotationLevel), note?.comment ?? "")
-                  }
-                >
-                  <SelectTrigger className="w-40">
-                    <SelectValue placeholder="Notation" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">—</SelectItem>
-                    {NOTATION_OPTIONS.map((n) => (
-                      <SelectItem key={n} value={n}>{NOTATION_LABELS[n]}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="flex gap-4">
+                {renderNotationColumn(
+                  sub.id,
+                  note?.notation ?? "none",
+                  (v) => setTechnicalNote(companyId, criterion.id, sub.id, v, note?.comment ?? "")
+                )}
                 <div className="flex-1 space-y-2">
                   <div>
                     <label className="text-xs text-green-700 font-medium">✅ Points Positifs</label>
@@ -493,28 +588,17 @@ function CriterionBlock({
         </h4>
         <span className="text-xs text-muted-foreground">{score.toFixed(1)} pts</span>
       </div>
-      <div className="flex gap-2">
-        <Select
-          disabled={disabled}
-          value={note?.notation ?? "none"}
-          onValueChange={(v) =>
-            setTechnicalNote(companyId, criterion.id, undefined, v === "none" ? null : (v as NotationLevel), note?.comment ?? "")
-          }
-        >
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Notation" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">—</SelectItem>
-            {NOTATION_OPTIONS.map((n) => (
-              <SelectItem key={n} value={n}>{NOTATION_LABELS[n]}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <div className="flex-1 space-y-2">
-          <div>
-            <label className="text-xs text-green-700 font-medium">✅ Points Positifs</label>
-            <Textarea
+      <div className="space-y-2">
+        <div className="flex gap-4">
+          {renderNotationColumn(
+            undefined,
+            note?.notation ?? "none",
+            (v) => setTechnicalNote(companyId, criterion.id, undefined, v, note?.comment ?? "")
+          )}
+          <div className="flex-1 space-y-2">
+            <div>
+              <label className="text-xs text-green-700 font-medium">✅ Points Positifs</label>
+              <Textarea
               disabled={disabled || isNego}
               className={`min-h-[60px] text-sm border-green-200 ${isNego ? 'opacity-60' : ''}`}
               rows={3}
@@ -524,39 +608,40 @@ function CriterionBlock({
               }
               placeholder="Points positifs…"
               maxLength={2000}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-red-600 font-medium">❌ Points Négatifs</label>
-            <Textarea
-              disabled={disabled || isNego}
-              className={`min-h-[60px] text-sm border-red-200 ${isNego ? 'opacity-60' : ''}`}
-              rows={3}
-              value={note?.commentNegatif ?? ""}
-              onChange={(e) =>
-                setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, note?.comment ?? "", undefined, e.target.value)
-              }
-              placeholder="Points négatifs…"
-              maxLength={2000}
-            />
-          </div>
-          {isNego && (
-            <div>
-              <label className="text-xs text-blue-600 font-medium">💬 Réponses aux questions</label>
-              <Textarea
-                disabled={disabled}
-                className="min-h-[60px] text-sm border-blue-200"
-                rows={3}
-                value={note?.questionResponse ?? ""}
-                onChange={(e) =>
-                  setTechnicalNoteResponse(companyId, criterion.id, undefined, e.target.value)
-                }
-                placeholder="Réponses du candidat aux questions posées…"
               />
             </div>
-          )}
-          {renderFieldDiff(note?.commentPositif ?? "", getPrevNote()?.commentPositif ?? "", "Points Positifs")}
-          {renderFieldDiff(note?.commentNegatif ?? "", getPrevNote()?.commentNegatif ?? "", "Points Négatifs")}
+            <div>
+              <label className="text-xs text-red-600 font-medium">❌ Points Négatifs</label>
+              <Textarea
+                disabled={disabled || isNego}
+                className={`min-h-[60px] text-sm border-red-200 ${isNego ? 'opacity-60' : ''}`}
+                rows={3}
+                value={note?.commentNegatif ?? ""}
+                onChange={(e) =>
+                  setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, note?.comment ?? "", undefined, e.target.value)
+                }
+                placeholder="Points négatifs…"
+                maxLength={2000}
+              />
+            </div>
+            {isNego && (
+              <div>
+                <label className="text-xs text-blue-600 font-medium">💬 Réponses aux questions</label>
+                <Textarea
+                  disabled={disabled}
+                  className="min-h-[60px] text-sm border-blue-200"
+                  rows={3}
+                  value={note?.questionResponse ?? ""}
+                  onChange={(e) =>
+                    setTechnicalNoteResponse(companyId, criterion.id, undefined, e.target.value)
+                  }
+                  placeholder="Réponses du candidat aux questions posées…"
+                />
+              </div>
+            )}
+            {renderFieldDiff(note?.commentPositif ?? "", getPrevNote()?.commentPositif ?? "", "Points Positifs")}
+            {renderFieldDiff(note?.commentNegatif ?? "", getPrevNote()?.commentNegatif ?? "", "Points Négatifs")}
+          </div>
         </div>
       </div>
     </div>

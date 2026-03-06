@@ -16,7 +16,6 @@ import {
   ArrowLeft,
   Package,
   MessageSquare,
-  Reply,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -135,15 +134,19 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const nextPath = currentIndex >= 0 && currentIndex < pageOrder.length - 1 ? pageOrder[currentIndex + 1] : null;
   const showNextPageButton = nextPath !== null && location.pathname !== "/config" && pathBase !== "/prix" && pathBase !== "/technique";
 
-  /** Determine dynamic Questions label for a lot */
+  /** Determine dynamic Questions label for a lot (Questions / Réponses après import) */
   const getQuestionsLabel = (l: typeof lot, round?: number): string => {
     const totalVersions = (l?.versions?.length ?? 0);
     if (totalVersions >= 3) {
-      // 2 negotiation rounds → "Questions négo 1" / "Questions négo 2"
       return round === 2 ? "Questions négo 2" : "Questions négo 1";
     }
-    return "Questions";
+    const hasResponsesImported = (l?.versions?.[0]?.questionnaire?.questionnaires ?? []).some((q) => q.receptionMode === true);
+    return hasResponsesImported ? "Questions / Réponses" : "Questions";
   };
+
+  /** Une fois l'import des réponses fait, l'entrée Questions passe au-dessus de Synthèse */
+  const hasResponsesImported = (l: typeof lot) =>
+    (l?.versions?.[0]?.questionnaire?.questionnaires ?? []).some((q) => q.receptionMode === true);
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -178,10 +181,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
               const isActive = idx === project.currentLotIndex;
               const negoVersions = (l?.versions ?? []).slice(1);
 
-              // Check if questions tab should be visible (retenue pour négociation ou Questions)
-              const hasRetainedInitial = (l?.versions?.[0])
-                ? Object.values(l.versions[0].negotiationDecisions ?? {}).some(d => d === "retenue" || d === "questions_reponses")
-                : false;
+              // Questions / Réponses visibles uniquement si la case « Question(s) à poser » est cochée pour au moins une entreprise (pas si « Retenue en négociation »)
+              const hasQuestionsChecked = (l?.companies ?? []).some((c) => c.hasQuestions === true);
 
                   return (
                 <div key={l?.id ?? idx} className="mt-1">
@@ -247,6 +248,23 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           <Wrench className="h-3.5 w-3.5 shrink-0" />
                           Analyse technique
                         </button>
+
+                        {/* Questions / Réponses — au-dessus de Synthèse uniquement après import des réponses */}
+                        {hasQuestionsChecked && hasResponsesImported(l) && (
+                          <button
+                            onClick={() => handleLotSubNav(idx, "/questions")}
+                            className={cn(
+                              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
+                              isActive && location.pathname === "/questions"
+                                ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
+                                : "text-sidebar-foreground hover:bg-sidebar-accent/20"
+                            )}
+                          >
+                            <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                            {getQuestionsLabel(l)}
+                          </button>
+                        )}
+
                         <button
                           onClick={() => handleLotSubNav(idx, "/synthese")}
                           className={cn(
@@ -260,34 +278,20 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           {getSyntheseLabel(l, 0)}
                         </button>
 
-                        {/* Questions — visible si au moins une entreprise retenue pour négociation */}
-                        {hasRetainedInitial && (
-                          <>
-                            <button
-                              onClick={() => handleLotSubNav(idx, "/questions")}
-                              className={cn(
-                                "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                                isActive && location.pathname === "/questions"
-                                  ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
-                                  : "text-sidebar-foreground hover:bg-sidebar-accent/20"
-                              )}
-                            >
-                              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                              {getQuestionsLabel(l)}
-                            </button>
-                            <button
-                              onClick={() => handleLotSubNav(idx, "/reponses")}
-                              className={cn(
-                                "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                                isActive && location.pathname === "/reponses"
-                                  ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
-                                  : "text-sidebar-foreground hover:bg-sidebar-accent/20"
-                              )}
-                            >
-                              <Reply className="h-3.5 w-3.5 shrink-0" />
-                              Réponses
-                            </button>
-                          </>
+                        {/* Questions — en dessous de Synthèse tant qu'aucun import de réponses n'a été fait */}
+                        {hasQuestionsChecked && !hasResponsesImported(l) && (
+                          <button
+                            onClick={() => handleLotSubNav(idx, "/questions")}
+                            className={cn(
+                              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
+                              isActive && location.pathname === "/questions"
+                                ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
+                                : "text-sidebar-foreground hover:bg-sidebar-accent/20"
+                            )}
+                          >
+                            <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                            {getQuestionsLabel(l)}
+                          </button>
                         )}
 
                         {/* Négociations */}

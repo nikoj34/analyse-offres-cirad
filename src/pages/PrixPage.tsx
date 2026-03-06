@@ -1,5 +1,6 @@
 import { useProjectStore } from "@/store/projectStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,7 +76,7 @@ const fmt = (n: number) =>
   new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
 const PrixPage = () => {
-  const { project, setPriceEntry, getPriceEntry, setCompanyProposedVariante, getCompanyProposedVariante } = useProjectStore();
+  const { project, setPriceEntry, getPriceEntry, setCompanyProposedVariante, getCompanyProposedVariante, updateCompany } = useProjectStore();
   const lotIndex = Math.max(0, Math.min(project?.currentLotIndex ?? 0, (project?.lots?.length ?? 1) - 1));
   const lot = project?.lots?.[lotIndex];
   const { activeCompanies, version, isReadOnly, isNego, negoLabel, negoRound } = useAnalysisContext();
@@ -111,6 +112,8 @@ const PrixPage = () => {
   const hasNext = safeIndex < activeCompanies.length - 1 && activeCompanies.length > 1;
 
   const activeLotLines = lotLines.filter((l) => l.label.trim() !== "");
+  /** Lignes "offre de base" : DPGF + PSE + TO (exclut les lignes de type VARIANTE, gérées dans le bloc Variantes) */
+  const baseLotLines = activeLotLines.filter((l) => l.type !== "VARIANTE");
   const varianteLinesFromConfig = Array.isArray(lot?.varianteLines) ? lot.varianteLines : [];
   const varianteExigee = lot?.varianteExigee ?? false;
   const varianteInterdite = lot?.varianteInterdite === true;
@@ -138,18 +141,16 @@ const PrixPage = () => {
     let total = 0;
     const baseEntry = initialVersion.priceEntries.find(e => e.companyId === companyId && e.lotLineId === 0);
     total += (baseEntry?.dpgf1 ?? 0) + (baseEntry?.dpgf2 ?? 0);
-    for (const line of activeLotLines) {
+    for (const line of baseLotLines) {
       const entry = initialVersion.priceEntries.find(e => e.companyId === companyId && e.lotLineId === line.id);
       total += (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
     }
     return total;
   };
 
-  /** Total des variantes pour une entreprise (ligne unique VARIANTE_LINE_ID + lignes variante config). */
+  /** Total variante(s) : uniquement les montants des Variantes 1, 2, 3… (DPGF 1 + DPGF 2 de chaque ligne variante). */
   const getVarianteTotal = (companyId: number): number => {
     let sum = 0;
-    const vEntry = getPriceEntry(companyId, VARIANTE_LINE_ID);
-    if (vEntry) sum += (vEntry.dpgf1 ?? 0) + (vEntry.dpgf2 ?? 0);
     for (const line of varianteLinesFromConfig) {
       const e = getPriceEntry(companyId, line.id);
       if (e) sum += (e.dpgf1 ?? 0) + (e.dpgf2 ?? 0);
@@ -171,18 +172,17 @@ const PrixPage = () => {
       let dpgf1Sum = baseDpgf?.dpgf1 ?? 0;
       let dpgf2Sum = baseDpgf?.dpgf2 ?? 0;
 
-      for (const line of activeLotLines) {
+      for (const line of baseLotLines) {
         const entry = version.priceEntries.find(
           (e) => e.companyId === company.id && e.lotLineId === line.id
         );
         dpgf1Sum += entry?.dpgf1 ?? 0;
         dpgf2Sum += entry?.dpgf2 ?? 0;
       }
-      // Variante (lotLineId VARIANTE_LINE_ID) ne s'ajoute pas à l'offre de base
       result[company.id] = { dpgf1: dpgf1Sum, dpgf2: dpgf2Sum, total: dpgf1Sum + dpgf2Sum };
     }
     return result;
-  }, [activeCompanies, activeLotLines, version]);
+  }, [activeCompanies, baseLotLines, version]);
 
   const priceScores = useMemo(() => {
     const totals = Object.entries(companyTotals)
@@ -357,12 +357,16 @@ const PrixPage = () => {
           {company.status !== "ecartee" && (
             <CardContent>
               <div className="space-y-3">
-                <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 text-xs font-medium text-muted-foreground px-1`}>
-                  <span>Ligne</span>
-                  <span className="text-right">DPGF 1 (€ HT)</span>
-                  <span className="text-right">Écart</span>
-                  {hasDualDpgf && <span className="text-right">DPGF 2 (€ HT)</span>}
-                  {hasDualDpgf && <span className="text-right">Écart</span>}
+                {/* ——— Offre de base (DPGF, PSE, TO) ——— */}
+                <div>
+                  <h3 className="text-sm font-semibold text-muted-foreground mb-2">Offre de base</h3>
+                  <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 text-xs font-medium text-muted-foreground px-1`}>
+                    <span>Ligne</span>
+                    <span className="text-right">DPGF 1 (€ HT)</span>
+                    <span className="text-right">Écart</span>
+                    {hasDualDpgf && <span className="text-right">DPGF 2 (€ HT)</span>}
+                    {hasDualDpgf && <span className="text-right">Écart</span>}
+                  </div>
                 </div>
                 {/* Base DPGF row */}
                 {(() => {
@@ -403,7 +407,7 @@ const PrixPage = () => {
                     </div>
                   );
                 })()}
-                {activeLotLines.map((line) => {
+                {baseLotLines.map((line) => {
                   const entry = getPriceEntry(company.id, line.id);
                   const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
                   const showDpgf2 = hasDualDpgf && (line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both");
@@ -462,74 +466,21 @@ const PrixPage = () => {
                     </div>
                   );
                 })}
-                {/* Lignes de variantes (config) : même présentation que PSE/TO — estimation, % écart, saisie */}
-                {hasVarianteLines &&
-                  varianteLinesFromConfig.map((line, idx) => {
-                    const entry = getPriceEntry(company.id, line.id);
-                    const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
-                    const showDpgf2 = hasDualDpgf && (line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both");
-                    const autoNum = `Variante ${idx + 1}`;
-                    return (
-                      <div
-                        key={line.id}
-                        className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 items-center rounded-md border border-border p-2`}
-                      >
-                        <div className="text-sm">
-                          <span className="font-medium">{line.label || `Variante ${idx + 1}`}</span>
-                          <Badge variant="outline" className="ml-2 text-xs">
-                            {autoNum}
-                          </Badge>
-                        </div>
-                        {showDpgf1 ? (
-                          <div>
-                            {renderPriceWithEstimation(
-                              entry?.dpgf1 ?? null,
-                              line.estimationDpgf1,
-                              isReadOnly,
-                              (val) => setPriceEntry(company.id, line.id, val, entry?.dpgf2 ?? null),
-                              isNego ? getRefPrice(company.id, line.id, 1) : undefined
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-center text-xs text-muted-foreground">—</span>
-                        )}
-                        <div className="text-right text-xs">
-                          {showDpgf1
-                            ? renderDeviationCell(entry?.dpgf1, line.estimationDpgf1 ?? 0)
-                            : <span className="text-muted-foreground">—</span>}
-                        </div>
-                        {hasDualDpgf && (showDpgf2 ? (
-                          <div>
-                            {renderPriceWithEstimation(
-                              entry?.dpgf2 ?? null,
-                              line.estimationDpgf2,
-                              isReadOnly,
-                              (val) => setPriceEntry(company.id, line.id, entry?.dpgf1 ?? null, val),
-                              isNego ? getRefPrice(company.id, line.id, 2) : undefined
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-center text-xs text-muted-foreground">—</span>
-                        ))}
-                        {hasDualDpgf && (
-                          <div className="text-right text-xs">
-                            {showDpgf2
-                              ? renderDeviationCell(entry?.dpgf2, line.estimationDpgf2 ?? 0)
-                              : <span className="text-muted-foreground">—</span>}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
                 {companyTotals[company.id] && (
                   <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 rounded-md bg-muted/50 p-2 text-sm font-semibold`}>
-                    <span>Total{showVarianteSection ? " (offre de base, hors variante)" : ""}</span>
+                    <span>Total{showVarianteSection ? " (offre de base)" : ""}</span>
                     <span className="text-right">{fmt(companyTotals[company.id].dpgf1)}</span>
                     <span></span>
                     {hasDualDpgf && <span className="text-right">{fmt(companyTotals[company.id].dpgf2)}</span>}
                     {hasDualDpgf && <span></span>}
                   </div>
                 )}
+
+                {showVarianteSection && (
+                  <>
+                    <Separator className="my-6" />
+                    <div>
+                      <h3 className="text-sm font-semibold text-muted-foreground mb-2">Variantes</h3>
                 {/* Variante exigée : tout avec estimations et total variante(s) */}
                 {varianteExigee && (() => {
                   const est1 = lot?.estimationDpgf1 ?? null;
@@ -699,6 +650,10 @@ const PrixPage = () => {
                     })()}
                   </div>
                 )}
+                    </div>
+                  </>
+                )}
+
                 {isNego && companyTotals[company.id] && (() => {
                   const initTotal = getInitialTotal(company.id);
                   const currentTotal = companyTotals[company.id].total;
@@ -721,6 +676,19 @@ const PrixPage = () => {
           )}
         </Card>
       ))}
+
+      {activeCompanies.length > 0 && activeCompanies[safeIndex] && (
+        <div className="mt-6 mb-4 flex items-center space-x-2">
+          <Checkbox
+            id="has-questions-prix"
+            checked={activeCompanies[safeIndex].hasQuestions ?? false}
+            onCheckedChange={(checked) => updateCompany(activeCompanies[safeIndex].id, { hasQuestions: !!checked })}
+          />
+          <Label htmlFor="has-questions-prix">
+            Question(s) à poser à {activeCompanies[safeIndex].name || "cette entreprise"}
+          </Label>
+        </div>
+      )}
 
       {activeCompanies.length > 1 && (
         <div className="mt-6 flex items-center justify-end rounded-lg border border-border bg-muted/30 px-4 py-2">

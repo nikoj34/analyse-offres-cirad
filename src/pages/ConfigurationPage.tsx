@@ -1,34 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Settings, FileJson, Users, Shield, RefreshCw } from "lucide-react";
 import { useMultiProjectStore } from "@/store/multiProjectStore";
 import { getSessionUser, resetCloudConnection } from "@/lib/storageRepository";
-import { getAuthorizedPersons, setAuthorizedPersons } from "@/lib/authorizedPersons";
 import { toast } from "sonner";
 
 export default function ConfigurationPage() {
   const { projects: allProjects, locks, refreshLocks } = useMultiProjectStore();
-  const [authorizedPersonsText, setAuthorizedPersonsText] = useState("");
 
   useEffect(() => {
     refreshLocks();
   }, [refreshLocks]);
-
-  useEffect(() => {
-    setAuthorizedPersonsText(getAuthorizedPersons().join("\n"));
-  }, []);
-
-  const saveAuthorizedPersons = () => {
-    const persons = authorizedPersonsText
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    setAuthorizedPersons(persons);
-    toast.success("Liste des personnes autorisées enregistrée.");
-  };
 
   /** Même format que « Exporter tout » dans Analyses : objet id → projet, réimportable via Importer. */
   const handleSnapshotJson = () => {
@@ -81,32 +64,6 @@ export default function ConfigurationPage() {
           Paramètres globaux : sauvegarde, synchronisation, utilisateurs actifs et maintenance.
         </p>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            Personnes autorisées
-          </CardTitle>
-          <CardDescription>
-            Liste des personnes autorisées à utiliser l&apos;application. Cette liste alimente le menu « Rédacteur » dans les données de chaque projet. Un nom par ligne.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Label htmlFor="authorized-persons">Noms (un par ligne)</Label>
-          <Textarea
-            id="authorized-persons"
-            value={authorizedPersonsText}
-            onChange={(e) => setAuthorizedPersonsText(e.target.value)}
-            placeholder={"Jean Dupont\nMarie Martin\nPierre Durand"}
-            rows={6}
-            className="font-mono text-sm"
-          />
-          <Button onClick={saveAuthorizedPersons} size="sm">
-            Enregistrer la liste
-          </Button>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>

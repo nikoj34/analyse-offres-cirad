@@ -3,8 +3,9 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useProjectStore } from "@/store/projectStore";
-import { getAuthorizedPersons } from "@/lib/authorizedPersons";
 import { Plus, Trash2, Package } from "lucide-react";
+
+const AUTHOR_OPTIONS = ["Valérie CHANCERELLE", "Jérôme FORESTIER", "Maxime GREAL", "Nicolas JAMET"];
 import type { LotData } from "@/types/project";
 
 function getLotEstimationTotal(lot: LotData | undefined): number {
@@ -25,12 +26,11 @@ const Index = () => {
   const { info } = project;
   const lots = project.lots ?? [];
   const totalEstimation = lots.reduce((sum, lot) => sum + getLotEstimationTotal(lot), 0);
-  const authorizedList = getAuthorizedPersons();
   const currentAuthor = info.author ?? "";
   const authorOptions =
-    currentAuthor && !authorizedList.includes(currentAuthor)
-      ? [currentAuthor, ...authorizedList]
-      : authorizedList;
+    currentAuthor && !AUTHOR_OPTIONS.includes(currentAuthor)
+      ? [currentAuthor, ...AUTHOR_OPTIONS]
+      : AUTHOR_OPTIONS;
 
   return (
     <div className="space-y-6">

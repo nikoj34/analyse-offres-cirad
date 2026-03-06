@@ -7,6 +7,14 @@ export interface Company {
   name: string;
   status: CompanyStatus;
   exclusionReason: string;
+  /** Case à cocher "Questions à poser" par entreprise */
+  hasQuestions?: boolean;
+  /** Notes techniques par variante : [varianteLineId][criterionKey] = NotationLevel (ex. "tres_bien"). criterionKey = criterionId ou "criterionId_subCriterionId" */
+  scoresTechniquesVariantes?: Record<string, Record<string, string>>;
+  /** Statut par variante : VarianteID -> Statut */
+  statutVariantes?: Record<string, string>;
+  /** Décision par variante : VarianteID -> Décision */
+  decisionVariantes?: Record<string, string>;
 }
 
 export type LotType = "PSE" | "VARIANTE" | "T_OPTIONNELLE";
@@ -318,6 +326,7 @@ export function createDefaultProject(): ProjectData {
 export function migrateToMultiLot(data: any): ProjectData {
   if (data?.lots && Array.isArray(data.lots)) return data as ProjectData;
 
+  // Ancien format (sans lots) : migration ci-dessous. Ne pas filtrer les champs.
   // Migrate v5 tech notes
   const migrateVersions = (versions: any[]) =>
     (versions ?? []).map((v: any) => ({
