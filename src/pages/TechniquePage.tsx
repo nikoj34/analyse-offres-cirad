@@ -75,36 +75,43 @@ const TechniquePage = () => {
 
   const scores = useMemo(() => {
     if (!version) return {};
-    const result: Record<number, { total: number; byCriterion: Record<string, number> }> = {};
+    const result: Record<number, {
+      total: number;
+      byCriterion: Record<string, number>;
+      byCriterionDetail: Record<string, { subRawScores: { subId: string; rawScore: number; subWeight: number }[]; subTotal: number }>;
+    }> = {};
 
     for (const company of activeCompanies) {
       if (company.status === "ecartee") continue;
       const byCriterion: Record<string, number> = {};
+      const byCriterionDetail: Record<string, { subRawScores: { subId: string; rawScore: number; subWeight: number }[]; subTotal: number }> = {};
       let total = 0;
 
       for (const criterion of allTechnicalCriteria) {
         const visibleSubs = getVisibleSubCriteria(criterion);
         if (visibleSubs.length > 0) {
-          let criterionScore = 0;
-          const subTotal = visibleSubs.reduce((s, sc) => s + sc.weight, 0);
+          const subTotalWeights = visibleSubs.reduce((s, sc) => s + sc.weight, 0);
+          const subRawScores: { subId: string; rawScore: number; subWeight: number }[] = [];
+          let totalRaw = 0;
           for (const sub of visibleSubs) {
             const note = version.technicalNotes.find(
               (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id && !n.itemId
             );
-            if (note?.notation) {
-              const subWeight = subTotal > 0 ? sub.weight / subTotal : 0;
-              criterionScore += NOTATION_VALUES[note.notation] * subWeight;
-            }
+            const coef = note?.notation ? NOTATION_VALUES[note.notation] : 0;
+            const rawScore = sub.weight * coef;
+            subRawScores.push({ subId: sub.id, rawScore, subWeight: sub.weight });
+            totalRaw += rawScore;
           }
-          const weightedScore = (criterionScore / 5) * criterion.weight;
+          const weightedScore = subTotalWeights > 0 ? (totalRaw / subTotalWeights) * criterion.weight : 0;
           byCriterion[criterion.id] = weightedScore;
+          byCriterionDetail[criterion.id] = { subRawScores, subTotal: subTotalWeights };
           total += weightedScore;
         } else {
           const note = version.technicalNotes.find(
             (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId && !n.itemId
           );
           if (note?.notation) {
-            const weightedScore = (NOTATION_VALUES[note.notation] / 5) * criterion.weight;
+            const weightedScore = NOTATION_VALUES[note.notation] * criterion.weight;
             byCriterion[criterion.id] = weightedScore;
             total += weightedScore;
           } else {
@@ -112,7 +119,7 @@ const TechniquePage = () => {
           }
         }
       }
-      result[company.id] = { total, byCriterion };
+      result[company.id] = { total, byCriterion, byCriterionDetail };
     }
     return result;
   }, [activeCompanies, allTechnicalCriteria, version]);
@@ -201,7 +208,7 @@ const TechniquePage = () => {
                 </Badge>
               ) : (
                 <Badge variant={scores[company.id]?.total > 0 ? "default" : "secondary"}>
-                  {(scores[company.id]?.total ?? 0).toFixed(1)} / {maxTechnicalWeight}
+                  {(scores[company.id]?.total ?? 0).toFixed(2)} / {maxTechnicalWeight}
                 </Badge>
               )}
             </div>
@@ -217,6 +224,7 @@ const TechniquePage = () => {
                       criterion={criterion}
                       companyId={company.id}
                       score={scores[company.id]?.byCriterion[criterion.id] ?? 0}
+                      criterionDetail={scores[company.id]?.byCriterionDetail[criterion.id]}
                       disabled={isReadOnly}
                       isNego={isNego}
                       prevVersion={prevVersion}
@@ -236,6 +244,7 @@ const TechniquePage = () => {
                     criterion={environnementalCriterion}
                     companyId={company.id}
                     score={scores[company.id]?.byCriterion[environnementalCriterion.id] ?? 0}
+                    criterionDetail={scores[company.id]?.byCriterionDetail[environnementalCriterion.id]}
                     disabled={isReadOnly}
                     isNego={isNego}
                     prevVersion={prevVersion}
@@ -254,6 +263,7 @@ const TechniquePage = () => {
                     criterion={planningCriterion}
                     companyId={company.id}
                     score={scores[company.id]?.byCriterion[planningCriterion.id] ?? 0}
+                    criterionDetail={scores[company.id]?.byCriterionDetail[planningCriterion.id]}
                     disabled={isReadOnly}
                     isNego={isNego}
                     prevVersion={prevVersion}
@@ -263,6 +273,14 @@ const TechniquePage = () => {
                     setVarianteTechnicalNote={setVarianteTechnicalNote}
                     updateNoteVariante={updateNoteVariante}
                   />
+                </div>
+              )}
+
+              {/* NOTE TECHNIQUE GLOBALE — somme des notes pondérées (Valeur technique + Env + Planning) */}
+              {company.status !== "ecartee" && (
+                <div className="rounded-md border-2 border-primary/30 bg-primary/5 px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm font-bold text-foreground">NOTE TECHNIQUE GLOBALE ( / {maxTechnicalWeight} )</span>
+                  <span className="text-lg font-bold text-foreground">{(scores[company.id]?.total ?? 0).toFixed(2)}</span>
                 </div>
               )}
 
@@ -332,6 +350,7 @@ function CriterionBlock({
   criterion,
   companyId,
   score,
+  criterionDetail,
   disabled,
   isNego,
   prevVersion,
@@ -344,6 +363,7 @@ function CriterionBlock({
   criterion: WeightingCriterion;
   companyId: number;
   score: number;
+  criterionDetail?: { subRawScores: { subId: string; rawScore: number; subWeight: number }[]; subTotal: number };
   disabled: boolean;
   isNego: boolean;
   prevVersion?: NegotiationVersion | null;
@@ -436,10 +456,10 @@ function CriterionBlock({
     if (prevValue === currValue) return null;
     return (
       <span className="ml-2 text-xs">
-        <span className="line-through text-destructive">{NOTATION_LABELS[prevNotation]} ({prevValue}/5)</span>
+        <span className="line-through text-destructive">{NOTATION_LABELS[prevNotation]} ({(prevValue * 100)} %)</span>
         <span className="mx-1">→</span>
         {currentNotation && (
-          <span className="text-green-600 font-medium">{NOTATION_LABELS[currentNotation]} ({currValue}/5)</span>
+          <span className="text-green-600 font-medium">{NOTATION_LABELS[currentNotation]} ({(currValue * 100)} %)</span>
         )}
       </span>
     );
@@ -467,22 +487,30 @@ function CriterionBlock({
   const visibleSubs = getVisibleSubCriteria(criterion);
 
   if (visibleSubs.length > 0) {
+    const totalRaw = criterionDetail?.subRawScores.reduce((s, x) => s + x.rawScore, 0) ?? 0;
+    const subTotalWeights = criterionDetail?.subTotal ?? visibleSubs.reduce((s, sc) => s + sc.weight, 0);
+
     return (
       <div className="rounded-md border border-border p-3 space-y-3">
         <div className="flex items-center justify-between">
           <h4 className="text-sm font-semibold text-foreground">
             {criterion.label} ({criterion.weight}%)
           </h4>
-          <span className="text-xs text-muted-foreground">{score.toFixed(1)} pts</span>
         </div>
         {visibleSubs.map((sub, subIdx) => {
           const note = getTechnicalNote(companyId, criterion.id, sub.id);
+          const rawEntry = criterionDetail?.subRawScores.find((e) => e.subId === sub.id);
+          const rawScore = rawEntry?.rawScore ?? 0;
+          const subWeight = rawEntry?.subWeight ?? sub.weight;
           const visibleItems = (sub.items || []).filter((it) => it.label.trim() !== "");
           return (
             <div key={sub.id} className="ml-4 space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">
                 Sous-critère {subIdx + 1} — {sub.label} ({sub.weight}%)
                 {renderNotationDiff(note?.notation, sub.id)}
+                <span className="ml-2 font-normal text-foreground">
+                  (Note / {subWeight} : <strong>{rawScore.toFixed(2)}</strong>)
+                </span>
               </label>
               <div className="flex gap-4">
                 {renderNotationColumn(
@@ -574,6 +602,24 @@ function CriterionBlock({
             </div>
           );
         })}
+        {/* Total Interne (avant pondération) */}
+        <div className="ml-4 pt-2 border-t border-border flex items-center justify-between">
+          <span className="text-xs font-medium text-muted-foreground">
+            Total interne (avant pondération)
+          </span>
+          <span className="text-xs font-medium text-foreground">
+            {totalRaw.toFixed(2)} / {subTotalWeights}
+          </span>
+        </div>
+        {/* Note technique pondérée */}
+        <div className="ml-4 flex items-center justify-between rounded bg-muted/50 px-3 py-2">
+          <span className="text-xs font-semibold text-foreground">
+            Note technique pondérée sur {criterion.weight} %
+          </span>
+          <span className="text-sm font-bold text-foreground">
+            {score.toFixed(2)} / {criterion.weight}
+          </span>
+        </div>
       </div>
     );
   }
@@ -586,7 +632,7 @@ function CriterionBlock({
           {criterion.label} ({criterion.weight}%)
           {renderNotationDiff(note?.notation)}
         </h4>
-        <span className="text-xs text-muted-foreground">{score.toFixed(1)} pts</span>
+        <span className="text-xs text-muted-foreground">{score.toFixed(2)} pts</span>
       </div>
       <div className="space-y-2">
         <div className="flex gap-4">

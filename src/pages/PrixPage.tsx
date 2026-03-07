@@ -199,6 +199,15 @@ const PrixPage = () => {
     return result;
   }, [companyTotals, prixWeight]);
 
+  /** Estimation globale (Base + PSE + TO) pour la ligne Écart / Estimation Globale */
+  const estimationGlobale = useMemo(() => {
+    const base = (lot?.estimationDpgf1 ?? 0) + (lot?.estimationDpgf2 ?? 0);
+    const rest = baseLotLines
+      .filter((l) => l.id !== 0)
+      .reduce((s, l) => s + (l.estimationDpgf1 ?? 0) + (l.estimationDpgf2 ?? 0), 0);
+    return base + rest;
+  }, [lot?.estimationDpgf1, lot?.estimationDpgf2, baseLotLines]);
+
   const pageTitle = isNego ? `Analyse des prix — ${negoLabel}` : "Analyse des prix";
 
   if (!lot) {
@@ -348,7 +357,7 @@ const PrixPage = () => {
                     </Badge>
                   )}
                   <Badge variant={priceScores[company.id] ? "default" : "secondary"}>
-                    {(priceScores[company.id] ?? 0).toFixed(1)} / {prixWeight}
+                    {(priceScores[company.id] ?? 0).toFixed(2)} / {prixWeight}
                   </Badge>
                 </div>
               )}
@@ -468,13 +477,38 @@ const PrixPage = () => {
                 })}
                 {companyTotals[company.id] && (
                   <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 rounded-md bg-muted/50 p-2 text-sm font-semibold`}>
-                    <span>Total{showVarianteSection ? " (offre de base)" : ""}</span>
+                    <span>Total Global Évalué{showVarianteSection ? " (Base + PSE + TO)" : ""}</span>
                     <span className="text-right">{fmt(companyTotals[company.id].dpgf1)}</span>
                     <span></span>
                     {hasDualDpgf && <span className="text-right">{fmt(companyTotals[company.id].dpgf2)}</span>}
                     {hasDualDpgf && <span></span>}
                   </div>
                 )}
+                {/* Écart / Estimation Globale (en % et en €) */}
+                {companyTotals[company.id] && estimationGlobale > 0 && (
+                  <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 rounded-md border border-border bg-muted/30 p-2 text-sm`}>
+                    <span className="text-muted-foreground">Écart / Estimation Globale ({fmt(estimationGlobale)})</span>
+                    <span className={`text-right font-medium ${getDeviationColor(companyTotals[company.id].total, estimationGlobale, toleranceSeuil)}`}>
+                      {((companyTotals[company.id].total - estimationGlobale) / estimationGlobale * 100 >= 0 ? "+" : "")}
+                      {((companyTotals[company.id].total - estimationGlobale) / estimationGlobale * 100).toFixed(2)}%
+                      {" "}
+                      ({companyTotals[company.id].total - estimationGlobale >= 0 ? "+" : ""}{fmt(companyTotals[company.id].total - estimationGlobale)})
+                    </span>
+                    <span></span>
+                    {hasDualDpgf && <span></span>}
+                    {hasDualDpgf && <span></span>}
+                  </div>
+                )}
+                {/* Note Prix Globale ( / poidsPrix ) — calculée sur Total Global Évalué, 2 décimales */}
+                <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 rounded-md bg-primary/10 border border-primary/20 p-2 text-sm font-semibold`}>
+                  <span>Note Prix Globale ( / {prixWeight} )</span>
+                  <span className="text-right">
+                    {company.status === "ecartee" ? "—" : (priceScores[company.id] ?? 0).toFixed(2)}
+                  </span>
+                  <span></span>
+                  {hasDualDpgf && <span></span>}
+                  {hasDualDpgf && <span></span>}
+                </div>
 
                 {showVarianteSection && (
                   <>

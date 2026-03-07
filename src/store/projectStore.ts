@@ -245,7 +245,8 @@ export const useProjectStore = create<ProjectStore>()(
         set((state) => {
           const lot = getLot(state);
           const nextCompanies = lot.companies.map((c) => (c.id === id ? { ...c, ...updates } : c));
-          // Quand on décoche « Question(s) à poser », supprimer les données questionnaire de cette entreprise (non gardées, non exportées)
+          // Seul le décochage explicite « Question(s) à poser » supprime le questionnaire de cette entreprise.
+          // La validation des réponses (setReceptionMode) ne doit jamais effacer les Q&R ni passer hasQuestions à false.
           const patch: Record<string, unknown> = { companies: nextCompanies };
           if (updates.hasQuestions === false) {
             const version0 = lot.versions?.[0];
@@ -1149,6 +1150,8 @@ export const useProjectStore = create<ProjectStore>()(
           });
         }),
 
+      /** Passe une entreprise en mode « réponses reçues / validées » (lecture seule) ou déverrouille.
+       * Ne modifie jamais les questions/réponses ni hasQuestions : les données restent intactes. */
       setReceptionMode: (versionId, companyId, mode) =>
         set((state) => {
           const lot = getLot(state);

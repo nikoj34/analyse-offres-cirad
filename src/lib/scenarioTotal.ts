@@ -87,3 +87,24 @@ export function getCompanyTotalIncludingPseAndTo(
   }
   return total;
 }
+
+/**
+ * Total Global Évalué : Base (DPGF) + TOUTES les PSE + TOUTES les Tranches Optionnelles (sans variantes).
+ * Référence pour l'analyse financière et la synthèse (Montant Total HT, Note Prix Globale).
+ * Base = lotLineId 0 (DPGF1 + DPGF2) ; on n'ajoute pas une seconde fois la ligne 0 si elle est dans activeLotLines.
+ */
+export function getCompanyTotalGlobalEvalue(
+  version: NegotiationVersion | undefined,
+  activeLotLines: LotLineForScenario[],
+  companyId: number
+): number {
+  if (!version) return 0;
+  let total = getLinePrice(version, companyId, 0);
+  for (const line of activeLotLines) {
+    if (line.id === 0) continue;
+    if (line.type !== "VARIANTE") {
+      total += getLinePrice(version, companyId, line.id);
+    }
+  }
+  return total;
+}

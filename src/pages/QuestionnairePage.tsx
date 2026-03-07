@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, MessageSquare, Plus, Trash2, Download, Upload } from "lucide-react";
+import { AlertTriangle, MessageSquare, Plus, Trash2, Download, Upload, CheckCircle, LockOpen } from "lucide-react";
 import { useRef, useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
@@ -16,7 +16,7 @@ import { saveAs } from "file-saver";
 
 const QuestionnairePage = () => {
   const { round } = useParams<{ round?: string }>();
-  const { project, activateQuestionnaire, syncQuestionnaireCompanies, setQuestionnaireDealine, addQuestion, updateQuestion, removeQuestion, setQuestionResponse } = useProjectStore();
+  const { project, activateQuestionnaire, syncQuestionnaireCompanies, setQuestionnaireDealine, addQuestion, updateQuestion, removeQuestion, setQuestionResponse, setReceptionMode } = useProjectStore();
   const lot = project.lots[project.currentLotIndex];
   const { activeCompanies } = useAnalysisContext();
   const { toast } = useToast();
@@ -43,9 +43,12 @@ const QuestionnairePage = () => {
     );
   }
 
-  const retainedIds = (lot?.companies ?? [])
-    .filter((c) => c.hasQuestions === true)
-    .map((c) => c.id);
+  // Entreprises à afficher : case cochée OU déjà des questions enregistrées pour cette version (conservation après validation)
+  const fromCheck = (lot?.companies ?? []).filter((c) => c.hasQuestions === true).map((c) => c.id);
+  const fromData = (targetVersion.questionnaire?.questionnaires ?? [])
+    .filter((cq) => (cq.questions?.length ?? 0) > 0)
+    .map((cq) => cq.companyId);
+  const retainedIds = [...new Set([...fromCheck, ...fromData])];
 
   if (retainedIds.length === 0) {
     return (
@@ -132,9 +135,20 @@ const QuestionnairePage = () => {
     ws.mergeCells(1, 1, 1, 3);
     ws.getRow(1).height = 28;
 
-    // Ligne 2 et suivantes : question numérotée, colonne 2 = la question, colonne 3 = champ vide à remplir par l'entreprise
+    // Ligne 2 : en-têtes (Numéro, Question, Réponse attendue)
+    ws.getCell(2, 1).value = "Numéro";
+    ws.getCell(2, 2).value = "Question";
+    ws.getCell(2, 3).value = "Réponse attendue";
+    [1, 2, 3].forEach((col) => {
+      ws.getCell(2, col).border = border;
+      ws.getCell(2, col).font = { bold: true };
+      ws.getCell(2, col).alignment = { horizontal: "center", vertical: "middle" };
+    });
+    ws.getRow(2).height = 22;
+
+    // Lignes 3 et suivantes : question numérotée, colonne 2 = la question, colonne 3 = champ vide à remplir par l'entreprise
     cq.questions.forEach((q, i) => {
-      const row = i + 2;
+      const row = i + 3;
       ws.getCell(row, 1).value = i + 1;
       ws.getCell(row, 1).border = border;
       ws.getCell(row, 1).alignment = { horizontal: "center", vertical: "top" };
@@ -169,9 +183,9 @@ const QuestionnairePage = () => {
 
       let imported = 0;
       ws.eachRow((row, rowNumber) => {
-        if (rowNumber === 1) return; // ligne 1 = en-tête consultation/lot/entreprise
+        if (rowNumber <= 2) return; // ligne 1 = consultation/lot/entreprise, ligne 2 = en-têtes (Numéro, Question, Réponse attendue)
         const response = (row.getCell(3).text || "").trim();
-        const qIndex = rowNumber - 2;
+        const qIndex = rowNumber - 3;
         if (qIndex >= 0 && qIndex < cq.questions.length && response) {
           setQuestionResponse(versionId, companyId, cq.questions[qIndex].id, response);
           imported++;
@@ -228,6 +242,7 @@ const QuestionnairePage = () => {
             0,
             activeCompanies.findIndex((c) => c.id === currentCq.companyId)
           );
+          const isLocked = currentCq.receptionMode === true;
           return (
             <Card
               key={currentCq.companyId}
@@ -244,7 +259,12 @@ const QuestionnairePage = () => {
                     {currentCq.questions.length} question
                     {currentCq.questions.length !== 1 ? "s" : ""}
                   </Badge>
-                  {currentCq.questions.length > 0 && (
+                  {isLocked && (
+                    <Badge variant="outline" className="text-xs text-muted-foreground">
+                      Saisie verrouillée
+                    </Badge>
+                  )}
+                  {currentCq.questions.length > 0 && !isLocked && (
                     <div className="flex gap-2 ml-auto">
                       <Button
                         variant="outline"
@@ -279,10 +299,37 @@ const QuestionnairePage = () => {
                       />
                     </div>
                   )}
+                  {isLocked && (
+                    <div className="flex gap-2 ml-auto">
+                      {currentCq.questions.length > 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1 text-xs"
+                          onClick={() => handleExport(currentCq.companyId)}
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Export question(s)
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1 text-xs"
+                        onClick={() => {
+                          setReceptionMode(versionId, currentCq.companyId, false);
+                          toast({ title: "Déblocage", description: "Les questions et réponses sont à nouveau modifiables pour cette entreprise." });
+                        }}
+                      >
+                        <LockOpen className="h-3.5 w-3.5" />
+                        Débloquer les questions/réponses
+                      </Button>
+                    </div>
+                  )}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {currentCq.questions.length === 0 && (
+              <CardContent className={`space-y-3 ${isLocked ? "opacity-90" : ""}`}>
+                {currentCq.questions.length === 0 && !isLocked && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -296,18 +343,20 @@ const QuestionnairePage = () => {
                 {currentCq.questions.map((q, qIdx) => (
                   <div
                     key={q.id}
-                    className="space-y-1.5 border-b border-border pb-3 last:border-0"
+                    className={`space-y-1.5 border-b border-border pb-3 last:border-0 ${isLocked ? "bg-muted/30 rounded-md px-2 py-2" : ""}`}
                   >
                     <div className="flex gap-2 items-start">
                       <span className="text-sm font-semibold text-muted-foreground mt-2 w-8 shrink-0">
                         {qIdx + 1}.
                       </span>
                       <Textarea
-                        className="flex-1 text-sm resize-y min-h-[60px] bg-muted/50"
+                        className={`flex-1 text-sm resize-y min-h-[60px] ${isLocked ? "bg-muted cursor-not-allowed" : "bg-muted/50"}`}
                         rows={2}
                         placeholder={`Question ${qIdx + 1}…`}
                         value={q.text}
+                        readOnly={isLocked}
                         onChange={(e) =>
+                          !isLocked &&
                           updateQuestion(
                             versionId,
                             currentCq.companyId,
@@ -316,31 +365,35 @@ const QuestionnairePage = () => {
                           )
                         }
                       />
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="shrink-0 text-destructive hover:text-destructive mt-1"
-                        onClick={() =>
-                          removeQuestion(
-                            versionId,
-                            currentCq.companyId,
-                            q.id
-                          )
-                        }
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {!isLocked && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0 text-destructive hover:text-destructive mt-1"
+                          onClick={() =>
+                            removeQuestion(
+                              versionId,
+                              currentCq.companyId,
+                              q.id
+                            )
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                     <div className="ml-10">
                       <label className="text-xs text-muted-foreground font-medium">
                         Réponse :
                       </label>
                       <Textarea
-                        className="text-sm mt-1 min-h-[40px] bg-muted/50"
+                        className={`text-sm mt-1 min-h-[40px] ${isLocked ? "bg-muted cursor-not-allowed" : "bg-muted/50"}`}
                         rows={2}
                         value={q.response}
                         placeholder="Saisie manuelle ou après import Excel…"
+                        readOnly={isLocked}
                         onChange={(e) =>
+                          !isLocked &&
                           setQuestionResponse(
                             versionId,
                             currentCq.companyId,
@@ -352,7 +405,7 @@ const QuestionnairePage = () => {
                     </div>
                   </div>
                 ))}
-                {currentCq.questions.length > 0 && (
+                {currentCq.questions.length > 0 && !isLocked && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -412,6 +465,27 @@ const QuestionnairePage = () => {
                 Entreprise suivante
               </Button>
             </div>
+          </div>
+        )}
+
+        {currentIndex === retainedQuestionnaires.length - 1 && (
+          <div className="mt-6 flex justify-center">
+            <Button
+              type="button"
+              className="gap-2"
+              onClick={() => {
+                retainedQuestionnaires.forEach((cq) => {
+                  setReceptionMode(versionId, cq.companyId, true);
+                });
+                toast({
+                  title: "Saisie validée",
+                  description: "L'onglet est renommé « Réponses aux questions » et remonté juste avant Synthèse.",
+                });
+              }}
+            >
+              <CheckCircle className="h-4 w-4" />
+              Valider la saisie ou import des réponses
+            </Button>
           </div>
         )}
       </div>

@@ -17,6 +17,7 @@ import { useAnalysisContext } from "@/hooks/useAnalysisContext";
 import { getCompanyColor, getCompanyBgColor } from "@/lib/companyColors";
 import { useNavigate } from "react-router-dom";
 import { useWeightingValid } from "@/hooks/useWeightingValid";
+import { getCompanyTotalGlobalEvalue } from "@/lib/scenarioTotal";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -71,6 +72,19 @@ const SynthesePage = () => {
     return `${prefix}${line.label ? ` — ${line.label}` : ""}`;
   };
 
+  /** Libellé court pour le Classement général uniquement (PSE 1, PSE 2… sans le nom de la prestation) */
+  const getLineLabelShort = (line: typeof activeLotLines[0]) => {
+    if (!line.type) return line.label;
+    const group = activeLotLines.filter((l) => l.type === line.type);
+    const idx = group.indexOf(line) + 1;
+    const toLabel = line.type === "T_OPTIONNELLE"
+      ? (idx === 1 ? "Tranche Optionnelle" : `Tranche Optionnelle ${idx - 1}`)
+      : null;
+    const prefix = toLabel !== null ? toLabel : (line.type === "PSE" ? `PSE ${idx}` : `Variante ${idx}`);
+    if (line.type === "PSE") return prefix;
+    return `${prefix}${line.label ? ` — ${line.label}` : ""}`;
+  };
+
   // enabledLines = which options are active in the main scenario (base = always included via lotLineId=0)
   const [enabledLines, setEnabledLines] = useState<Record<number, boolean>>(() => {
     const init: Record<number, boolean> = {};
@@ -83,10 +97,15 @@ const SynthesePage = () => {
 
   const [negoDate, setNegoDate] = useState(new Date().toISOString().split("T")[0]);
   const [attributaireDialogOpen, setAttributaireDialogOpen] = useState(false);
+  const [attributaireBlockedDialogOpen, setAttributaireBlockedDialogOpen] = useState(false);
+  /** Modale obligatoire : choix PSE/TO avant d'enregistrer la décision Attributaire */
+  const [isPseAttributionModalOpen, setIsPseAttributionModalOpen] = useState(false);
+  const [pendingAttributionCompanyId, setPendingAttributionCompanyId] = useState<number | null>(null);
+  const [pendingAttributionChoices, setPendingAttributionChoices] = useState<Record<number, "oui" | "non">>({});
   const [validationComment, setValidationComment] = useState("");
   const [validationDialogOpen, setValidationDialogOpen] = useState(false);
   const [evictionMotif, setEvictionMotif] = useState("");
-  // Choix OUI / NON explicite pour chaque PSE et Variante — par défaut OUI pour que le montant Synthèse = total offre de base (PSE + TO)
+  // Choix OUI / NON pour chaque PSE et Variante : détermine ce qui est inclus dans la comparaison (montant scénario, notes, classement). OUI par défaut = toutes incluses.
   const [pseVarianteChoice, setPseVarianteChoice] = useState<Record<number, "oui" | "non" | null>>(() => {
     const init: Record<number, "oui" | "non" | null> = {};
     for (const l of [...pseLines, ...varianteLines]) {
@@ -120,6 +139,21 @@ const SynthesePage = () => {
   const hasTO = toLines.length > 0;
   const hasScenarioOptions = hasPSE || hasVariante || hasTO;
 
+  /** Lignes à afficher dans la modale d'attribution (PSE + TO + Variantes) */
+  const attributionModalLines = useMemo(
+    () => [...pseLines, ...toLines, ...varianteLines],
+    [pseLines, toLines, varianteLines]
+  );
+  const hasAttributionModalLines = attributionModalLines.length > 0;
+
+  /** Libellé PSE pour la règle de calcul du classement général */
+  const pseRuleLabel = useMemo(() => {
+    if (!hasPSE) return null;
+    const enabledCount = pseLines.filter((l) => enabledLines[l.id]).length;
+    if (enabledCount === pseLines.length) return "PSE (toutes par défaut)";
+    return "PSE cochées";
+  }, [hasPSE, pseLines, enabledLines]);
+
   /** Lignes de variantes (config lot, id négatifs) pour les lignes Synthèse par variante */
   const varianteLinesConfig: VarianteLine[] = lot.varianteLines ?? [];
   const showVarianteRows = (lot.varianteAutorisee || lot.varianteExigee) && varianteLinesConfig.length > 0;
@@ -142,6 +176,12 @@ const SynthesePage = () => {
   const hasAnyWithQuestionsStatus = useMemo(() =>
     hasAnyQuestions || activeCompanies.some((c) => c.hasQuestions ?? false),
     [hasAnyQuestions, activeCompanies]);
+
+  /** Pour chaque entreprise, true si la saisie/import des réponses a été validée (réouvre le statut décision sur Synthèse) */
+  const receptionModeByCompany = useMemo(() => {
+    const questionnaires = version?.questionnaire?.questionnaires ?? [];
+    return Object.fromEntries(questionnaires.map((cq) => [cq.companyId, cq.receptionMode === true]));
+  }, [version?.questionnaire?.questionnaires]);
 
   const eligibleCompanies = useMemo(
     () => activeCompanies.filter((c) => c.status !== "ecartee"),
@@ -179,6 +219,13 @@ const SynthesePage = () => {
     return allPseVarianteLines.some((l) => !pseVarianteChoice[l.id]);
   }, [hasAnyAttributaire, pseLines, varianteLines, pseVarianteChoice]);
 
+  /** True si toutes les PSE et Variantes ont un choix OUI ou NON (nécessaire pour pouvoir choisir Attributaire) */
+  const allPseVarianteRenseignes = useMemo(() => {
+    const allLines = [...pseLines, ...varianteLines];
+    if (allLines.length === 0) return true;
+    return allLines.every((l) => pseVarianteChoice[l.id] != null);
+  }, [pseLines, varianteLines, pseVarianteChoice]);
+
   // Helper: get price for a company on a specific lot line
   const getLinePrice = (companyId: number, lineId: number) => {
     if (!version) return 0;
@@ -204,12 +251,12 @@ const SynthesePage = () => {
             raw += NOTATION_VALUES[notation as keyof typeof NOTATION_VALUES] * subWeight;
           }
         }
-        criterionScore = (raw / 5) * criterion.weight;
+        criterionScore = raw * criterion.weight;
       } else {
         const noteVal = byVariante[criterion.id];
         const notation = noteVal && (noteVal === "tres_bien" || noteVal === "bien" || noteVal === "moyen" || noteVal === "passable" || noteVal === "insuffisant") ? noteVal : null;
         if (notation) {
-          criterionScore = (NOTATION_VALUES[notation as keyof typeof NOTATION_VALUES] / 5) * criterion.weight;
+          criterionScore = NOTATION_VALUES[notation as keyof typeof NOTATION_VALUES] * criterion.weight;
         }
       }
       if (criterion.id === "environnemental") env = criterionScore;
@@ -313,19 +360,20 @@ const SynthesePage = () => {
     return getMissingLabelsForCells(companyId, varianteCells);
   };
 
-  // Compute TF total (sum of base lines) + enabled TCs
+  // Compute scenario total for comparison: TF + TO (enabledLines) + PSE/Variante uniquement si pseVarianteChoice === "oui"
   const getCompanyScenarioTotal = (companyId: number) => {
     if (!version) return 0;
-    // Sum all base (non-typed) lines
     let total = baseLines.reduce((sum, l) => sum + getLinePrice(companyId, l.id), 0);
-    // Fallback: old storage uses lotLineId=0 for the global TF total
     if (total === 0) {
       const entry = version.priceEntries.find((e) => e.companyId === companyId && e.lotLineId === 0);
       total = (entry?.dpgf1 ?? 0) + (entry?.dpgf2 ?? 0);
     }
-    // Add enabled option lines (PSE/Variante/TO)
     for (const line of activeLotLines) {
-      if (line.type && enabledLines[line.id]) {
+      if (!line.type) continue;
+      if (line.type === "T_OPTIONNELLE" && enabledLines[line.id]) {
+        total += getLinePrice(companyId, line.id);
+      }
+      if ((line.type === "PSE" || line.type === "VARIANTE") && pseVarianteChoice[line.id] === "oui") {
         total += getLinePrice(companyId, line.id);
       }
     }
@@ -352,20 +400,20 @@ const SynthesePage = () => {
             const note = version.technicalNotes.find(
               (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
             );
-            if (note?.notation) {
-              const subWeight = subTotal > 0 ? sub.weight / subTotal : 0;
-              raw += NOTATION_VALUES[note.notation] * subWeight;
-            }
-          }
-          criterionScore = (raw / 5) * criterion.weight;
-        } else {
-          const note = version.technicalNotes.find(
-            (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
-          );
           if (note?.notation) {
-            criterionScore = (NOTATION_VALUES[note.notation] / 5) * criterion.weight;
+            const subWeight = subTotal > 0 ? sub.weight / subTotal : 0;
+            raw += NOTATION_VALUES[note.notation] * subWeight;
           }
         }
+        criterionScore = raw * criterion.weight;
+      } else {
+        const note = version.technicalNotes.find(
+          (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
+        );
+        if (note?.notation) {
+          criterionScore = NOTATION_VALUES[note.notation] * criterion.weight;
+        }
+      }
         if (criterion.id === "environnemental") env = criterionScore;
         else if (criterion.id === "planning") planning = criterionScore;
         else technique += criterionScore;
@@ -379,7 +427,7 @@ const SynthesePage = () => {
 
     for (const company of activeCompanies) {
       if (company.status === "ecartee") continue;
-      const scenarioTotal = getCompanyScenarioTotal(company.id);
+      const totalGlobal = getCompanyTotalGlobalEvalue(version, activeLotLines, company.id);
       const missing: string[] = [];
 
       for (const line of activeLotLines) {
@@ -390,7 +438,7 @@ const SynthesePage = () => {
         }
       }
 
-      companyPriceTotals[company.id] = scenarioTotal;
+      companyPriceTotals[company.id] = totalGlobal;
       missingPrices[company.id] = missing;
     }
 
@@ -439,24 +487,26 @@ const SynthesePage = () => {
     return [...pseLines, ...varianteLines].filter((l) => pseVarianteChoice[l.id] === "oui");
   }, [pseLines, varianteLines, pseVarianteChoice]);
 
-  // Results augmentés avec les options actives des toggles de comparaison
+  // Results du classement : montant scénario et notes basés sur getCompanyScenarioTotal (TF + TO + PSE/Variante en OUI)
   const scenarioResults = useMemo(() => {
-    if (!version || activeCompareLines.length === 0) return results;
+    if (!version) return results;
 
-    // Recalculate price totals with active compare lines added
     const eligibleCompanies = activeCompanies.filter((c) => c.status !== "ecartee");
     const augmentedTotals: Record<number, number> = {};
     const augmentedMissing: Record<number, string[]> = {};
 
     for (const company of eligibleCompanies) {
-      const baseTotal = getCompanyScenarioTotal(company.id);
-      let extra = 0;
+      const total = getCompanyScenarioTotal(company.id);
+      augmentedTotals[company.id] = total;
       const missing: string[] = [];
-      for (const line of activeCompareLines) {
-        extra += getLinePrice(company.id, line.id);
-        if (!hasPrice(company.id, line.id)) missing.push(getLineLabel(line));
+      for (const line of activeLotLines) {
+        if (!line.type) continue;
+        const included = (line.type === "T_OPTIONNELLE" && enabledLines[line.id]) ||
+          ((line.type === "PSE" || line.type === "VARIANTE") && pseVarianteChoice[line.id] === "oui");
+        if (included && !hasPrice(company.id, line.id)) {
+          missing.push(getLineLabelShort(line));
+        }
       }
-      augmentedTotals[company.id] = baseTotal + extra;
       augmentedMissing[company.id] = missing;
     }
 
@@ -478,7 +528,7 @@ const SynthesePage = () => {
       };
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results, activeCompareLines, version, prixWeight]);
+  }, [results, version, prixWeight, pseVarianteChoice, enabledLines, activeCompanies, activeLotLines]);
 
   // Rang recalculé depuis scenarioResults (sans déplacer les lignes)
   const scenarioSorted = useMemo(() => {
@@ -580,17 +630,20 @@ const SynthesePage = () => {
   const getAvailableDecisions = (companyId: number): NegotiationDecision[] => {
     const company = activeCompanies.find((c) => c.id === companyId);
     const hasQuestions = company?.hasQuestions ?? false;
-    if (hasQuestions) {
+    const responsesValidated = receptionModeByCompany[companyId] === true;
+    if (hasQuestions && !responsesValidated) {
       return ["questions_reponses"];
     }
     const currentDecision = decisions[companyId] ?? "non_defini";
     if (hasAnyAttributaire && currentDecision !== "attributaire") {
       return ["non_defini", "non_retenue"];
     }
+    const baseDecisions: NegotiationDecision[] = ["non_defini", "non_retenue", "retenue"];
+    const withAttributaire = allPseVarianteRenseignes ? [...baseDecisions, "attributaire"] : baseDecisions;
     if (hasAnyWithQuestionsStatus) {
-      return ["non_defini", "non_retenue", "retenue"];
+      return withAttributaire;
     }
-    return ["non_defini", "non_retenue", "retenue", "attributaire"];
+    return withAttributaire;
   };
 
   if (!weightingValid) {
@@ -652,9 +705,135 @@ const SynthesePage = () => {
         </h1>
         <p className="text-sm text-muted-foreground">
           Classement global (technique + prix). Total sur {maxTotal} pts.{" "}
-          {hasScenarioOptions && "Total = Base + Σ(Tranches Conditionnelles actives)."}
+          {hasScenarioOptions && "Total = Base + PSE + Σ(Tranches Optionnelles actives)."}
         </p>
       </div>
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* SECTION 6.2 — COMPARAISON DE SCÉNARIOS + DÉCISION  */}
+      {/* ═══════════════════════════════════════════════════ */}
+      {(hasPSE || hasVariante) && (
+        <Card className="border-blue-200 dark:border-blue-900">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2 text-blue-800 dark:text-blue-300">
+              <Settings2 className="h-4 w-4" />
+              Comparaison de Scénarios — PSE retenues au marché ?
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Cliquez sur <strong>OUI</strong> pour inclure une PSE dans le classement et la retenir au marché. <strong>NON</strong> = non retenue. Un second clic désélectionne.
+              Le choix OUI / NON est obligatoire pour chaque PSE avant la validation lorsqu'un attributaire est désigné.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-4">
+              {hasPSE && (
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">PSE</span>
+                  <div className="flex flex-col gap-2">
+                    {pseLines.map((l) => {
+                      const choice = pseVarianteChoice[l.id] ?? null;
+                      return (
+                        <div key={l.id} className="flex items-center gap-3">
+                          <span className="text-sm min-w-[220px]">{getLineLabel(l)}</span>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: prev[l.id] === "oui" ? null : "oui" }))}
+                              disabled={isReadOnly || isValidated}
+                              className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
+                                choice === "oui"
+                                  ? hasAnyAttributaire
+                                    ? "border-green-500 bg-green-500 text-white"
+                                    : "border-border bg-muted text-foreground"
+                                  : "border-border bg-background text-muted-foreground hover:bg-muted"
+                              } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                            >
+                              OUI
+                            </button>
+                            <button
+                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: prev[l.id] === "non" ? null : "non" }))}
+                              disabled={isReadOnly || isValidated}
+                              className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
+                                choice === "non"
+                                  ? "border-destructive bg-destructive text-destructive-foreground"
+                                  : "border-border bg-background text-muted-foreground hover:bg-muted"
+                              } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                            >
+                              NON
+                            </button>
+                          </div>
+                          {choice === null && hasAnyAttributaire && (
+                            <span className="text-xs text-orange-600 flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" /> À renseigner
+                            </span>
+                          )}
+                          {choice === "oui" && hasAnyAttributaire && (
+                            <span className="text-xs font-medium text-green-700">✓ Retenue</span>
+                          )}
+                          {choice === "non" && (
+                            <span className="text-xs font-medium text-destructive">✗ Non retenue</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {hasVariante && (
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Variantes</span>
+                  <div className="flex flex-col gap-2">
+                    {varianteLines.map((l) => {
+                      const choice = pseVarianteChoice[l.id] ?? null;
+                      return (
+                        <div key={l.id} className="flex items-center gap-3">
+                          <span className="text-sm min-w-[220px]">{getLineLabel(l)}</span>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: prev[l.id] === "oui" ? null : "oui" }))}
+                              disabled={isReadOnly || isValidated}
+                              className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
+                                choice === "oui"
+                                  ? hasAnyAttributaire
+                                    ? "border-green-500 bg-green-500 text-white"
+                                    : "border-border bg-muted text-foreground"
+                                  : "border-border bg-background text-muted-foreground hover:bg-muted"
+                              } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                            >
+                              OUI
+                            </button>
+                            <button
+                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: prev[l.id] === "non" ? null : "non" }))}
+                              disabled={isReadOnly || isValidated}
+                              className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
+                                choice === "non"
+                                  ? "border-destructive bg-destructive text-destructive-foreground"
+                                  : "border-border bg-background text-muted-foreground hover:bg-muted"
+                              } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                            >
+                              NON
+                            </button>
+                          </div>
+                          {choice === null && hasAnyAttributaire && (
+                            <span className="text-xs text-orange-600 flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" /> À renseigner
+                            </span>
+                          )}
+                          {choice === "oui" && hasAnyAttributaire && (
+                            <span className="text-xs font-medium text-green-700">✓ Retenue</span>
+                          )}
+                          {choice === "non" && (
+                            <span className="text-xs font-medium text-destructive">✗ Non retenue</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ═══════════════════════════════════════════════════ */}
       {/* SECTION 6.1 — CLASSEMENT GÉNÉRAL                   */}
@@ -663,7 +842,7 @@ const SynthesePage = () => {
         <CardHeader>
           <CardTitle className="text-base">Classement Général</CardTitle>
           <CardDescription>
-            Règle de calcul : TF + Σ(Tranches Conditionnelles). Les entreprises écartées sont affichées mais non classées.
+            Règle de calcul : TF{pseRuleLabel ? ` + ${pseRuleLabel}` : ""} + Σ(Tranches Optionnelles). Les entreprises écartées sont affichées mais non classées.
           </CardDescription>
         </CardHeader>
 
@@ -717,7 +896,7 @@ const SynthesePage = () => {
                           <span>{row.company.id}. {row.company.name}</span>
                           {activeCompareLines.length > 0 && !isExcluded && (
                             <span className="text-xs text-muted-foreground italic">
-                              Base{activeCompareLines.map((l) => ` + ${getLineLabel(l)}`).join("")}
+                              Base{activeCompareLines.map((l) => ` + ${getLineLabelShort(l)}`).join("")}
                             </span>
                           )}
                           {row.missingRequiredPriceLabels?.length > 0 && (
@@ -729,15 +908,15 @@ const SynthesePage = () => {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">{isExcluded ? "—" : fmt(row.priceTotal)}</TableCell>
-                      <TableCell className="text-right">{isExcluded ? "—" : row.priceScore.toFixed(1)}</TableCell>
-                      <TableCell className="text-right">{isExcluded ? "—" : row.techniqueScore.toFixed(1)}</TableCell>
+                      <TableCell className="text-right">{isExcluded ? "—" : row.priceScore.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">{isExcluded ? "—" : row.techniqueScore.toFixed(2)}</TableCell>
                       {envWeight > 0 && (
-                        <TableCell className="text-right">{isExcluded ? "—" : row.envScore.toFixed(1)}</TableCell>
+                        <TableCell className="text-right">{isExcluded ? "—" : row.envScore.toFixed(2)}</TableCell>
                       )}
                       {planWeight > 0 && (
-                        <TableCell className="text-right">{isExcluded ? "—" : row.planningScore.toFixed(1)}</TableCell>
+                        <TableCell className="text-right">{isExcluded ? "—" : row.planningScore.toFixed(2)}</TableCell>
                       )}
-                      <TableCell className="text-right font-bold">{isExcluded ? "—" : row.globalScore.toFixed(1)}</TableCell>
+                      <TableCell className="text-right font-bold">{isExcluded ? "—" : row.globalScore.toFixed(2)}</TableCell>
                       <TableCell className="text-center min-w-[260px]">
                         {isExcluded ? (
                           <HoverCard>
@@ -754,22 +933,46 @@ const SynthesePage = () => {
                             )}
                           </HoverCard>
                         ) : (
-                          <Select
-                            value={row.company.hasQuestions ? "questions_reponses" : decision}
-                            onValueChange={(v) => setNegotiationDecision(row.company.id, v as NegotiationDecision)}
-                            disabled={isReadOnly || isValidated || (row.company.hasQuestions ?? false)}
-                          >
-                            <SelectTrigger className={`w-[260px] ${row.company.hasQuestions ? "opacity-70 cursor-not-allowed" : ""}`}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {availableDecisions.map((d) => (
-                                <SelectItem key={d} value={d}>
-                                  {NEGOTIATION_DECISION_LABELS[d]}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          (() => {
+                            const decisionLockedByQuestions = (row.company.hasQuestions ?? false) && !receptionModeByCompany[row.company.id];
+                            return (
+                              <Select
+                                value={decisionLockedByQuestions ? "questions_reponses" : decision}
+                                onValueChange={(v) => {
+                                  if (v === "attributaire" && hasAttributionModalLines) {
+                                    if (!allPseVarianteRenseignes) {
+                                      setAttributaireBlockedDialogOpen(true);
+                                      return;
+                                    }
+                                    setPendingAttributionCompanyId(row.company.id);
+                                    setPendingAttributionChoices(
+                                      Object.fromEntries(
+                                        attributionModalLines.map((l) => [
+                                          l.id,
+                                          (l.type === "T_OPTIONNELLE" ? (enabledLines[l.id] ? "oui" : "non") : (pseVarianteChoice[l.id] === "oui" ? "oui" : "non")) as const,
+                                        ])
+                                      )
+                                    );
+                                    setIsPseAttributionModalOpen(true);
+                                    return;
+                                  }
+                                  setNegotiationDecision(row.company.id, v as NegotiationDecision);
+                                }}
+                                disabled={isReadOnly || isValidated || decisionLockedByQuestions}
+                              >
+                                <SelectTrigger className={`w-[260px] ${decisionLockedByQuestions ? "opacity-70 cursor-not-allowed" : ""}`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {availableDecisions.map((d) => (
+                                    <SelectItem key={d} value={d}>
+                                      {NEGOTIATION_DECISION_LABELS[d]}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            );
+                          })()
                         )}
                       </TableCell>
                     </TableRow>
@@ -798,28 +1001,33 @@ const SynthesePage = () => {
                             </div>
                           </TableCell>
                           <TableCell className="text-right">{fmt(vr.priceTotal)}</TableCell>
-                          <TableCell className="text-right">{vr.priceScore.toFixed(1)}</TableCell>
-                          <TableCell className="text-right">{vr.techniqueScore.toFixed(1)}</TableCell>
-                          {envWeight > 0 && <TableCell className="text-right">{vr.envScore.toFixed(1)}</TableCell>}
-                          {planWeight > 0 && <TableCell className="text-right">{vr.planningScore.toFixed(1)}</TableCell>}
-                          <TableCell className="text-right font-bold">{vr.globalScore.toFixed(1)}</TableCell>
+                          <TableCell className="text-right">{vr.priceScore.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{vr.techniqueScore.toFixed(2)}</TableCell>
+                          {envWeight > 0 && <TableCell className="text-right">{vr.envScore.toFixed(2)}</TableCell>}
+                          {planWeight > 0 && <TableCell className="text-right">{vr.planningScore.toFixed(2)}</TableCell>}
+                          <TableCell className="text-right font-bold">{vr.globalScore.toFixed(2)}</TableCell>
                           <TableCell className="text-center min-w-[260px] flex flex-wrap items-center justify-center">
-                            <Select
-                              value={row.company.hasQuestions ? "questions_reponses" : decisionVariante}
-                              onValueChange={(v) => updateDecisionVariante(row.company.id, varianteId, v)}
-                              disabled={isReadOnly || isValidated || (row.company.hasQuestions ?? false)}
-                            >
-                              <SelectTrigger className={`w-[260px] ${row.company.hasQuestions ? "opacity-70 cursor-not-allowed" : ""}`}>
-                                <SelectValue placeholder="Décision" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {getAvailableDecisions(row.company.id).map((d) => (
-                                  <SelectItem key={d} value={d}>
-                                    {NEGOTIATION_DECISION_LABELS[d]}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            {(() => {
+                              const decisionLockedByQuestions = (row.company.hasQuestions ?? false) && !receptionModeByCompany[row.company.id];
+                              return (
+                                <Select
+                                  value={decisionLockedByQuestions ? "questions_reponses" : decisionVariante}
+                                  onValueChange={(v) => updateDecisionVariante(row.company.id, varianteId, v)}
+                                  disabled={isReadOnly || isValidated || decisionLockedByQuestions}
+                                >
+                                  <SelectTrigger className={`w-[260px] ${decisionLockedByQuestions ? "opacity-70 cursor-not-allowed" : ""}`}>
+                                    <SelectValue placeholder="Décision" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {getAvailableDecisions(row.company.id).map((d) => (
+                                      <SelectItem key={d} value={d}>
+                                        {NEGOTIATION_DECISION_LABELS[d]}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              );
+                            })()}
                           </TableCell>
                         </TableRow>
                       );
@@ -831,126 +1039,6 @@ const SynthesePage = () => {
           </Table>
         </CardContent>
       </Card>
-
-      {/* ═══════════════════════════════════════════════════ */}
-      {/* SECTION 6.2 — COMPARAISON DE SCÉNARIOS + DÉCISION  */}
-      {/* ═══════════════════════════════════════════════════ */}
-      {(hasPSE || hasVariante) && (
-        <Card className="border-blue-200 dark:border-blue-900">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2 text-blue-800 dark:text-blue-300">
-              <Settings2 className="h-4 w-4" />
-              Comparaison de Scénarios — PSE / Variantes retenues au marché ?
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Cliquez sur <strong>OUI</strong> pour inclure une PSE ou Variante dans le classement et la retenir au marché. <strong>NON</strong> = non retenue. Un second clic désélectionne.
-              Le choix OUI / NON est obligatoire pour chaque option avant la validation lorsqu'un attributaire est désigné.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col gap-4">
-              {hasPSE && (
-                <div className="space-y-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">PSE</span>
-                  <div className="flex flex-col gap-2">
-                    {pseLines.map((l) => {
-                      const choice = pseVarianteChoice[l.id] ?? null;
-                      return (
-                        <div key={l.id} className="flex items-center gap-3">
-                          <span className="text-sm min-w-[220px]">{getLineLabel(l)}</span>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: prev[l.id] === "oui" ? null : "oui" }))}
-                              disabled={isReadOnly || isValidated}
-                              className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
-                                choice === "oui"
-                                  ? "border-green-500 bg-green-500 text-white"
-                                  : "border-border bg-background text-muted-foreground hover:bg-muted"
-                              } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
-                            >
-                              OUI
-                            </button>
-                            <button
-                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: prev[l.id] === "non" ? null : "non" }))}
-                              disabled={isReadOnly || isValidated}
-                              className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
-                                choice === "non"
-                                  ? "border-destructive bg-destructive text-destructive-foreground"
-                                  : "border-border bg-background text-muted-foreground hover:bg-muted"
-                              } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
-                            >
-                              NON
-                            </button>
-                          </div>
-                          {choice === null && hasAnyAttributaire && (
-                            <span className="text-xs text-orange-600 flex items-center gap-1">
-                              <AlertTriangle className="h-3 w-3" /> À renseigner
-                            </span>
-                          )}
-                          {choice !== null && (
-                            <span className={`text-xs font-medium ${choice === "oui" ? "text-green-700" : "text-destructive"}`}>
-                              {choice === "oui" ? "✓ Retenue au marché" : "✗ Non retenue"}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {hasVariante && (
-                <div className="space-y-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Variantes</span>
-                  <div className="flex flex-col gap-2">
-                    {varianteLines.map((l) => {
-                      const choice = pseVarianteChoice[l.id] ?? null;
-                      return (
-                        <div key={l.id} className="flex items-center gap-3">
-                          <span className="text-sm min-w-[220px]">{getLineLabel(l)}</span>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: prev[l.id] === "oui" ? null : "oui" }))}
-                              disabled={isReadOnly || isValidated}
-                              className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
-                                choice === "oui"
-                                  ? "border-green-500 bg-green-500 text-white"
-                                  : "border-border bg-background text-muted-foreground hover:bg-muted"
-                              } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
-                            >
-                              OUI
-                            </button>
-                            <button
-                              onClick={() => !isReadOnly && !isValidated && setPseVarianteChoice((prev) => ({ ...prev, [l.id]: prev[l.id] === "non" ? null : "non" }))}
-                              disabled={isReadOnly || isValidated}
-                              className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition-colors ${
-                                choice === "non"
-                                  ? "border-destructive bg-destructive text-destructive-foreground"
-                                  : "border-border bg-background text-muted-foreground hover:bg-muted"
-                              } ${isReadOnly || isValidated ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
-                            >
-                              NON
-                            </button>
-                          </div>
-                          {choice === null && hasAnyAttributaire && (
-                            <span className="text-xs text-orange-600 flex items-center gap-1">
-                              <AlertTriangle className="h-3 w-3" /> À renseigner
-                            </span>
-                          )}
-                          {choice !== null && (
-                            <span className={`text-xs font-medium ${choice === "oui" ? "text-green-700" : "text-destructive"}`}>
-                              {choice === "oui" ? "✓ Retenue au marché" : "✗ Non retenue"}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* ═══════════════════════════════════════════════════ */}
       {/* SECTION VALIDATION DE LA PHASE               */}
@@ -1287,7 +1375,7 @@ const SynthesePage = () => {
                 <p className="font-semibold mb-2 text-green-800">🏆 Attribution pressentie</p>
                 <p>{scenarioDescription}</p>
                 <p className="mt-2 text-muted-foreground">
-                  Classée au rang n°1 avec une note globale de {attributaireResult.globalScore.toFixed(1)} / {maxTotal} pts.
+                  Classée au rang n°1 avec une note globale de {attributaireResult.globalScore.toFixed(2)} / {maxTotal} pts.
                 </p>
               </div>
               <div className="rounded-md border border-border bg-muted/30 p-4 text-sm">
@@ -1373,6 +1461,111 @@ const SynthesePage = () => {
             >
               Confirmer la validation
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modale obligatoire : choix PSE/TO avant d'enregistrer Attributaire */}
+      <Dialog open={isPseAttributionModalOpen} onOpenChange={(open) => {
+        if (!open) {
+          setIsPseAttributionModalOpen(false);
+          setPendingAttributionCompanyId(null);
+          setPendingAttributionChoices({});
+        }
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Choix des options pour l'attribution</DialogTitle>
+            <DialogDescription>
+              Indiquez pour chaque option si elle est retenue (OUI) ou non (NON) pour l'attribution. Par défaut tout est sur NON.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            {attributionModalLines.map((l) => (
+              <div key={l.id} className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2">
+                <span className="text-sm font-medium">{getLineLabel(l)}</span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPendingAttributionChoices((prev) => ({ ...prev, [l.id]: "oui" }))}
+                    className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      (pendingAttributionChoices[l.id] ?? "non") === "oui"
+                        ? "border-green-500 bg-green-500 text-white"
+                        : "border-border bg-muted/50 text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    OUI
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingAttributionChoices((prev) => ({ ...prev, [l.id]: "non" }))}
+                    className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      (pendingAttributionChoices[l.id] ?? "non") === "non"
+                        ? "border-destructive bg-destructive text-destructive-foreground"
+                        : "border-border bg-muted/50 text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    NON
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsPseAttributionModalOpen(false);
+                setPendingAttributionCompanyId(null);
+                setPendingAttributionChoices({});
+              }}
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={() => {
+                if (pendingAttributionCompanyId == null) return;
+                setPseVarianteChoice((prev) => ({
+                  ...prev,
+                  ...Object.fromEntries(
+                    [...pseLines, ...varianteLines].map((line) => [
+                      line.id,
+                      (pendingAttributionChoices[line.id] ?? "non") as "oui" | "non",
+                    ])
+                  ),
+                }));
+                setEnabledLines((prev) => ({
+                  ...prev,
+                  ...Object.fromEntries(toLines.map((line) => [line.id, pendingAttributionChoices[line.id] === "oui"])),
+                }));
+                setNegotiationDecision(pendingAttributionCompanyId, "attributaire");
+                setIsPseAttributionModalOpen(false);
+                setPendingAttributionCompanyId(null);
+                setPendingAttributionChoices({});
+              }}
+            >
+              Valider l'attribution
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Popup : choix Attributaire bloqué tant que les PSE n'ont pas OUI/NON */}
+      <Dialog open={attributaireBlockedDialogOpen} onOpenChange={setAttributaireBlockedDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-700 dark:text-orange-400">
+              <AlertTriangle className="h-5 w-5" />
+              PSE à retenir au marché
+            </DialogTitle>
+            <DialogDescription>
+              Vous devez choisir les PSE à retenir au marché en renseignant <strong>OUI</strong> ou <strong>NON</strong> pour chaque ligne dans le pavé « Comparaison de Scénarios — PSE retenues au marché ? » ci-dessus.
+              <br /><br />
+              Tant que toutes les PSE n'ont pas un choix OUI ou NON, l'option Attributaire ne peut pas être sélectionnée.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setAttributaireBlockedDialogOpen(false)}>Fermer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

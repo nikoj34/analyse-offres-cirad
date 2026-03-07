@@ -49,12 +49,13 @@ export const NOTATION_LABELS: Record<NotationLevel, string> = {
   insuffisant: "Insuffisant",
 };
 
+/** Coefficients multiplicatifs pour la note technique (barème marchés publics). */
 export const NOTATION_VALUES: Record<NotationLevel, number> = {
-  tres_bien: 5,
-  bien: 4,
-  moyen: 3,
-  passable: 2,
-  insuffisant: 1,
+  tres_bien: 1.0,
+  bien: 0.75,
+  moyen: 0.5,
+  passable: 0.25,
+  insuffisant: 0.1,
 };
 
 export interface WeightingCriterion {
@@ -339,6 +340,7 @@ export function migrateToMultiLot(data: any): ProjectData {
       documentsToVerify: v.documentsToVerify ?? {},
       technicalNotes: (v.technicalNotes ?? []).map((n: any) => ({
         ...n,
+        notation: n.notation === "faible" ? "passable" : n.notation,
         commentPositif: n.commentPositif ?? "",
         commentNegatif: n.commentNegatif ?? "",
       })),
@@ -381,7 +383,18 @@ export function migrateToMultiLot(data: any): ProjectData {
     varianteAutorisee: data?.varianteAutorisee ?? false,
     varianteExigee: data?.varianteExigee ?? false,
     varianteLines: data?.varianteLines ?? [],
-    companies: data?.companies ?? [{ id: 1, name: "", status: "non_defini", exclusionReason: "" }],
+    companies: (data?.companies ?? [{ id: 1, name: "", status: "non_defini", exclusionReason: "" }]).map((c: any) => {
+      const scoresTechniquesVariantes = c.scoresTechniquesVariantes;
+      if (!scoresTechniquesVariantes || typeof scoresTechniquesVariantes !== "object") return c;
+      const migrated: Record<string, Record<string, string>> = {};
+      for (const [varianteId, byCrit] of Object.entries(scoresTechniquesVariantes)) {
+        const byCritObj = byCrit as Record<string, string>;
+        migrated[varianteId] = Object.fromEntries(
+          Object.entries(byCritObj).map(([k, v]) => [k, v === "faible" ? "passable" : v])
+        );
+      }
+      return { ...c, scoresTechniquesVariantes: migrated };
+    }),
     lotLines,
     weightingCriteria: migrateWeightingCriteria(data?.weightingCriteria ?? DEFAULT_CRITERIA),
     versions: versions.length > 0 ? versions : [{

@@ -141,7 +141,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       return round === 2 ? "Questions négo 2" : "Questions négo 1";
     }
     const hasResponsesImported = (l?.versions?.[0]?.questionnaire?.questionnaires ?? []).some((q) => q.receptionMode === true);
-    return hasResponsesImported ? "Questions / Réponses" : "Questions";
+    return hasResponsesImported ? "Réponses aux questions" : "Questions";
   };
 
   /** Une fois l'import des réponses fait, l'entrée Questions passe au-dessus de Synthèse */
@@ -181,8 +181,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
               const isActive = idx === project.currentLotIndex;
               const negoVersions = (l?.versions ?? []).slice(1);
 
-              // Questions / Réponses visibles uniquement si la case « Question(s) à poser » est cochée pour au moins une entreprise (pas si « Retenue en négociation »)
+              // Onglet Questions / Réponses visible dès qu’il y a des Q&R pour cette version (ou case cochée), même après validation
               const hasQuestionsChecked = (l?.companies ?? []).some((c) => c.hasQuestions === true);
+              const hasQuestionsDataV0 = (l?.versions?.[0]?.questionnaire?.questionnaires ?? []).some(
+                (q) => (q.questions?.length ?? 0) > 0
+              );
+              const showQuestionsTab = hasQuestionsChecked || hasQuestionsDataV0;
 
                   return (
                 <div key={l?.id ?? idx} className="mt-1">
@@ -250,7 +254,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                         </button>
 
                         {/* Questions / Réponses — au-dessus de Synthèse uniquement après import des réponses */}
-                        {hasQuestionsChecked && hasResponsesImported(l) && (
+                        {showQuestionsTab && hasResponsesImported(l) && (
                           <button
                             onClick={() => handleLotSubNav(idx, "/questions")}
                             className={cn(
@@ -279,7 +283,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                         </button>
 
                         {/* Questions — en dessous de Synthèse tant qu'aucun import de réponses n'a été fait */}
-                        {hasQuestionsChecked && !hasResponsesImported(l) && (
+                        {showQuestionsTab && !hasResponsesImported(l) && (
                           <button
                             onClick={() => handleLotSubNav(idx, "/questions")}
                             className={cn(
