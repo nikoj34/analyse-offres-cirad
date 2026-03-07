@@ -16,8 +16,12 @@ import {
   ArrowLeft,
   Package,
   MessageSquare,
+  ClipboardList,
+  CalendarCheck,
+  Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getCompanyColor } from "@/lib/companyColors";
 
 import {
   Collapsible,
@@ -105,12 +109,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const isProjectPage = location.pathname === "/";
   const currentLotLabel = lot ? lotLabel(lot, project.currentLotIndex ?? 0) : "Lot";
 
-  // Ordre des pages pour le bouton "Page suivante" (path sans /companyIndex pour prix/technique)
-  const pageOrder = ["/", "/lot", "/prix", "/technique", "/synthese", "/export"];
-  const pathBase = location.pathname.replace(/\/\d+$/, "");
+  // Ordre des pages pour le bouton "Page suivante" (analyse initiale uniquement : /version/0/...)
+  const pageOrder = ["/", "/lot", "/version/0/prix", "/version/0/technique", "/version/0/synthese", "/export"];
+  const pathBase = location.pathname.replace(/\/version\/0\/(prix|technique)\/\d+$/, "/version/0/$1");
   const currentIndex = pageOrder.indexOf(pathBase);
   const nextPath = currentIndex >= 0 && currentIndex < pageOrder.length - 1 ? pageOrder[currentIndex + 1] : null;
-  const showNextPageButton = nextPath !== null && location.pathname !== "/config" && pathBase !== "/prix" && pathBase !== "/technique" && !pathBase.endsWith("/synthese");
+  const showNextPageButton = nextPath !== null && location.pathname !== "/config" && pathBase.startsWith("/version/0") && pathBase !== "/version/0/synthese";
 
   /** Determine dynamic Questions label for a lot (Questions / Réponses après import) */
   const getQuestionsLabel = (l: typeof lot, round?: number): string => {
@@ -202,13 +206,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           <FileText className="h-3.5 w-3.5 shrink-0" />
                           Configuration
                         </button>
+                        {/* Bloc Initial : /version/0/... — actif = comparaison STRICTE de l'URL */}
                         <button
-                          onClick={() => handleLotSubNav(idx, "/prix")}
+                          onClick={() => handleLotSubNav(idx, "/version/0/prix")}
                           className={cn(
                             "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                            isActive &&
-                              (location.pathname === "/prix" ||
-                                location.pathname.startsWith("/prix/"))
+                            isActive && (location.pathname === "/version/0/prix" || /^\/version\/0\/prix\/\d+$/.test(location.pathname))
                               ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
                               : "text-sidebar-foreground hover:bg-sidebar-accent/20"
                           )}
@@ -217,12 +220,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           Analyse prix
                         </button>
                         <button
-                          onClick={() => handleLotSubNav(idx, "/technique")}
+                          onClick={() => handleLotSubNav(idx, "/version/0/technique")}
                           className={cn(
                             "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                            isActive &&
-                              (location.pathname === "/technique" ||
-                                location.pathname.startsWith("/technique/"))
+                            isActive && (location.pathname === "/version/0/technique" || /^\/version\/0\/technique\/\d+$/.test(location.pathname))
                               ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
                               : "text-sidebar-foreground hover:bg-sidebar-accent/20"
                           )}
@@ -248,10 +249,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
                         )}
 
                         <button
-                          onClick={() => handleLotSubNav(idx, "/synthese")}
+                          onClick={() => handleLotSubNav(idx, "/version/0/synthese")}
                           className={cn(
                             "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                            isActive && location.pathname === "/synthese"
+                            isActive && location.pathname === "/version/0/synthese"
                               ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
                               : "text-sidebar-foreground hover:bg-sidebar-accent/20"
                           )}
@@ -291,9 +292,15 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                     {negoVersions.map((v, i) => {
                                   const round = i + 1;
                                   const negoLabel = `Négo ${round}`;
-
-                                  // Check if questions négo 2 should show (retenue ou Questions)
-                                  const hasRetainedThisRound = Object.values(v.negotiationDecisions ?? {}).some(d => d === "retenue" || d === "questions_reponses");
+                                  const versionIndex = round; // 1-based index in versions (0 = initial)
+                                  const prevDecisions = l?.versions?.[versionIndex - 1]?.negotiationDecisions ?? {};
+                                  const retainedCompanies = (l?.companies ?? []).filter((c) => {
+                                    const d = prevDecisions[c.id];
+                                    return versionIndex === 1
+                                      ? d === "retenue" || d === "questions_reponses" || d === "attributaire"
+                                      : d === "retenue_nego_2";
+                                  });
+                                  const hasRetainedThisRound = Object.values(prevDecisions).some((d) => d === "retenue" || d === "questions_reponses");
                                   const showQuestionsAfterThisRound = round === 1 && hasRetainedThisRound && negoVersions.length >= 2;
 
                                   return (
@@ -301,47 +308,98 @@ export function AppLayout({ children }: { children: ReactNode }) {
                                       <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                                         {negoLabel}
                                       </div>
+                                      {retainedCompanies.map((company) => {
+                                        const basePath = `/version/${versionIndex}`;
+                                        const isActiveVersion = location.pathname.startsWith(basePath);
+                                        const isActivePrep = location.pathname === `${basePath}/prep/${company.id}`;
+                                        const isActivePrix = location.pathname === `${basePath}/prix/${company.id}`;
+                                        const isActiveTech = location.pathname === `${basePath}/technique/${company.id}`;
+                                        const isActiveDeroulement = location.pathname === `${basePath}/deroulement/${company.id}`;
+                                        const isOnThisCompany = isActiveVersion && (isActivePrep || isActivePrix || isActiveTech || isActiveDeroulement);
+                                        const companyIndexInLot = (l?.companies ?? []).findIndex((x) => x.id === company.id);
+                                        const companyColor = getCompanyColor(companyIndexInLot >= 0 ? companyIndexInLot : 0);
+                                        return (
+                                          <Collapsible key={company.id} defaultOpen={isOnThisCompany} className="group">
+                                            <CollapsibleTrigger
+                                              className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-sidebar-accent/20 transition-colors"
+                                              style={{ color: companyColor }}
+                                            >
+                                              <Building2 className="h-3 w-3 shrink-0" />
+                                              <span className="flex-1 truncate text-left">
+                                                {company.name || `Entreprise ${company.id}`}
+                                              </span>
+                                              <ChevronDown className="ml-auto h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                                            </CollapsibleTrigger>
+                                            <CollapsibleContent>
+                                              <div className="ml-3 flex flex-col gap-0.5 border-l border-border pl-2 mt-0.5">
+                                                <button
+                                                  onClick={() => handleLotSubNav(idx, `${basePath}/prep/${company.id}`)}
+                                                  className={cn(
+                                                    "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
+                                                    isActiveVersion && isActivePrep
+                                                      ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
+                                                      : "hover:bg-sidebar-accent/20"
+                                                  )}
+                                                  style={!(isActiveVersion && isActivePrep) ? { color: companyColor } : undefined}
+                                                >
+                                                  <ClipboardList className="h-3 w-3 shrink-0" />
+                                                  Préparation de la négociation
+                                                </button>
+                                                <button
+                                                  onClick={() => handleLotSubNav(idx, `${basePath}/prix/${company.id}`)}
+                                                  className={cn(
+                                                    "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
+                                                    isActiveVersion && isActivePrix
+                                                      ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
+                                                      : "hover:bg-sidebar-accent/20"
+                                                  )}
+                                                  style={!(isActiveVersion && isActivePrix) ? { color: companyColor } : undefined}
+                                                >
+                                                  <Euro className="h-3 w-3 shrink-0" />
+                                                  Analyse prix
+                                                </button>
+                                                <button
+                                                  onClick={() => handleLotSubNav(idx, `${basePath}/technique/${company.id}`)}
+                                                  className={cn(
+                                                    "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
+                                                    isActiveVersion && isActiveTech
+                                                      ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
+                                                      : "hover:bg-sidebar-accent/20"
+                                                  )}
+                                                  style={!(isActiveVersion && isActiveTech) ? { color: companyColor } : undefined}
+                                                >
+                                                  <Wrench className="h-3 w-3 shrink-0" />
+                                                  Analyse technique
+                                                </button>
+                                                <button
+                                                  onClick={() => handleLotSubNav(idx, `${basePath}/deroulement/${company.id}`)}
+                                                  className={cn(
+                                                    "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
+                                                    isActiveVersion && isActiveDeroulement
+                                                      ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
+                                                      : "hover:bg-sidebar-accent/20"
+                                                  )}
+                                                  style={!(isActiveVersion && isActiveDeroulement) ? { color: companyColor } : undefined}
+                                                >
+                                                  <CalendarCheck className="h-3 w-3 shrink-0" />
+                                                  Déroulement de la négo
+                                                </button>
+                                              </div>
+                                            </CollapsibleContent>
+                                          </Collapsible>
+                                        );
+                                      })}
                                       <button
-                                        onClick={() => handleLotSubNav(idx, `/nego/${round}/prix`)}
+                                        onClick={() => handleLotSubNav(idx, `/version/${versionIndex}/synthese`)}
                                         className={cn(
-                                          "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
-                                          isActive &&
-                                            (location.pathname === `/nego/${round}/prix` ||
-                                              location.pathname.startsWith(`/nego/${round}/prix/`))
-                                            ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
-                                            : "text-sidebar-foreground hover:bg-sidebar-accent/20"
-                                        )}
-                                      >
-                                        <Euro className="h-3 w-3 shrink-0" />
-                                        Prix
-                                      </button>
-                                      <button
-                                        onClick={() => handleLotSubNav(idx, `/nego/${round}/technique`)}
-                                        className={cn(
-                                          "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
-                                          isActive &&
-                                            (location.pathname === `/nego/${round}/technique` ||
-                                              location.pathname.startsWith(
-                                                `/nego/${round}/technique/`
-                                              ))
-                                            ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
-                                            : "text-sidebar-foreground hover:bg-sidebar-accent/20"
-                                        )}
-                                      >
-                                        <Wrench className="h-3 w-3 shrink-0" />
-                                        Technique
-                                      </button>
-                                      <button
-                                        onClick={() => handleLotSubNav(idx, `/nego/${round}/synthese`)}
-                                        className={cn(
-                                          "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full",
-                                          isActive && location.pathname === `/nego/${round}/synthese`
+                                          "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors text-left w-full mt-1",
+                                          isActive && location.pathname === `/version/${versionIndex}/synthese`
                                             ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
                                             : "text-sidebar-foreground hover:bg-sidebar-accent/20"
                                         )}
                                       >
                                         <BarChart3 className="h-3 w-3 shrink-0" />
-                                        {getSyntheseLabel(l, round)}
+                                        {getSyntheseLabel(l, versionIndex)}
                                       </button>
 
                                       {/* Questions négo 2 — after négo 1 synthese */}

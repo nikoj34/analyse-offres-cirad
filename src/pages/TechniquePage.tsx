@@ -30,33 +30,32 @@ const TechniquePage = () => {
   const varianteOptional = (lot?.varianteInterdite === false || (lot?.varianteAutorisee ?? false)) && !varianteExigee;
   const showVarianteSection = varianteExigee || varianteOptional;
   const varianteLinesFromConfig: VarianteLine[] = Array.isArray(lot?.varianteLines) ? lot.varianteLines : [];
-  const { companyIndex: companyIndexParam } = useParams<{ companyIndex?: string; round?: string }>();
+  const { vIndex, companyId: companyIdParam } = useParams<{ vIndex?: string; companyId?: string }>();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const basePath = location.pathname.replace(/\/\d+$/, "");
-  const maxCompanyIndex = Math.max(0, activeCompanies.length - 1);
-  const safeIndex = (() => {
-    const n = parseInt(companyIndexParam ?? "", 10);
-    if (!Number.isInteger(n) || n < 0) return 0;
-    return Math.min(n, maxCompanyIndex);
-  })();
+  const basePath = `/version/${vIndex ?? "0"}/technique`;
+  const companyIdNum = companyIdParam != null ? parseInt(companyIdParam, 10) : NaN;
+  const resolvedCompany = Number.isInteger(companyIdNum)
+    ? activeCompanies.find((c) => c.id === companyIdNum)
+    : activeCompanies[0];
+  const safeIndex = resolvedCompany ? activeCompanies.findIndex((c) => c.id === resolvedCompany.id) : 0;
+  const currentCompanies = resolvedCompany ? [resolvedCompany] : [];
+
   useEffect(() => {
     if (activeCompanies.length === 0) return;
-    if (companyIndexParam === undefined) {
-      navigate(`${basePath}/0`, { replace: true });
+    if (!companyIdParam || !Number.isInteger(companyIdNum) || !activeCompanies.some((c) => c.id === companyIdNum)) {
+      const first = activeCompanies[0];
+      if (first) navigate(`${basePath}/${first.id}`, { replace: true });
       return;
     }
-    const n = parseInt(companyIndexParam, 10);
-    if (!Number.isInteger(n) || n < 0 || n > maxCompanyIndex) {
-      const clamped = Math.max(0, Math.min(maxCompanyIndex, n));
-      navigate(`${basePath}/${clamped}`, { replace: true });
-    }
-  }, [activeCompanies.length, companyIndexParam, basePath, navigate, maxCompanyIndex]);
+  }, [activeCompanies, companyIdParam, companyIdNum, basePath, navigate]);
 
-  const currentCompanies = activeCompanies.length > 0 ? [activeCompanies[safeIndex]] : [];
   const hasPrev = safeIndex > 0;
   const hasNext = safeIndex < activeCompanies.length - 1 && activeCompanies.length > 1;
+  /** Index absolu dans lot.companies pour persistance des couleurs entre initiale et négo */
+  const companyIndexInLot = (lot?.companies ?? []).findIndex((c) => c.id === resolvedCompany?.id);
+  const colorIndex = companyIndexInLot >= 0 ? companyIndexInLot : safeIndex;
 
   const prevVersion = isNego && negoRound !== null && negoRound > 0
     ? lot.versions[negoRound - 1]
@@ -165,7 +164,14 @@ const TechniquePage = () => {
   const maxTechnicalWeight = allTechnicalCriteria.reduce((s, c) => s + c.weight, 0);
 
   return (
-    <div className="space-y-6">
+    <div
+      className="rounded-r-lg border-l-4 min-h-0"
+      style={{
+        backgroundColor: getCompanyBgColor(colorIndex),
+        borderColor: getCompanyColor(colorIndex),
+      }}
+    >
+      <div className="p-4 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
           {isNego ? `Analyse Technique — ${negoLabel}` : "Analyse Technique"}
@@ -193,8 +199,8 @@ const TechniquePage = () => {
           key={company.id}
           className={company.status === "ecartee" ? "opacity-60" : ""}
           style={{
-            borderLeft: `4px solid ${getCompanyColor(safeIndex)}`,
-            backgroundColor: company.status !== "ecartee" ? getCompanyBgColor(safeIndex) : undefined,
+            borderLeft: `4px solid ${getCompanyColor(colorIndex)}`,
+            backgroundColor: company.status !== "ecartee" ? getCompanyBgColor(colorIndex) : undefined,
           }}
         >
           <CardHeader className="bg-muted/40 pb-3">
@@ -233,6 +239,7 @@ const TechniquePage = () => {
                       getVarianteTechnicalNote={getVarianteTechnicalNote}
                       setVarianteTechnicalNote={setVarianteTechnicalNote}
                       updateNoteVariante={updateNoteVariante}
+                      versionId={version?.id}
                     />
                   ))}
                 </div>
@@ -253,6 +260,7 @@ const TechniquePage = () => {
                     getVarianteTechnicalNote={getVarianteTechnicalNote}
                     setVarianteTechnicalNote={setVarianteTechnicalNote}
                     updateNoteVariante={updateNoteVariante}
+                    versionId={version?.id}
                   />
                 </div>
               )}
@@ -272,6 +280,7 @@ const TechniquePage = () => {
                     getVarianteTechnicalNote={getVarianteTechnicalNote}
                     setVarianteTechnicalNote={setVarianteTechnicalNote}
                     updateNoteVariante={updateNoteVariante}
+                    versionId={version?.id}
                   />
                 </div>
               )}
@@ -322,7 +331,7 @@ const TechniquePage = () => {
               variant="outline"
               size="sm"
               disabled={!hasPrev}
-              onClick={() => navigate(`${basePath}/${safeIndex - 1}`)}
+              onClick={() => navigate(`${basePath}/${activeCompanies[safeIndex - 1].id}`)}
             >
               Entreprise précédente
             </Button>
@@ -330,18 +339,19 @@ const TechniquePage = () => {
               variant="outline"
               size="sm"
               disabled={!hasNext}
-              onClick={() => navigate(`${basePath}/${safeIndex + 1}`)}
+              onClick={() => navigate(`${basePath}/${activeCompanies[safeIndex + 1].id}`)}
             >
               Entreprise suivante
             </Button>
             {!hasNext && (
-              <Button size="sm" onClick={() => navigate("/synthese")} className="ml-2">
+              <Button size="sm" onClick={() => navigate(basePath.replace("/technique", "/synthese"))} className="ml-2">
                 Page suivante
               </Button>
             )}
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };
@@ -359,6 +369,7 @@ function CriterionBlock({
   getVarianteTechnicalNote,
   setVarianteTechnicalNote,
   updateNoteVariante,
+  versionId,
 }: {
   criterion: WeightingCriterion;
   companyId: number;
@@ -372,6 +383,7 @@ function CriterionBlock({
   getVarianteTechnicalNote: (companyId: number, varianteLineId: number, criterionId: string, subCriterionId?: string) => string | null;
   setVarianteTechnicalNote: (companyId: number, varianteLineId: number, criterionId: string, subCriterionId: string | undefined, notation: NotationLevel | null) => void;
   updateNoteVariante?: (companyId: number, varianteId: string, critereId: string, note: string) => void;
+  versionId?: string;
 }) {
   const { setTechnicalNote, getTechnicalNote, setTechnicalNoteResponse, setItemNote, getItemNote } = useProjectStore();
 
@@ -498,7 +510,7 @@ function CriterionBlock({
           </h4>
         </div>
         {visibleSubs.map((sub, subIdx) => {
-          const note = getTechnicalNote(companyId, criterion.id, sub.id);
+          const note = getTechnicalNote(companyId, criterion.id, sub.id, versionId);
           const rawEntry = criterionDetail?.subRawScores.find((e) => e.subId === sub.id);
           const rawScore = rawEntry?.rawScore ?? 0;
           const subWeight = rawEntry?.subWeight ?? sub.weight;
@@ -516,7 +528,7 @@ function CriterionBlock({
                 {renderNotationColumn(
                   sub.id,
                   note?.notation ?? "none",
-                  (v) => setTechnicalNote(companyId, criterion.id, sub.id, v, note?.comment ?? "")
+                  (v) => setTechnicalNote(companyId, criterion.id, sub.id, v, note?.comment ?? "", undefined, undefined, versionId)
                 )}
                 <div className="flex-1 space-y-2">
                   <div>
@@ -527,7 +539,7 @@ function CriterionBlock({
                       rows={3}
                       value={note?.commentPositif ?? ""}
                       onChange={(e) =>
-                        setTechnicalNote(companyId, criterion.id, sub.id, note?.notation ?? null, note?.comment ?? "", e.target.value, undefined)
+                        setTechnicalNote(companyId, criterion.id, sub.id, note?.notation ?? null, note?.comment ?? "", e.target.value, undefined, versionId)
                       }
                       placeholder="Points positifs…"
                       maxLength={2000}
@@ -541,7 +553,7 @@ function CriterionBlock({
                       rows={3}
                       value={note?.commentNegatif ?? ""}
                       onChange={(e) =>
-                        setTechnicalNote(companyId, criterion.id, sub.id, note?.notation ?? null, note?.comment ?? "", undefined, e.target.value)
+                        setTechnicalNote(companyId, criterion.id, sub.id, note?.notation ?? null, note?.comment ?? "", undefined, e.target.value, versionId)
                       }
                       placeholder="Points négatifs…"
                       maxLength={2000}
@@ -556,7 +568,7 @@ function CriterionBlock({
                         rows={3}
                         value={note?.questionResponse ?? ""}
                         onChange={(e) =>
-                          setTechnicalNoteResponse(companyId, criterion.id, sub.id, e.target.value)
+                          setTechnicalNoteResponse(companyId, criterion.id, sub.id, e.target.value, versionId)
                         }
                         placeholder="Réponses du candidat aux questions posées…"
                       />
@@ -624,7 +636,7 @@ function CriterionBlock({
     );
   }
 
-  const note = getTechnicalNote(companyId, criterion.id);
+  const note = getTechnicalNote(companyId, criterion.id, undefined, versionId);
   return (
     <div className="rounded-md border border-border p-3 space-y-1.5">
       <div className="flex items-center justify-between">
@@ -639,7 +651,7 @@ function CriterionBlock({
           {renderNotationColumn(
             undefined,
             note?.notation ?? "none",
-            (v) => setTechnicalNote(companyId, criterion.id, undefined, v, note?.comment ?? "")
+            (v) => setTechnicalNote(companyId, criterion.id, undefined, v, note?.comment ?? "", undefined, undefined, versionId)
           )}
           <div className="flex-1 space-y-2">
             <div>
@@ -650,7 +662,7 @@ function CriterionBlock({
               rows={3}
               value={note?.commentPositif ?? ""}
               onChange={(e) =>
-                setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, note?.comment ?? "", e.target.value, undefined)
+                setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, note?.comment ?? "", e.target.value, undefined, versionId)
               }
               placeholder="Points positifs…"
               maxLength={2000}
@@ -664,7 +676,7 @@ function CriterionBlock({
                 rows={3}
                 value={note?.commentNegatif ?? ""}
                 onChange={(e) =>
-                  setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, note?.comment ?? "", undefined, e.target.value)
+                  setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, note?.comment ?? "", undefined, e.target.value, versionId)
                 }
                 placeholder="Points négatifs…"
                 maxLength={2000}
@@ -679,7 +691,7 @@ function CriterionBlock({
                   rows={3}
                   value={note?.questionResponse ?? ""}
                   onChange={(e) =>
-                    setTechnicalNoteResponse(companyId, criterion.id, undefined, e.target.value)
+                    setTechnicalNoteResponse(companyId, criterion.id, undefined, e.target.value, versionId)
                   }
                   placeholder="Réponses du candidat aux questions posées…"
                 />

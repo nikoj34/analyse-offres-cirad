@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { HashRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlobalSidebar } from "@/components/layout/GlobalSidebar";
 import { useMultiProjectStore } from "@/store/multiProjectStore";
@@ -29,7 +29,8 @@ const ReponsesPage = lazy(() => import("./pages/ReponsesPage"));
 const ConfigurationPage = lazy(() => import("./pages/ConfigurationPage"));
 const StatistiquesPage = lazy(() => import("./pages/StatistiquesPage"));
 const FAQPage = lazy(() => import("./pages/FAQPage"));
-
+const PreparationNegoPage = lazy(() => import("./pages/PreparationNegoPage"));
+const DeroulementNegoPage = lazy(() => import("./pages/DeroulementNegoPage"));
 
 const queryClient = new QueryClient();
 
@@ -133,19 +134,23 @@ const App = () => {
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/lot" element={<LotConfigPage />} />
-                <Route path="/technique/:companyIndex" element={<TechniquePage />} />
-                <Route path="/technique" element={<TechniquePage />} />
-                <Route path="/prix/:companyIndex" element={<PrixPage />} />
-                <Route path="/prix" element={<PrixPage />} />
-                <Route path="/synthese" element={<SynthesePage />} />
+                {/* Routes canoniques : toutes avec :vIndex pour isolation Analyse initiale / Négociation */}
+                <Route path="/version/:vIndex/prix" element={<PrixPage />} />
+                <Route path="/version/:vIndex/prix/:companyId" element={<PrixPage />} />
+                <Route path="/version/:vIndex/technique" element={<TechniquePage />} />
+                <Route path="/version/:vIndex/technique/:companyId" element={<TechniquePage />} />
+                <Route path="/version/:vIndex/synthese" element={<SynthesePage />} />
+                <Route path="/version/:vIndex/prep/:companyId" element={<PreparationNegoPage />} />
+                <Route path="/version/:vIndex/deroulement/:companyId" element={<DeroulementNegoPage />} />
+                {/* Redirections anciennes routes vers /version/0/... */}
+                <Route path="/prix" element={<Navigate to="/version/0/prix" replace />} />
+                <Route path="/prix/:companyIndex" element={<Navigate to="/version/0/prix" replace />} />
+                <Route path="/technique" element={<Navigate to="/version/0/technique" replace />} />
+                <Route path="/technique/:companyIndex" element={<Navigate to="/version/0/technique" replace />} />
+                <Route path="/synthese" element={<Navigate to="/version/0/synthese" replace />} />
                 <Route path="/questions" element={<QuestionnairePage />} />
                 <Route path="/reponses" element={<ReponsesPage />} />
                 <Route path="/questions/:round" element={<QuestionnairePage />} />
-                <Route path="/nego/:round/technique/:companyIndex" element={<TechniquePage />} />
-                <Route path="/nego/:round/technique" element={<TechniquePage />} />
-                <Route path="/nego/:round/prix/:companyIndex" element={<PrixPage />} />
-                <Route path="/nego/:round/prix" element={<PrixPage />} />
-                <Route path="/nego/:round/synthese" element={<SynthesePage />} />
                 <Route path="/versions" element={<VersionsPage />} />
                 <Route path="/export" element={<ExportPage />} />
                 <Route path="/config" element={<ConfigurationPage />} />

@@ -36,13 +36,13 @@ const SynthesePage = () => {
   const {
     project, setNegotiationDecision, getNegotiationDecision,
     validateVersion, unvalidateVersion, hasAttributaire,
-    activateQuestionnaire, createVersion, switchVersion, deleteVersion,
+    activateQuestionnaire, createVersion, createNextNegotiationPhase, switchVersion, deleteVersion,
     updateStatutVariante,
     updateDecisionVariante,
   } = useProjectStore();
   const navigate = useNavigate();
   const lot = project.lots[project.currentLotIndex];
-  const { activeCompanies, version, isReadOnly, isNego, negoLabel, negoRound } = useAnalysisContext();
+  const { activeCompanies, version, versionIndex, isReadOnly, isNego, negoLabel, negoRound } = useAnalysisContext();
   const { isValid: weightingValid, total: weightingTotal } = useWeightingValid();
   const { weightingCriteria, lotLines } = lot;
 
@@ -380,6 +380,7 @@ const SynthesePage = () => {
     return total;
   };
 
+  /** Classement dynamique V1/V2 : recalcul en temps réel à partir des notes techniques, technicalOverrides (notes forcées) et prix de cette version. */
   const results = useMemo(() => {
     if (!version) return [];
 
@@ -387,6 +388,16 @@ const SynthesePage = () => {
     for (const company of activeCompanies) {
       if (company.status === "ecartee") {
         techScores[company.id] = { total: 0, technique: 0, env: 0, planning: 0 };
+        continue;
+      }
+      const override = version.technicalOverrides?.[company.id];
+      if (override && typeof override.total === "number" && [override.technique, override.env, override.planning].every((x) => typeof x === "number")) {
+        techScores[company.id] = {
+          total: override.total,
+          technique: override.technique ?? 0,
+          env: override.env ?? 0,
+          planning: override.planning ?? 0,
+        };
         continue;
       }
       let total = 0, technique = 0, env = 0, planning = 0;
@@ -471,8 +482,7 @@ const SynthesePage = () => {
         missingRequiredPriceLabels: missingRequired,
       };
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCompanies, technicalCriteria, version, prixWeight, activeLotLines, enabledLines, requiredPriceCells]);
+  }, [activeCompanies, technicalCriteria, version, version?.technicalNotes, version?.priceEntries, version?.technicalOverrides, prixWeight, activeLotLines, enabledLines, requiredPriceCells]);
 
   const sorted = useMemo(() => {
     return [...results].sort((a, b) => {
@@ -610,11 +620,10 @@ const SynthesePage = () => {
   const fmt = (n: number) =>
     new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
-  const versionIndex = isNego && negoRound !== null ? negoRound : 0;
   const pageTitle = `${getSyntheseLabel(lot, versionIndex)} & Classement`;
 
   const attributaireResult = sorted.find(
-    (r) => r.company.status !== "ecartee" && getNegotiationDecision(r.company.id) === "attributaire"
+    (r) => r.company.status !== "ecartee" && getNegotiationDecision(r.company.id, version?.id) === "attributaire"
   );
 
   const scenarioDescription = useMemo(() => {
@@ -638,8 +647,15 @@ const SynthesePage = () => {
     if (hasAnyAttributaire && currentDecision !== "attributaire") {
       return ["non_defini", "non_retenue"];
     }
-    const baseDecisions: NegotiationDecision[] = ["non_defini", "non_retenue", "retenue"];
-    const withAttributaire = allPseVarianteRenseignes ? [...baseDecisions, "attributaire"] : baseDecisions;
+    // Synthèse initiale (V0) : "retenue" = retenue pour négo 1. Synthèse négo (V1+) : pas de "retenue", on garde uniquement "retenue_nego_2" pour la suite (évite doublon).
+    const baseDecisions: NegotiationDecision[] =
+      versionIndex >= 1
+        ? ["non_defini", "non_retenue"]
+        : ["non_defini", "non_retenue", "retenue"];
+    let withAttributaire = allPseVarianteRenseignes ? [...baseDecisions, "attributaire"] : baseDecisions;
+    if (versionIndex === 1) {
+      withAttributaire = [...withAttributaire, "retenue_nego_2"];
+    }
     if (hasAnyWithQuestionsStatus) {
       return withAttributaire;
     }
@@ -865,16 +881,14 @@ const SynthesePage = () => {
             <TableBody>
               {scenarioResults.map((row) => {
                 const isExcluded = row.company.status === "ecartee";
-                const companyIndex = Math.max(
-                  0,
-                  activeCompanies.findIndex((c) => c.id === row.company.id)
-                );
+                const companyIndexInLot = (lot?.companies ?? []).findIndex((c) => c.id === row.company.id);
+                const companyIndex = companyIndexInLot >= 0 ? companyIndexInLot : Math.max(0, activeCompanies.findIndex((c) => c.id === row.company.id));
                 const rankInSorted = isExcluded
                   ? null
                   : (showVarianteRows ? globalRankByKey.get(`base-${row.company.id}`) : scenarioSorted
                       .filter((r) => r.company.status !== "ecartee")
                       .findIndex((r) => r.company.id === row.company.id) + 1);
-                const decision = getNegotiationDecision(row.company.id);
+                const decision = getNegotiationDecision(row.company.id, version?.id);
                 const availableDecisions = getAvailableDecisions(row.company.id);
                 const companyVarianteRows = showVarianteRows ? varianteRowsData.filter((vr) => vr.company.id === row.company.id) : [];
                 return (
@@ -956,7 +970,7 @@ const SynthesePage = () => {
                                     setIsPseAttributionModalOpen(true);
                                     return;
                                   }
-                                  setNegotiationDecision(row.company.id, v as NegotiationDecision);
+                                  setNegotiationDecision(row.company.id, v as NegotiationDecision, version?.id);
                                 }}
                                 disabled={isReadOnly || isValidated || decisionLockedByQuestions}
                               >
@@ -1402,7 +1416,7 @@ const SynthesePage = () => {
 
           {(() => {
             const excludedCompanies = activeCompanies.filter((c) => c.status === "ecartee");
-            const nonRetenues = activeCompanies.filter((c) => c.status !== "ecartee" && getNegotiationDecision(c.id) === "non_retenue");
+            const nonRetenues = activeCompanies.filter((c) => c.status !== "ecartee" && getNegotiationDecision(c.id, version?.id) === "non_retenue");
             if (excludedCompanies.length === 0 && nonRetenues.length === 0) return null;
             return (
               <div className="rounded-md border border-orange-200 bg-orange-50 p-4 text-sm">
@@ -1452,6 +1466,10 @@ const SynthesePage = () => {
             <Button
               onClick={() => {
                 if (version) {
+                  const hasRetenueNego2 = Object.values(decisions).some((d) => d === "retenue_nego_2");
+                  if (hasRetenueNego2 && versionIndex === 1) {
+                    createNextNegotiationPhase(negoDate);
+                  }
                   validateVersion(version.id);
                   setValidationDialogOpen(false);
                 }
@@ -1538,7 +1556,7 @@ const SynthesePage = () => {
                   ...prev,
                   ...Object.fromEntries(toLines.map((line) => [line.id, pendingAttributionChoices[line.id] === "oui"])),
                 }));
-                setNegotiationDecision(pendingAttributionCompanyId, "attributaire");
+                setNegotiationDecision(pendingAttributionCompanyId, "attributaire", version?.id);
                 setIsPseAttributionModalOpen(false);
                 setPendingAttributionCompanyId(null);
                 setPendingAttributionChoices({});

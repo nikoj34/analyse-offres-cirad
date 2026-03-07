@@ -104,7 +104,7 @@ export interface PriceEntry {
   dpgf2: number | null;
 }
 
-export type NegotiationDecision = "non_defini" | "retenue" | "non_retenue" | "questions_reponses" | "attributaire";
+export type NegotiationDecision = "non_defini" | "retenue" | "non_retenue" | "questions_reponses" | "attributaire" | "retenue_nego_2";
 
 export const NEGOTIATION_DECISION_LABELS: Record<NegotiationDecision, string> = {
   non_defini: "—",
@@ -112,6 +112,7 @@ export const NEGOTIATION_DECISION_LABELS: Record<NegotiationDecision, string> = 
   non_retenue: "Non retenue",
   questions_reponses: "Questions",
   attributaire: "Attributaire",
+  retenue_nego_2: "Retenu pour Négociation 2",
 };
 
 export const VERSION_DISPLAY_LABELS: Record<string, string> = {
@@ -180,6 +181,10 @@ export interface NegotiationVersion {
   /** PSE / Variantes retenues au marché (OUI = inclus dans le montant scénario). */
   pseVarianteChoice?: Record<number, "oui" | "non">;
   questionnaire?: NegotiationQuestionnaire;
+  /** Données par entreprise (prep, execution) pour préparation / déroulement négo. */
+  negotiationData?: Record<number, any>;
+  /** Surcharges techniques par entreprise (companyId). */
+  technicalOverrides?: Record<number, any>;
 }
 
 // === Multi-Lot Types ===

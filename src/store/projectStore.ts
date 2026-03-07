@@ -106,15 +106,18 @@ interface ProjectStore {
   setItemNote: (companyId: number, criterionId: string, subCriterionId: string, itemId: string, notation: NotationLevel | null, commentPositif: string, commentNegatif: string) => void;
   getItemNote: (companyId: number, criterionId: string, subCriterionId: string, itemId: string) => TechnicalNote | undefined;
 
-  setTechnicalNote: (companyId: number, criterionId: string, subCriterionId: string | undefined, notation: NotationLevel | null, comment: string, commentPositif?: string, commentNegatif?: string) => void;
-  getTechnicalNote: (companyId: number, criterionId: string, subCriterionId?: string) => TechnicalNote | undefined;
-  setTechnicalNoteResponse: (companyId: number, criterionId: string, subCriterionId: string | undefined, response: string) => void;
+  setTechnicalNote: (companyId: number, criterionId: string, subCriterionId: string | undefined, notation: NotationLevel | null, comment: string, commentPositif?: string, commentNegatif?: string, versionId?: string) => void;
+  getTechnicalNote: (companyId: number, criterionId: string, subCriterionId?: string, versionId?: string) => TechnicalNote | undefined;
+  setTechnicalNoteResponse: (companyId: number, criterionId: string, subCriterionId: string | undefined, response: string, versionId?: string) => void;
 
-  setPriceEntry: (companyId: number, lotLineId: number, dpgf1: number | null, dpgf2: number | null) => void;
-  getPriceEntry: (companyId: number, lotLineId: number) => PriceEntry | undefined;
+  setPriceEntry: (companyId: number, lotLineId: number, dpgf1: number | null, dpgf2: number | null, versionId?: string) => void;
+  getPriceEntry: (companyId: number, lotLineId: number, versionId?: string) => PriceEntry | undefined;
 
-  setNegotiationDecision: (companyId: number, decision: NegotiationDecision) => void;
-  getNegotiationDecision: (companyId: number) => NegotiationDecision;
+  setNegotiationDecision: (companyId: number, decision: NegotiationDecision, versionId?: string) => void;
+  getNegotiationDecision: (companyId: number, versionId?: string) => NegotiationDecision;
+
+  setTechnicalOverride: (companyId: number, data: any, versionId?: string) => void;
+  getTechnicalOverride: (companyId: number, versionId?: string) => any;
 
   setDocumentsToVerify: (companyId: number, text: string) => void;
   getDocumentsToVerify: (companyId: number) => string;
@@ -128,6 +131,7 @@ interface ProjectStore {
   getPseVarianteChoice: (lineId: number) => "oui" | "non" | undefined;
 
   createVersion: (label: string, analysisDate: string) => void;
+  createNextNegotiationPhase: (analysisDate: string) => void;
   switchVersion: (versionId: string) => void;
   deleteVersion: (versionId: string) => void;
   freezeVersion: (versionId: string) => void;
@@ -148,6 +152,9 @@ interface ProjectStore {
   removeQuestion: (versionId: string, companyId: number, questionId: string) => void;
   setReceptionMode: (versionId: string, companyId: number, mode: boolean) => void;
   setQuestionResponse: (versionId: string, companyId: number, questionId: string, response: string) => void;
+
+  updateNegotiationPrep: (companyId: number, questions: any[], versionId?: string) => void;
+  updateNegotiationExecution: (companyId: number, data: any, versionId?: string) => void;
 
   resetProject: () => void;
 
@@ -607,10 +614,11 @@ export const useProjectStore = create<ProjectStore>()(
       },
 
       // === Technical notes ===
-      setTechnicalNote: (companyId, criterionId, subCriterionId, notation, comment, commentPositif, commentNegatif) =>
+      setTechnicalNote: (companyId, criterionId, subCriterionId, notation, comment, commentPositif, commentNegatif, versionId) =>
         set((state) => {
           const lot = getLot(state);
-          const version = lot.versions.find((v) => v.id === lot.currentVersionId);
+          const targetId = versionId ?? lot.currentVersionId;
+          const version = lot.versions.find((v) => v.id === targetId);
           if (!version) return state;
 
           const notes = [...version.technicalNotes];
@@ -635,15 +643,16 @@ export const useProjectStore = create<ProjectStore>()(
 
           return setLot(state, {
             versions: lot.versions.map((v) =>
-              v.id === lot.currentVersionId ? { ...v, technicalNotes: notes } : v
+              v.id === targetId ? { ...v, technicalNotes: notes } : v
             ),
           });
         }),
 
-      getTechnicalNote: (companyId, criterionId, subCriterionId) => {
+      getTechnicalNote: (companyId, criterionId, subCriterionId, versionId) => {
         const state = get();
         const lot = getLot(state);
-        const version = lot.versions.find((v) => v.id === lot.currentVersionId);
+        const targetId = versionId ?? lot.currentVersionId;
+        const version = lot.versions.find((v) => v.id === targetId);
         if (!version) return undefined;
         return version.technicalNotes.find(
           (n) =>
@@ -653,10 +662,11 @@ export const useProjectStore = create<ProjectStore>()(
         );
       },
 
-      setTechnicalNoteResponse: (companyId, criterionId, subCriterionId, response) =>
+      setTechnicalNoteResponse: (companyId, criterionId, subCriterionId, response, versionId) =>
         set((state) => {
           const lot = getLot(state);
-          const version = lot.versions.find((v) => v.id === lot.currentVersionId);
+          const targetId = versionId ?? lot.currentVersionId;
+          const version = lot.versions.find((v) => v.id === targetId);
           if (!version) return state;
           const notes = [...version.technicalNotes];
           const idx = notes.findIndex(
@@ -670,16 +680,17 @@ export const useProjectStore = create<ProjectStore>()(
           }
           return setLot(state, {
             versions: lot.versions.map((v) =>
-              v.id === lot.currentVersionId ? { ...v, technicalNotes: notes } : v
+              v.id === targetId ? { ...v, technicalNotes: notes } : v
             ),
           });
         }),
 
       // === Price entries ===
-      setPriceEntry: (companyId, lotLineId, dpgf1, dpgf2) =>
+      setPriceEntry: (companyId, lotLineId, dpgf1, dpgf2, versionId) =>
         set((state) => {
           const lot = getLot(state);
-          const version = lot.versions.find((v) => v.id === lot.currentVersionId);
+          const targetId = versionId ?? lot.currentVersionId;
+          const version = lot.versions.find((v) => v.id === targetId);
           if (!version) return state;
 
           const entries = [...version.priceEntries];
@@ -693,38 +704,63 @@ export const useProjectStore = create<ProjectStore>()(
 
           return setLot(state, {
             versions: lot.versions.map((v) =>
-              v.id === lot.currentVersionId ? { ...v, priceEntries: entries } : v
+              v.id === targetId ? { ...v, priceEntries: entries } : v
             ),
           });
         }),
 
-      getPriceEntry: (companyId, lotLineId) => {
+      getPriceEntry: (companyId, lotLineId, versionId) => {
         const state = get();
         const lot = getLot(state);
-        const version = lot.versions.find((v) => v.id === lot.currentVersionId);
+        const targetId = versionId ?? lot.currentVersionId;
+        const version = lot.versions.find((v) => v.id === targetId);
         if (!version) return undefined;
         return version.priceEntries.find((e) => e.companyId === companyId && e.lotLineId === lotLineId);
       },
 
       // === Negotiation decisions ===
-      setNegotiationDecision: (companyId, decision) =>
+      setNegotiationDecision: (companyId, decision, versionId) =>
         set((state) => {
           const lot = getLot(state);
-          const version = lot.versions.find((v) => v.id === lot.currentVersionId);
+          const targetId = versionId ?? lot.currentVersionId;
+          const version = lot.versions.find((v) => v.id === targetId);
           if (!version) return state;
           const decisions = { ...version.negotiationDecisions, [companyId]: decision };
           return setLot(state, {
             versions: lot.versions.map((v) =>
-              v.id === lot.currentVersionId ? { ...v, negotiationDecisions: decisions } : v
+              v.id === targetId ? { ...v, negotiationDecisions: decisions } : v
             ),
           });
         }),
 
-      getNegotiationDecision: (companyId) => {
+      getNegotiationDecision: (companyId, versionId) => {
         const state = get();
         const lot = getLot(state);
-        const version = lot.versions.find((v) => v.id === lot.currentVersionId);
+        const targetId = versionId ?? lot.currentVersionId;
+        const version = lot.versions.find((v) => v.id === targetId);
         return version?.negotiationDecisions?.[companyId] ?? "non_defini";
+      },
+
+      setTechnicalOverride: (companyId, data, versionId) =>
+        set((state) => {
+          const lot = getLot(state);
+          const targetId = versionId ?? lot.currentVersionId;
+          const version = lot.versions.find((v) => v.id === targetId);
+          if (!version) return state;
+          const technicalOverrides = { ...(version.technicalOverrides ?? {}), [companyId]: data };
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === targetId ? { ...v, technicalOverrides } : v
+            ),
+          });
+        }),
+
+      getTechnicalOverride: (companyId, versionId) => {
+        const state = get();
+        const lot = getLot(state);
+        const targetId = versionId ?? lot.currentVersionId;
+        const version = lot.versions.find((v) => v.id === targetId);
+        return version?.technicalOverrides?.[companyId];
       },
 
       // === Documents ===
@@ -937,6 +973,53 @@ export const useProjectStore = create<ProjectStore>()(
             v.id === lot.currentVersionId
               ? { ...v, frozen: true, validated: true, validatedAt: v.validatedAt ?? new Date().toISOString() }
               : v
+          );
+
+          return setLot(state, {
+            versions: [...versions, newVersion],
+            currentVersionId: newVersionId,
+          });
+        }),
+
+      createNextNegotiationPhase: (analysisDate) =>
+        set((state) => {
+          const lot = getLot(state);
+          const v1 = lot.versions[1];
+          if (!v1 || lot.versions.length < 2) return state;
+
+          const retainedIds = Object.entries(v1.negotiationDecisions ?? {})
+            .filter(([, d]) => d === "retenue_nego_2")
+            .map(([id]) => Number(id));
+          if (retainedIds.length === 0) return state;
+
+          const newVersionId = crypto.randomUUID();
+          const newTechnicalNotes = v1.technicalNotes.filter((n) => retainedIds.includes(n.companyId));
+          const newPriceEntries = v1.priceEntries.filter((e) => retainedIds.includes(e.companyId));
+          const newDocsToVerify: Record<number, string> = {};
+          for (const id of retainedIds) {
+            if (v1.documentsToVerify?.[id]) newDocsToVerify[id] = v1.documentsToVerify[id];
+          }
+
+          const newVersion: NegotiationVersion = {
+            id: newVersionId,
+            label: "Négociation 2",
+            createdAt: new Date().toISOString(),
+            analysisDate,
+            technicalNotes: newTechnicalNotes.map((n) => ({ ...n })),
+            priceEntries: newPriceEntries.map((e) => ({ ...e })),
+            frozen: false,
+            validated: false,
+            validatedAt: null,
+            negotiationDecisions: {},
+            documentsToVerify: newDocsToVerify,
+            companyProposedVariante: v1.companyProposedVariante ? { ...v1.companyProposedVariante } : undefined,
+            scenarioEnabledLines: v1.scenarioEnabledLines ? { ...v1.scenarioEnabledLines } : undefined,
+            pseVarianteChoice: v1.pseVarianteChoice ? { ...v1.pseVarianteChoice } : undefined,
+            questionnaire: undefined,
+          };
+
+          const versions = lot.versions.map((v) =>
+            v.id === v1.id ? { ...v, frozen: true } : v
           );
 
           return setLot(state, {
@@ -1189,6 +1272,34 @@ export const useProjectStore = create<ProjectStore>()(
               v.id === versionId
                 ? { ...v, questionnaire: { ...v.questionnaire!, questionnaires } }
                 : v
+            ),
+          });
+        }),
+
+      updateNegotiationPrep: (companyId, questions, versionId) =>
+        set((state) => {
+          const lot = getLot(state);
+          const targetId = versionId ?? lot.currentVersionId;
+          const version = lot.versions.find((v) => v.id === targetId);
+          if (!version) return state;
+          const negotiationData = { ...(version.negotiationData ?? {}), [companyId]: { ...(version.negotiationData?.[companyId] ?? {}), prep: { questions } } };
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === targetId ? { ...v, negotiationData } : v
+            ),
+          });
+        }),
+
+      updateNegotiationExecution: (companyId, data, versionId) =>
+        set((state) => {
+          const lot = getLot(state);
+          const targetId = versionId ?? lot.currentVersionId;
+          const version = lot.versions.find((v) => v.id === targetId);
+          if (!version) return state;
+          const negotiationData = { ...(version.negotiationData ?? {}), [companyId]: { ...(version.negotiationData?.[companyId] ?? {}), execution: data } };
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === targetId ? { ...v, negotiationData } : v
             ),
           });
         }),

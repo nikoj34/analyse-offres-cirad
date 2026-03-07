@@ -79,37 +79,36 @@ const PrixPage = () => {
   const { project, setPriceEntry, getPriceEntry, setCompanyProposedVariante, getCompanyProposedVariante, updateCompany } = useProjectStore();
   const lotIndex = Math.max(0, Math.min(project?.currentLotIndex ?? 0, (project?.lots?.length ?? 1) - 1));
   const lot = project?.lots?.[lotIndex];
-  const { activeCompanies, version, isReadOnly, isNego, negoLabel, negoRound } = useAnalysisContext();
+  const { activeCompanies, version, versionIndex, isReadOnly, isNego, negoLabel, negoRound } = useAnalysisContext();
   const lotLines = lot?.lotLines ?? [];
   const weightingCriteria = lot?.weightingCriteria ?? [];
   const { isValid: weightingValid, total: weightingTotal } = useWeightingValid();
-  const { companyIndex: companyIndexParam } = useParams<{ companyIndex?: string; round?: string }>();
+  const { vIndex, companyId: companyIdParam } = useParams<{ vIndex?: string; companyId?: string }>();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const basePath = location.pathname.replace(/\/\d+$/, "");
-  const maxCompanyIndex = Math.max(0, activeCompanies.length - 1);
-  const safeIndex = (() => {
-    const n = parseInt(companyIndexParam ?? "", 10);
-    if (!Number.isInteger(n) || n < 0) return 0;
-    return Math.min(n, maxCompanyIndex);
-  })();
+  const basePath = `/version/${vIndex ?? "0"}/prix`;
+  const companyIdNum = companyIdParam != null ? parseInt(companyIdParam, 10) : NaN;
+  const resolvedCompany = Number.isInteger(companyIdNum)
+    ? activeCompanies.find((c) => c.id === companyIdNum)
+    : activeCompanies[0];
+  const safeIndex = resolvedCompany ? activeCompanies.findIndex((c) => c.id === resolvedCompany.id) : 0;
+  const currentCompanies = resolvedCompany ? [resolvedCompany] : [];
+
   useEffect(() => {
     if (activeCompanies.length === 0) return;
-    if (companyIndexParam === undefined) {
-      navigate(`${basePath}/0`, { replace: true });
+    if (!companyIdParam || !Number.isInteger(companyIdNum) || !activeCompanies.some((c) => c.id === companyIdNum)) {
+      const first = activeCompanies[0];
+      if (first) navigate(`${basePath}/${first.id}`, { replace: true });
       return;
     }
-    const n = parseInt(companyIndexParam, 10);
-    if (!Number.isInteger(n) || n < 0 || n > maxCompanyIndex) {
-      const clamped = Math.max(0, Math.min(maxCompanyIndex, n));
-      navigate(`${basePath}/${clamped}`, { replace: true });
-    }
-  }, [activeCompanies.length, companyIndexParam, basePath, navigate, maxCompanyIndex]);
+  }, [activeCompanies, companyIdParam, companyIdNum, basePath, navigate]);
 
-  const currentCompanies = activeCompanies.length > 0 ? [activeCompanies[safeIndex]] : [];
   const hasPrev = safeIndex > 0;
   const hasNext = safeIndex < activeCompanies.length - 1 && activeCompanies.length > 1;
+  /** Index absolu dans lot.companies pour persistance des couleurs entre initiale et négo */
+  const companyIndexInLot = (lot?.companies ?? []).findIndex((c) => c.id === resolvedCompany?.id);
+  const colorIndex = companyIndexInLot >= 0 ? companyIndexInLot : safeIndex;
 
   const activeLotLines = lotLines.filter((l) => l.label.trim() !== "");
   /** Lignes "offre de base" : DPGF + PSE + TO (exclut les lignes de type VARIANTE, gérées dans le bloc Variantes) */
@@ -153,7 +152,7 @@ const PrixPage = () => {
   const getVarianteTotal = (companyId: number): number => {
     let sum = 0;
     for (const line of varianteLinesFromConfig) {
-      const e = getPriceEntry(companyId, line.id);
+      const e = getPriceEntry(companyId, line.id, version?.id);
       if (e) sum += (e.dpgf1 ?? 0) + (e.dpgf2 ?? 0);
     }
     return sum;
@@ -293,7 +292,14 @@ const PrixPage = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div
+      className="rounded-r-lg border-l-4 min-h-0"
+      style={{
+        backgroundColor: getCompanyBgColor(colorIndex),
+        borderColor: getCompanyColor(colorIndex),
+      }}
+    >
+      <div className="p-4 space-y-6">
       {!weightingValid && (
         <div className="rounded-md border border-destructive bg-destructive/10 p-4 flex items-center gap-3">
           <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
@@ -334,8 +340,8 @@ const PrixPage = () => {
           key={company.id}
           className={company.status === "ecartee" ? "opacity-60" : ""}
           style={{
-            borderLeft: `4px solid ${getCompanyColor(safeIndex)}`,
-            backgroundColor: company.status !== "ecartee" ? getCompanyBgColor(safeIndex) : undefined,
+            borderLeft: `4px solid ${getCompanyColor(colorIndex)}`,
+            backgroundColor: company.status !== "ecartee" ? getCompanyBgColor(colorIndex) : undefined,
           }}
         >
           <CardHeader className="bg-muted/40 pb-3">
@@ -380,7 +386,7 @@ const PrixPage = () => {
                 </div>
                 {/* Base DPGF row */}
                 {(() => {
-                  const dpgfEntry = getPriceEntry(company.id, 0);
+                  const dpgfEntry = getPriceEntry(company.id, 0, version?.id);
                   const est1 = lot.estimationDpgf1 ?? 0;
                   const est2 = lot.estimationDpgf2 ?? 0;
                   return (
@@ -391,7 +397,7 @@ const PrixPage = () => {
                           dpgfEntry?.dpgf1 ?? null,
                           est1 || null,
                           isReadOnly,
-                          (val) => setPriceEntry(company.id, 0, val, dpgfEntry?.dpgf2 ?? null),
+                          (val) => setPriceEntry(company.id, 0, val, dpgfEntry?.dpgf2 ?? null, version?.id),
                           isNego ? getRefPrice(company.id, 0, 1) : undefined
                         )}
                       </div>
@@ -404,7 +410,7 @@ const PrixPage = () => {
                             dpgfEntry?.dpgf2 ?? null,
                             est2 || null,
                             isReadOnly,
-                            (val) => setPriceEntry(company.id, 0, dpgfEntry?.dpgf1 ?? null, val),
+                            (val) => setPriceEntry(company.id, 0, dpgfEntry?.dpgf1 ?? null, val, version?.id),
                             isNego ? getRefPrice(company.id, 0, 2) : undefined
                           )}
                         </div>
@@ -418,7 +424,7 @@ const PrixPage = () => {
                   );
                 })()}
                 {baseLotLines.map((line) => {
-                  const entry = getPriceEntry(company.id, line.id);
+                  const entry = getPriceEntry(company.id, line.id, version?.id);
                   const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
                   const showDpgf2 = hasDualDpgf && (line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both");
                   const autoNum = typeCounters[line.id];
@@ -441,7 +447,7 @@ const PrixPage = () => {
                             entry?.dpgf1 ?? null,
                             line.estimationDpgf1,
                             isReadOnly,
-                            (val) => setPriceEntry(company.id, line.id, val, entry?.dpgf2 ?? null),
+                            (val) => setPriceEntry(company.id, line.id, val, entry?.dpgf2 ?? null, version?.id),
                             isNego ? getRefPrice(company.id, line.id, 1) : undefined
                           )}
                         </div>
@@ -459,7 +465,7 @@ const PrixPage = () => {
                             entry?.dpgf2 ?? null,
                             line.estimationDpgf2,
                             isReadOnly,
-                            (val) => setPriceEntry(company.id, line.id, entry?.dpgf1 ?? null, val),
+                            (val) => setPriceEntry(company.id, line.id, entry?.dpgf1 ?? null, val, version?.id),
                             isNego ? getRefPrice(company.id, line.id, 2) : undefined
                           )}
                         </div>
@@ -525,14 +531,14 @@ const PrixPage = () => {
                     <div
                       className="rounded-md border-2 p-3 space-y-2"
                       style={{
-                        borderColor: getCompanyColor(safeIndex),
-                        backgroundColor: getCompanyBgColor(safeIndex),
+                        borderColor: getCompanyColor(colorIndex),
+                        backgroundColor: getCompanyBgColor(colorIndex),
                       }}
                     >
                       {hasVarianteLines ? (
                         <>
                           {varianteLinesFromConfig.map((line, idx) => {
-                            const entry = getPriceEntry(company.id, line.id);
+                            const entry = getPriceEntry(company.id, line.id, version?.id);
                             const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
                             const showDpgf2 = hasDualDpgf && (line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both");
                             return (
@@ -543,13 +549,13 @@ const PrixPage = () => {
                                 </div>
                                 {showDpgf1 ? (
                                   <div>
-                                    {renderPriceWithEstimation(entry?.dpgf1 ?? null, line.estimationDpgf1, isReadOnly, (val) => setPriceEntry(company.id, line.id, val, entry?.dpgf2 ?? null), isNego ? getRefPrice(company.id, line.id, 1) : undefined)}
+                                    {renderPriceWithEstimation(entry?.dpgf1 ?? null, line.estimationDpgf1, isReadOnly, (val) => setPriceEntry(company.id, line.id, val, entry?.dpgf2 ?? null, version?.id), isNego ? getRefPrice(company.id, line.id, 1) : undefined)}
                                   </div>
                                 ) : <span className="text-center text-xs text-muted-foreground">—</span>}
                                 <div className="text-right text-xs">{showDpgf1 ? renderDeviationCell(entry?.dpgf1 ?? 0, line.estimationDpgf1 ?? 0) : <span className="text-muted-foreground">—</span>}</div>
                                 {hasDualDpgf && (showDpgf2 ? (
                                   <div>
-                                    {renderPriceWithEstimation(entry?.dpgf2 ?? null, line.estimationDpgf2, isReadOnly, (val) => setPriceEntry(company.id, line.id, entry?.dpgf1 ?? null, val), isNego ? getRefPrice(company.id, line.id, 2) : undefined)}
+                                    {renderPriceWithEstimation(entry?.dpgf2 ?? null, line.estimationDpgf2, isReadOnly, (val) => setPriceEntry(company.id, line.id, entry?.dpgf1 ?? null, val, version?.id), isNego ? getRefPrice(company.id, line.id, 2) : undefined)}
                                   </div>
                                 ) : <span className="text-center text-xs text-muted-foreground">—</span>)}
                                 {hasDualDpgf && <div className="text-right text-xs">{showDpgf2 ? renderDeviationCell(entry?.dpgf2 ?? 0, line.estimationDpgf2 ?? 0) : <span className="text-muted-foreground">—</span>}</div>}
@@ -569,15 +575,15 @@ const PrixPage = () => {
                           <div className={`grid ${gridClass} gap-2 items-center`}>
                             <div className="text-sm font-medium">Variante (exigée)</div>
                             <div>
-                              {renderPriceWithEstimation(getPriceEntry(company.id, VARIANTE_LINE_ID)?.dpgf1 ?? null, est1, isReadOnly, (val) => setPriceEntry(company.id, VARIANTE_LINE_ID, val, getPriceEntry(company.id, VARIANTE_LINE_ID)?.dpgf2 ?? null), isNego ? getRefPrice(company.id, VARIANTE_LINE_ID, 1) : undefined)}
+                              {renderPriceWithEstimation(getPriceEntry(company.id, VARIANTE_LINE_ID, version?.id)?.dpgf1 ?? null, est1, isReadOnly, (val) => setPriceEntry(company.id, VARIANTE_LINE_ID, val, getPriceEntry(company.id, VARIANTE_LINE_ID, version?.id)?.dpgf2 ?? null, version?.id), isNego ? getRefPrice(company.id, VARIANTE_LINE_ID, 1) : undefined)}
                             </div>
-                            <div className="text-right text-xs">{est1 != null ? renderDeviationCell(getPriceEntry(company.id, VARIANTE_LINE_ID)?.dpgf1 ?? 0, est1) : <span className="text-muted-foreground">—</span>}</div>
+                            <div className="text-right text-xs">{est1 != null ? renderDeviationCell(getPriceEntry(company.id, VARIANTE_LINE_ID, version?.id)?.dpgf1 ?? 0, est1) : <span className="text-muted-foreground">—</span>}</div>
                             {hasDualDpgf && (
                               <>
                                 <div>
-                                  {renderPriceWithEstimation(getPriceEntry(company.id, VARIANTE_LINE_ID)?.dpgf2 ?? null, est2, isReadOnly, (val) => setPriceEntry(company.id, VARIANTE_LINE_ID, getPriceEntry(company.id, VARIANTE_LINE_ID)?.dpgf1 ?? null, val), isNego ? getRefPrice(company.id, VARIANTE_LINE_ID, 2) : undefined)}
+                                  {renderPriceWithEstimation(getPriceEntry(company.id, VARIANTE_LINE_ID, version?.id)?.dpgf2 ?? null, est2, isReadOnly, (val) => setPriceEntry(company.id, VARIANTE_LINE_ID, getPriceEntry(company.id, VARIANTE_LINE_ID, version?.id)?.dpgf1 ?? null, val, version?.id), isNego ? getRefPrice(company.id, VARIANTE_LINE_ID, 2) : undefined)}
                                 </div>
-                                <div className="text-right text-xs">{est2 != null ? renderDeviationCell(getPriceEntry(company.id, VARIANTE_LINE_ID)?.dpgf2 ?? 0, est2) : <span className="text-muted-foreground">—</span>}</div>
+                                <div className="text-right text-xs">{est2 != null ? renderDeviationCell(getPriceEntry(company.id, VARIANTE_LINE_ID, version?.id)?.dpgf2 ?? 0, est2) : <span className="text-muted-foreground">—</span>}</div>
                               </>
                             )}
                           </div>
@@ -598,8 +604,8 @@ const PrixPage = () => {
                   <div
                     className="rounded-md border-2 p-3 space-y-2"
                     style={{
-                      borderColor: getCompanyColor(safeIndex),
-                      backgroundColor: getCompanyBgColor(safeIndex),
+                      borderColor: getCompanyColor(colorIndex),
+                      backgroundColor: getCompanyBgColor(colorIndex),
                     }}
                   >
                     <div className="flex items-center gap-3">
@@ -622,7 +628,7 @@ const PrixPage = () => {
                           {hasVarianteLines ? (
                             <>
                               {varianteLinesFromConfig.map((line, idx) => {
-                                const entry = getPriceEntry(company.id, line.id);
+                                const entry = getPriceEntry(company.id, line.id, version?.id);
                                 const showDpgf1 = line.dpgfAssignment === "DPGF_1" || line.dpgfAssignment === "both";
                                 const showDpgf2 = hasDualDpgf && (line.dpgfAssignment === "DPGF_2" || line.dpgfAssignment === "both");
                                 return (
@@ -633,13 +639,13 @@ const PrixPage = () => {
                                     </div>
                                     {showDpgf1 ? (
                                       <div>
-                                        {renderPriceWithEstimation(entry?.dpgf1 ?? null, line.estimationDpgf1, isReadOnly, (val) => setPriceEntry(company.id, line.id, val, entry?.dpgf2 ?? null), isNego ? getRefPrice(company.id, line.id, 1) : undefined)}
+                                        {renderPriceWithEstimation(entry?.dpgf1 ?? null, line.estimationDpgf1, isReadOnly, (val) => setPriceEntry(company.id, line.id, val, entry?.dpgf2 ?? null, version?.id), isNego ? getRefPrice(company.id, line.id, 1) : undefined)}
                                       </div>
                                     ) : <span className="text-center text-xs text-muted-foreground">—</span>}
                                     <div className="text-right text-xs">{showDpgf1 ? renderDeviationCell(entry?.dpgf1 ?? 0, line.estimationDpgf1 ?? 0) : <span className="text-muted-foreground">—</span>}</div>
                                     {hasDualDpgf && (showDpgf2 ? (
                                       <div>
-                                        {renderPriceWithEstimation(entry?.dpgf2 ?? null, line.estimationDpgf2, isReadOnly, (val) => setPriceEntry(company.id, line.id, entry?.dpgf1 ?? null, val), isNego ? getRefPrice(company.id, line.id, 2) : undefined)}
+                                        {renderPriceWithEstimation(entry?.dpgf2 ?? null, line.estimationDpgf2, isReadOnly, (val) => setPriceEntry(company.id, line.id, entry?.dpgf1 ?? null, val, version?.id), isNego ? getRefPrice(company.id, line.id, 2) : undefined)}
                                       </div>
                                     ) : <span className="text-center text-xs text-muted-foreground">—</span>)}
                                     {hasDualDpgf && <div className="text-right text-xs">{showDpgf2 ? renderDeviationCell(entry?.dpgf2 ?? 0, line.estimationDpgf2 ?? 0) : <span className="text-muted-foreground">—</span>}</div>}
@@ -659,15 +665,15 @@ const PrixPage = () => {
                               <div className={`grid ${gridClass} gap-2 items-center`}>
                                 <div className="text-sm font-medium">Variante</div>
                                 <div>
-                                  {renderPriceWithEstimation(getPriceEntry(company.id, VARIANTE_LINE_ID)?.dpgf1 ?? null, est1, isReadOnly, (val) => setPriceEntry(company.id, VARIANTE_LINE_ID, val, getPriceEntry(company.id, VARIANTE_LINE_ID)?.dpgf2 ?? null), isNego ? getRefPrice(company.id, VARIANTE_LINE_ID, 1) : undefined)}
+                                  {renderPriceWithEstimation(getPriceEntry(company.id, VARIANTE_LINE_ID, version?.id)?.dpgf1 ?? null, est1, isReadOnly, (val) => setPriceEntry(company.id, VARIANTE_LINE_ID, val, getPriceEntry(company.id, VARIANTE_LINE_ID, version?.id)?.dpgf2 ?? null, version?.id), isNego ? getRefPrice(company.id, VARIANTE_LINE_ID, 1) : undefined)}
                                 </div>
-                                <div className="text-right text-xs">{est1 != null ? renderDeviationCell(getPriceEntry(company.id, VARIANTE_LINE_ID)?.dpgf1 ?? 0, est1) : <span className="text-muted-foreground">—</span>}</div>
+                                <div className="text-right text-xs">{est1 != null ? renderDeviationCell(getPriceEntry(company.id, VARIANTE_LINE_ID, version?.id)?.dpgf1 ?? 0, est1) : <span className="text-muted-foreground">—</span>}</div>
                                 {hasDualDpgf && (
                                   <>
                                     <div>
-                                      {renderPriceWithEstimation(getPriceEntry(company.id, VARIANTE_LINE_ID)?.dpgf2 ?? null, est2, isReadOnly, (val) => setPriceEntry(company.id, VARIANTE_LINE_ID, getPriceEntry(company.id, VARIANTE_LINE_ID)?.dpgf1 ?? null, val), isNego ? getRefPrice(company.id, VARIANTE_LINE_ID, 2) : undefined)}
+                                      {renderPriceWithEstimation(getPriceEntry(company.id, VARIANTE_LINE_ID, version?.id)?.dpgf2 ?? null, est2, isReadOnly, (val) => setPriceEntry(company.id, VARIANTE_LINE_ID, getPriceEntry(company.id, VARIANTE_LINE_ID, version?.id)?.dpgf1 ?? null, val, version?.id), isNego ? getRefPrice(company.id, VARIANTE_LINE_ID, 2) : undefined)}
                                     </div>
-                                    <div className="text-right text-xs">{est2 != null ? renderDeviationCell(getPriceEntry(company.id, VARIANTE_LINE_ID)?.dpgf2 ?? 0, est2) : <span className="text-muted-foreground">—</span>}</div>
+                                    <div className="text-right text-xs">{est2 != null ? renderDeviationCell(getPriceEntry(company.id, VARIANTE_LINE_ID, version?.id)?.dpgf2 ?? 0, est2) : <span className="text-muted-foreground">—</span>}</div>
                                   </>
                                 )}
                               </div>
@@ -732,7 +738,7 @@ const PrixPage = () => {
               variant="outline"
               size="sm"
               disabled={!hasPrev}
-              onClick={() => navigate(`${basePath}/${safeIndex - 1}`)}
+              onClick={() => navigate(`${basePath}/${activeCompanies[safeIndex - 1].id}`)}
             >
               Entreprise précédente
             </Button>
@@ -740,18 +746,19 @@ const PrixPage = () => {
               variant="outline"
               size="sm"
               disabled={!hasNext}
-              onClick={() => navigate(`${basePath}/${safeIndex + 1}`)}
+              onClick={() => navigate(`${basePath}/${activeCompanies[safeIndex + 1].id}`)}
             >
               Entreprise suivante
             </Button>
             {!hasNext && (
-              <Button size="sm" onClick={() => navigate("/technique")} className="ml-2">
+              <Button size="sm" onClick={() => navigate(basePath.replace("/prix", "/technique"))} className="ml-2">
                 Page suivante
               </Button>
             )}
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };
