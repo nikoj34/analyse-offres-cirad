@@ -18,15 +18,6 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 
 import {
   Collapsible,
@@ -85,20 +76,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Configuration incohérente : variante interdite = NON et les deux autres = NON → message bloquant (on ne peut pas quitter /lot)
-  const isVarianteIncoherent =
-    location.pathname === "/lot" &&
-    !!lot &&
-    lot.varianteInterdite === false &&
-    lot.varianteAutorisee !== true &&
-    lot.varianteExigee !== true;
-  const [showVarianteIncoherentModal, setShowVarianteIncoherentModal] = useState(false);
-
   const handleLotSubNav = (lotIdx: number, path: string) => {
-    if (path !== "/lot" && isVarianteIncoherent) {
-      setShowVarianteIncoherentModal(true);
-      return;
-    }
     if (lotIdx !== project.currentLotIndex) {
       switchLot(lotIdx);
     }
@@ -132,7 +110,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const pathBase = location.pathname.replace(/\/\d+$/, "");
   const currentIndex = pageOrder.indexOf(pathBase);
   const nextPath = currentIndex >= 0 && currentIndex < pageOrder.length - 1 ? pageOrder[currentIndex + 1] : null;
-  const showNextPageButton = nextPath !== null && location.pathname !== "/config" && pathBase !== "/prix" && pathBase !== "/technique";
+  const showNextPageButton = nextPath !== null && location.pathname !== "/config" && pathBase !== "/prix" && pathBase !== "/technique" && !pathBase.endsWith("/synthese");
 
   /** Determine dynamic Questions label for a lot (Questions / Réponses après import) */
   const getQuestionsLabel = (l: typeof lot, round?: number): string => {
@@ -427,13 +405,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             {showNextPageButton && (
               <div className="mt-8 flex justify-end border-t border-border pt-6">
                 <Button
-                  onClick={() => {
-                    if (isVarianteIncoherent) {
-                      setShowVarianteIncoherentModal(true);
-                    } else {
-                      navigate(nextPath!);
-                    }
-                  }}
+                  onClick={() => navigate(nextPath!)}
                   className="gap-2"
                   size="lg"
                 >
@@ -447,19 +419,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
       </div>
       <Footer />
 
-      <AlertDialog open={showVarianteIncoherentModal} onOpenChange={setShowVarianteIncoherentModal}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Configuration incohérente</AlertDialogTitle>
-            <AlertDialogDescription>
-              Variante interdite = NON alors que Variante autorisée et Variante exigée sont à NON. Vous ne pouvez pas quitter cette page tant que vous n&apos;avez pas corrigé la configuration (mettre Variante interdite = OUI, ou Variante autorisée = OUI, ou Variante exigée = OUI) dans Configuration du lot.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setShowVarianteIncoherentModal(false)}>OK</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

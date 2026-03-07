@@ -118,7 +118,8 @@ const PrixPage = () => {
   const varianteExigee = lot?.varianteExigee ?? false;
   const varianteInterdite = lot?.varianteInterdite === true;
   const varianteOptional = (lot?.varianteInterdite === false || (lot?.varianteAutorisee ?? false)) && !varianteExigee;
-  const showVarianteSection = varianteExigee || varianteOptional;
+  /** Section variante visible : si exigée (saisie obligatoire), si autorisée (case + prix), ou si interdite (case pour signaler une offre irrégulière). */
+  const showVarianteSection = varianteExigee || varianteOptional || varianteInterdite;
   const hasVarianteLines = varianteLinesFromConfig.length > 0;
   const prixCriterion = weightingCriteria.find((c) => c.id === "prix");
   const prixWeight = prixCriterion?.weight ?? 40;

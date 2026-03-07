@@ -56,16 +56,16 @@ export default function FAQPage() {
         </CardHeader>
         <CardContent>
           <Accordion type="single" collapsible className="w-full">
-            <AccordionItem value="variante-interdite">
-              <AccordionTrigger>Variante interdite, autorisée, exigée : quelle différence ?</AccordionTrigger>
+            <AccordionItem value="variante-statut">
+              <AccordionTrigger>Statut des variantes : Interdites, Autorisées ou Exigées ?</AccordionTrigger>
               <AccordionContent>
-                <strong>Variante interdite = OUI</strong> : les candidats ne peuvent pas proposer de variante ; si une entreprise en saisit une, l&apos;offre est signalée comme irrégulière. <strong>Variante autorisée = OUI</strong> : les candidats peuvent cocher « Cette entreprise a proposé une variante » et saisir des montants. <strong>Variante exigée = OUI</strong> : la variante est obligatoire pour tous ; le bloc variante et le total variante(s) s&apos;affichent pour chaque entreprise. Une seule des trois options peut être « active » à la fois (exigée prime sur les autres).
+                Dans la configuration du lot, un seul choix est proposé : <strong>Statut des variantes pour ce lot</strong>. <strong>Variantes Interdites</strong> (par défaut) : les candidats ne peuvent pas proposer de variante ; si une entreprise en saisit une, l&apos;offre est signalée comme irrégulière. <strong>Variantes Autorisées</strong> : les candidats peuvent cocher « Cette entreprise a proposé une variante » et saisir des montants. <strong>Variantes Exigées</strong> : la variante est obligatoire pour tous ; le bloc variante et le total variante(s) s&apos;affichent pour chaque entreprise.
               </AccordionContent>
             </AccordionItem>
-            <AccordionItem value="variante-incoherent">
-              <AccordionTrigger>Pourquoi un message « Configuration incohérente » ou « Offre irrégulière » ?</AccordionTrigger>
+            <AccordionItem value="variante-irregulier">
+              <AccordionTrigger>Pourquoi « Offre irrégulière » sur une entreprise ?</AccordionTrigger>
               <AccordionContent>
-                Si <strong>Variante interdite = NON</strong> et que <strong>Variante autorisée</strong> et <strong>Variante exigée</strong> sont aussi à NON, la configuration est incohérente : vous ne pouvez pas quitter la page Configuration du lot tant que vous n&apos;avez pas mis l&apos;une des trois à OUI. « Offre irrégulière » s&apos;affiche sur une entreprise qui a saisi une variante alors que les variantes sont interdites (ou que la variante est exigée mais sans prix saisi).
+                « Offre irrégulière » s&apos;affiche lorsqu&apos;une entreprise a saisi une variante alors que les variantes sont interdites pour le lot, ou lorsque la variante est exigée mais qu&apos;aucun prix n&apos;a été saisi pour la variante.
               </AccordionContent>
             </AccordionItem>
           </Accordion>

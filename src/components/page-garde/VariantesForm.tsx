@@ -7,98 +7,58 @@ import { Button } from "@/components/ui/button";
 import { Trash2, Plus } from "lucide-react";
 import { DpgfAssignment } from "@/types/project";
 
-const OUI_NON = ["oui", "non"] as const;
-type OuiNon = (typeof OUI_NON)[number];
+type VarianteStatut = "interdites" | "autorisees" | "exigees";
 
-function toBool(v: OuiNon): boolean {
-  return v === "oui";
-}
-
-function fromBool(b: boolean | undefined, defaultVal: boolean): OuiNon {
-  if (b === undefined) return defaultVal ? "oui" : "non";
-  return b ? "oui" : "non";
+function getVarianteStatut(lot: { varianteInterdite?: boolean; varianteAutorisee?: boolean; varianteExigee?: boolean }): VarianteStatut {
+  if (lot.varianteExigee) return "exigees";
+  if (lot.varianteAutorisee) return "autorisees";
+  return "interdites";
 }
 
 export function VariantesForm() {
   const { project, updateLotInfo, addVarianteLine, updateVarianteLine, removeVarianteLine } = useProjectStore();
   const lot = project.lots[project.currentLotIndex];
-  const varianteInterdite = fromBool(lot.varianteInterdite, true);
-  const varianteAutorisee = fromBool(lot.varianteAutorisee, false);
-  const varianteExigee = fromBool(lot.varianteExigee, false);
+  const statut = getVarianteStatut(lot);
   const hasDualDpgf = lot.hasDualDpgf ?? false;
   const varianteLines = lot.varianteLines ?? [];
-  // Déblocage : si variante interdite = NON, ou autorisée = OUI, ou exigée = OUI, la saisie des variantes est possible
   const showVarianteLines =
     lot.varianteInterdite === false ||
     (lot.varianteAutorisee ?? false) ||
     (lot.varianteExigee ?? false);
+
+  const handleStatutChange = (value: VarianteStatut) => {
+    if (value === "interdites") {
+      updateLotInfo({ varianteInterdite: true, varianteAutorisee: false, varianteExigee: false });
+    } else if (value === "autorisees") {
+      updateLotInfo({ varianteInterdite: false, varianteAutorisee: true, varianteExigee: false });
+    } else {
+      updateLotInfo({ varianteInterdite: false, varianteAutorisee: false, varianteExigee: true });
+    }
+  };
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-lg">Variantes</CardTitle>
         <CardDescription>
-          Configuration des variantes pour ce lot. Répondez par OUI ou NON à chaque question.
-          {showVarianteLines && " Si une variante est autorisée ou exigée, saisissez les lignes de variantes ci‑dessous (intitulé, DPGF, estimations)."}
+          Choisissez le statut des variantes pour ce lot.
+          {showVarianteLines && " Si les variantes sont autorisées ou exigées, saisissez les lignes de variantes ci‑dessous (intitulé, DPGF, estimations)."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-3">
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">« Variante interdite »</Label>
-            <Select
-              value={lot.varianteExigee || lot.varianteAutorisee ? "non" : varianteInterdite}
-              onValueChange={(v) => updateLotInfo({ varianteInterdite: toBool(v as OuiNon) })}
-              disabled={!!(lot.varianteExigee || lot.varianteAutorisee)}
-            >
-              <SelectTrigger className={lot.varianteExigee || lot.varianteAutorisee ? "opacity-60" : undefined}>
-                <SelectValue placeholder="OUI / NON" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="oui">OUI</SelectItem>
-                <SelectItem value="non">NON</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">OUI par défaut{(lot.varianteExigee || lot.varianteAutorisee) ? " — désactivé si variante exigée ou autorisée" : ""}</p>
-          </div>
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">« Variante autorisée »</Label>
-            <Select
-              value={varianteAutorisee}
-              onValueChange={(v) => {
-                const autorisee = toBool(v as OuiNon);
-                updateLotInfo(autorisee ? { varianteAutorisee: true, varianteInterdite: false } : { varianteAutorisee: false, ...(lot.varianteExigee ? {} : { varianteInterdite: true }) });
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="OUI / NON" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="oui">OUI</SelectItem>
-                <SelectItem value="non">NON</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">NON par défaut</p>
-          </div>
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">« Variante exigée »</Label>
-            <Select
-              value={varianteExigee}
-              onValueChange={(v) => {
-                const exigee = toBool(v as OuiNon);
-                updateLotInfo(exigee ? { varianteExigee: true, varianteInterdite: false } : { varianteExigee: false, ...(lot.varianteAutorisee ? {} : { varianteInterdite: true }) });
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="OUI / NON" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="oui">OUI</SelectItem>
-                <SelectItem value="non">NON</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">NON par défaut</p>
-          </div>
+        <div className="space-y-2 max-w-md">
+          <Label className="text-sm font-medium">Statut des variantes pour ce lot</Label>
+          <Select value={statut} onValueChange={(v) => handleStatutChange(v as VarianteStatut)}>
+            <SelectTrigger>
+              <SelectValue placeholder="Choisir…" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="interdites">Variantes Interdites</SelectItem>
+              <SelectItem value="autorisees">Variantes Autorisées</SelectItem>
+              <SelectItem value="exigees">Variantes Exigées</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">Option par défaut : Variantes Interdites</p>
         </div>
 
         {showVarianteLines && (
