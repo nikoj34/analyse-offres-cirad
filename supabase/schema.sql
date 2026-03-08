@@ -19,7 +19,8 @@ create table if not exists public.projects (
   number_of_lots int not null default 1,
   current_lot_index int not null default 0,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  imported_at timestamptz null
 );
 
 comment on table public.projects is 'Projets d''analyse (ProjectData)';

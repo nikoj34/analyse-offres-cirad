@@ -23,7 +23,12 @@ import { getVersionDisplayLabel, migrateToMultiLot, type ProjectData } from "@/t
 import { ImportedProjectSchema } from "@/lib/projectValidation";
 import { getRepository } from "@/lib/storageRepository";
 
-function getAttributaireMontant(version: { priceEntries?: Array<{ companyId: number; dpgf1?: number | null; dpgf2?: number | null }> }, companyId: number): number {
+function getAttributaireMontant(version: {
+  priceEntries?: Array<{ companyId: number; dpgf1?: number | null; dpgf2?: number | null }>;
+  attributionDetails?: Record<number, { finalAmount: number }>;
+}, companyId: number): number {
+  const stored = version.attributionDetails?.[companyId]?.finalAmount;
+  if (stored != null) return stored;
   if (!version.priceEntries) return 0;
   return version.priceEntries
     .filter((e) => e.companyId === companyId)
@@ -81,6 +86,25 @@ function getProjectStatus(project: ProjectData): {
 const fmtEuro = (n: number) =>
   new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
 
+/** Nom de fichier sûr pour l'export JSON (sans accents, alphanum + underscores, lowercase). */
+function safeJsonExportFileName(projectName: string | undefined): string {
+  const rawName = (projectName || "").trim() || "consultation";
+  return rawName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .toLowerCase() || "consultation";
+}
+
+/** Date du jour au format JJ_MM_AAAA pour le nom de fichier d'export. */
+function exportDateSuffix(): string {
+  return new Date()
+    .toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
+    .replace(/\//g, "_");
+}
+
 const ProjectsPage = () => {
   const navigate = useNavigate();
   const { getProjectList, createProject, openProject, deleteProject, refreshLocks, isLockedByOther, locks } = useMultiProjectStore();
@@ -131,14 +155,20 @@ const ProjectsPage = () => {
     for (const id of idsToExport) {
       if (allProjects[id]) data[id] = allProjects[id];
     }
+    const keys = Object.keys(data);
+    const dateStr = exportDateSuffix();
+    const fileName =
+      keys.length === 1 && data[keys[0]]?.info?.name != null
+        ? `${safeJsonExportFileName(data[keys[0]].info.name)}_${dateStr}.json`
+        : `cirad_analyses_${dateStr}.json`;
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `cirad-analyses-${new Date().toISOString().split("T")[0]}.json`;
+    a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success(`${Object.keys(data).length} analyse(s) exportée(s) !`);
+    toast.success(`${keys.length} analyse(s) exportée(s) !`);
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -161,25 +191,43 @@ const ProjectsPage = () => {
           toast.error("Fichier trop volumineux ou vide.");
           return;
         }
-        const imported = JSON.parse(text);
-        if (typeof imported !== "object" || imported === null || Array.isArray(imported)) {
+        const parsed = JSON.parse(text);
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
           toast.error("Format de fichier invalide.");
           return;
         }
-        if (Object.keys(imported).length > 100) {
+
+        let projectsToImport: unknown[] = [];
+        if (parsed.info && parsed.lots) {
+          projectsToImport = [parsed];
+        } else if (Object.keys(parsed).length > 0) {
+          const values = Object.values(parsed);
+          if (values.length > 0 && values[0] && typeof values[0] === "object" && (values[0] as { info?: unknown; lots?: unknown }).info && (values[0] as { info?: unknown; lots?: unknown }).lots) {
+            projectsToImport = values;
+          } else {
+            toast.error("Structure du JSON non reconnue.");
+            return;
+          }
+        } else {
+          toast.error("Format de fichier non supporté.");
+          return;
+        }
+
+        if (projectsToImport.length > 100) {
           toast.error("Trop de projets dans le fichier (maximum 100).");
           return;
         }
+
         const store = useMultiProjectStore.getState();
         const existingNames = new Set(
           Object.values(store.projects).map((p: ProjectData) => p.info?.name?.toLowerCase() ?? "")
         );
         let count = 0;
         let skipped = 0;
-        for (const [, project] of Object.entries(imported)) {
+        for (const project of projectsToImport) {
           let migrated: ProjectData;
           try {
-            migrated = migrateToMultiLot(project as unknown as ProjectData);
+            migrated = migrateToMultiLot(project as ProjectData);
           } catch {
             skipped++;
             continue;
@@ -195,11 +243,8 @@ const ProjectsPage = () => {
           cloned.info.author = cloned.info.author ?? "";
           cloned.info.numberOfLots = cloned.info.numberOfLots ?? Math.max(1, cloned.lots?.length ?? 1);
           cloned.currentLotIndex = Math.min(cloned.currentLotIndex ?? 0, (cloned.lots?.length ?? 1) - 1);
-
-          const originalName = cloned.info.name;
-          if (existingNames.has(originalName.toLowerCase())) {
-            const dateSuffix = new Date().toLocaleDateString("fr-FR");
-            cloned.info.name = `${originalName} (Importé le ${dateSuffix})`;
+          if (existingNames.has(cloned.info.name.toLowerCase())) {
+            cloned.importedAt = new Date().toISOString();
           }
           existingNames.add(cloned.info.name.toLowerCase());
 
@@ -331,7 +376,14 @@ const ProjectsPage = () => {
                               aria-hidden
                             />
                           )}
-                          <CardTitle className="text-base">{p.name}</CardTitle>
+                          <CardTitle className="text-base flex flex-wrap items-center gap-2">
+                            <span>{p.name}</span>
+                            {fullProject?.importedAt && (
+                              <span className="text-sm font-normal text-muted-foreground">
+                                (Importé le {new Date(fullProject.importedAt).toLocaleDateString("fr-FR")} à {new Date(fullProject.importedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })})
+                              </span>
+                            )}
+                          </CardTitle>
                           <Badge className={`${status.color} text-white`}>
                             {status.label}
                           </Badge>

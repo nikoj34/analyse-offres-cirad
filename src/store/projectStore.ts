@@ -116,6 +116,8 @@ interface ProjectStore {
   setNegotiationDecision: (companyId: number, decision: NegotiationDecision, versionId?: string) => void;
   getNegotiationDecision: (companyId: number, versionId?: string) => NegotiationDecision;
 
+  setAttributionDetails: (companyId: number, details: { baseAmount: number; retainedLineIds: number[]; finalAmount: number }, versionId?: string) => void;
+
   setTechnicalOverride: (companyId: number, data: any, versionId?: string) => void;
   getTechnicalOverride: (companyId: number, versionId?: string) => any;
 
@@ -740,6 +742,20 @@ export const useProjectStore = create<ProjectStore>()(
         const version = lot.versions.find((v) => v.id === targetId);
         return version?.negotiationDecisions?.[companyId] ?? "non_defini";
       },
+
+      setAttributionDetails: (companyId, details, versionId) =>
+        set((state) => {
+          const lot = getLot(state);
+          const targetId = versionId ?? lot.currentVersionId;
+          const version = lot.versions.find((v) => v.id === targetId);
+          if (!version) return state;
+          const attributionDetails = { ...(version.attributionDetails ?? {}), [companyId]: details };
+          return setLot(state, {
+            versions: lot.versions.map((v) =>
+              v.id === targetId ? { ...v, attributionDetails } : v
+            ),
+          });
+        }),
 
       setTechnicalOverride: (companyId, data, versionId) =>
         set((state) => {

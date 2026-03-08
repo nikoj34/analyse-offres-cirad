@@ -94,6 +94,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
     return init;
   });
 
+  /** Ouverture du menu "Analyse avant négociation" (V0) par lot — ouvert si on est sur une page V0 */
+  const [openV0ByLot, setOpenV0ByLot] = useState<Record<number, boolean>>({});
+  const isPathV0 = (path: string) =>
+    path.startsWith("/version/0") || path === "/questions";
+
   const toggleLot = (idx: number) => {
     setOpenLots((prev) => ({ ...prev, [idx]: !prev[idx] }));
   };
@@ -134,7 +139,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen flex-col bg-background">
       <div className="flex flex-1">
         {/* Sidebar : menu lots + Configuration tout en bas */}
-        <aside className="w-64 shrink-0 border-r border-border bg-sidebar flex flex-col min-h-screen">
+        <aside className="w-72 shrink-0 border-r border-border bg-sidebar flex flex-col min-h-screen">
           <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4 shrink-0">
             <img src={ciradLogo} alt="DITAM" className="h-8" />
             <span className="text-sm font-bold text-sidebar-foreground leading-tight">
@@ -206,76 +211,106 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           <FileText className="h-3.5 w-3.5 shrink-0" />
                           Configuration
                         </button>
-                        {/* Bloc Initial : /version/0/... — actif = comparaison STRICTE de l'URL */}
-                        <button
-                          onClick={() => handleLotSubNav(idx, "/version/0/prix")}
-                          className={cn(
-                            "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                            isActive && (location.pathname === "/version/0/prix" || /^\/version\/0\/prix\/\d+$/.test(location.pathname))
-                              ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
-                              : "text-sidebar-foreground hover:bg-sidebar-accent/20"
-                          )}
-                        >
-                          <Euro className="h-3.5 w-3.5 shrink-0" />
-                          Analyse prix
-                        </button>
-                        <button
-                          onClick={() => handleLotSubNav(idx, "/version/0/technique")}
-                          className={cn(
-                            "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                            isActive && (location.pathname === "/version/0/technique" || /^\/version\/0\/technique\/\d+$/.test(location.pathname))
-                              ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
-                              : "text-sidebar-foreground hover:bg-sidebar-accent/20"
-                          )}
-                        >
-                          <Wrench className="h-3.5 w-3.5 shrink-0" />
-                          Analyse technique
-                        </button>
+                        {/* Analyse initiale (V0) : liste plate si pas de négociation, sinon menu repliable "Analyse avant négociation" */}
+                        {(() => {
+                          const hasNegotiation = (l?.versions?.length ?? 0) > 1;
+                          const v0Open = openV0ByLot[idx] ?? (isActive && isPathV0(location.pathname));
+                          const setV0Open = (open: boolean) => setOpenV0ByLot((prev) => ({ ...prev, [idx]: open }));
 
-                        {/* Questions / Réponses — au-dessus de Synthèse uniquement après import des réponses */}
-                        {showQuestionsTab && hasResponsesImported(l) && (
-                          <button
-                            onClick={() => handleLotSubNav(idx, "/questions")}
-                            className={cn(
-                              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                              isActive && location.pathname === "/questions"
-                                ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
-                                : "text-sidebar-foreground hover:bg-sidebar-accent/20"
-                            )}
-                          >
-                            <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                            {getQuestionsLabel(l)}
-                          </button>
-                        )}
+                          const v0Links = (
+                            <>
+                              <button
+                                onClick={() => handleLotSubNav(idx, "/version/0/prix")}
+                                className={cn(
+                                  "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
+                                  isActive && (location.pathname === "/version/0/prix" || /^\/version\/0\/prix\/\d+$/.test(location.pathname))
+                                    ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
+                                    : "text-sidebar-foreground hover:bg-sidebar-accent/20"
+                                )}
+                              >
+                                <Euro className="h-3.5 w-3.5 shrink-0" />
+                                Analyse prix
+                              </button>
+                              <button
+                                onClick={() => handleLotSubNav(idx, "/version/0/technique")}
+                                className={cn(
+                                  "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
+                                  isActive && (location.pathname === "/version/0/technique" || /^\/version\/0\/technique\/\d+$/.test(location.pathname))
+                                    ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
+                                    : "text-sidebar-foreground hover:bg-sidebar-accent/20"
+                                )}
+                              >
+                                <Wrench className="h-3.5 w-3.5 shrink-0" />
+                                Analyse technique
+                              </button>
+                              {showQuestionsTab && hasResponsesImported(l) && (
+                                <button
+                                  onClick={() => handleLotSubNav(idx, "/questions")}
+                                  className={cn(
+                                    "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
+                                    isActive && location.pathname === "/questions"
+                                      ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
+                                      : "text-sidebar-foreground hover:bg-sidebar-accent/20"
+                                  )}
+                                >
+                                  <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                                  {getQuestionsLabel(l)}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleLotSubNav(idx, "/version/0/synthese")}
+                                className={cn(
+                                  "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
+                                  isActive && location.pathname === "/version/0/synthese"
+                                    ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
+                                    : "text-sidebar-foreground hover:bg-sidebar-accent/20"
+                                )}
+                              >
+                                <BarChart3 className="h-3.5 w-3.5 shrink-0" />
+                                {getSyntheseLabel(l, 0)}
+                              </button>
+                              {showQuestionsTab && !hasResponsesImported(l) && (
+                                <button
+                                  onClick={() => handleLotSubNav(idx, "/questions")}
+                                  className={cn(
+                                    "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
+                                    isActive && location.pathname === "/questions"
+                                      ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
+                                      : "text-sidebar-foreground hover:bg-sidebar-accent/20"
+                                  )}
+                                >
+                                  <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                                  {getQuestionsLabel(l)}
+                                </button>
+                              )}
+                            </>
+                          );
 
-                        <button
-                          onClick={() => handleLotSubNav(idx, "/version/0/synthese")}
-                          className={cn(
-                            "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                            isActive && location.pathname === "/version/0/synthese"
-                              ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
-                              : "text-sidebar-foreground hover:bg-sidebar-accent/20"
-                          )}
-                        >
-                          <BarChart3 className="h-3.5 w-3.5 shrink-0" />
-                          {getSyntheseLabel(l, 0)}
-                        </button>
-
-                        {/* Questions — en dessous de Synthèse tant qu'aucun import de réponses n'a été fait */}
-                        {showQuestionsTab && !hasResponsesImported(l) && (
-                          <button
-                            onClick={() => handleLotSubNav(idx, "/questions")}
-                            className={cn(
-                              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
-                              isActive && location.pathname === "/questions"
-                                ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
-                                : "text-sidebar-foreground hover:bg-sidebar-accent/20"
-                            )}
-                          >
-                            <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                            {getQuestionsLabel(l)}
-                          </button>
-                        )}
+                          if (hasNegotiation) {
+                            return (
+                              <Collapsible open={v0Open} onOpenChange={setV0Open}>
+                                <CollapsibleTrigger
+                                  className={cn(
+                                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-colors text-left",
+                                    "text-sidebar-foreground hover:bg-sidebar-accent/20"
+                                  )}
+                                >
+                                  <BarChart3 className="h-3.5 w-3.5 shrink-0" />
+                                  <span className="flex-1">Analyse avant négociation</span>
+                                  <ChevronRight
+                                    className={cn("h-3.5 w-3.5 shrink-0 transition-transform", v0Open && "rotate-90")}
+                                  />
+                                </CollapsibleTrigger>
+                                <CollapsibleContent>
+                                  <div className="ml-3 flex flex-col gap-0.5 border-l border-border pl-2 mt-0.5">
+                                    {v0Links}
+                                  </div>
+                                </CollapsibleContent>
+                              </Collapsible>
+                            );
+                          }
+                          return v0Links;
+                        })()}
 
                         {/* Négociations */}
                         {negoVersions.length > 0 && (

@@ -180,6 +180,8 @@ export interface NegotiationVersion {
   scenarioEnabledLines?: Record<number, boolean>;
   /** PSE / Variantes retenues au marché (OUI = inclus dans le montant scénario). */
   pseVarianteChoice?: Record<number, "oui" | "non">;
+  /** Détails du montant contractuel final pour l'attributaire (base + options retenues = finalAmount). */
+  attributionDetails?: Record<number, { baseAmount: number; retainedLineIds: number[]; finalAmount: number }>;
   questionnaire?: NegotiationQuestionnaire;
   /** Données par entreprise (prep, execution) pour préparation / déroulement négo. */
   negotiationData?: Record<number, any>;
@@ -218,6 +220,8 @@ export interface ProjectData {
   info: ProjectInfo;
   lots: LotData[];
   currentLotIndex: number;
+  /** Date d'import (ISO) si le projet a été importé via la page Analyses — affichée uniquement sur la liste Analyses, pas dans Données du projet ni export. */
+  importedAt?: string;
 }
 
 // === Legacy view for backward compatibility (export, etc.) ===

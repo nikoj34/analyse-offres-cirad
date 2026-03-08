@@ -29,6 +29,7 @@ interface DbProject {
   current_lot_index: number;
   created_at: string;
   updated_at: string;
+  imported_at?: string | null;
 }
 
 interface DbLot {
@@ -219,6 +220,7 @@ function dbProjectToProjectData(
     },
     lots,
     currentLotIndex: row.current_lot_index,
+    ...(row.imported_at != null && row.imported_at !== "" ? { importedAt: row.imported_at } : {}),
   };
 }
 
@@ -326,6 +328,7 @@ export class SupabaseRepository implements StorageRepository {
         author: project.info.author,
         number_of_lots: project.info.numberOfLots,
         current_lot_index: project.currentLotIndex,
+        ...(project.importedAt != null && project.importedAt !== "" ? { imported_at: project.importedAt } : {}),
       };
       const { error: projectError } = await supabase
         .from("projects")

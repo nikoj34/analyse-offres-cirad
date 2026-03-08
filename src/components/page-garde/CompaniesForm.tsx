@@ -6,6 +6,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { Plus, Trash2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CompanyStatus } from "@/types/project";
+import { getCompanyColor } from "@/lib/companyColors";
 
 const STATUS_LABELS: Record<CompanyStatus, string> = {
   retenue: "Retenue",
@@ -45,13 +46,19 @@ export function CompaniesForm() {
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
-          {companies.map((company) => (
+          {companies.map((company) => {
+            const hasName = company.name.trim() !== "";
+            const companyColor = getCompanyColor(company.id - 1);
+            return (
             <div
               key={company.id}
               className="space-y-2 rounded-md border border-border p-3"
             >
               <div className="flex items-center gap-3">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                <span
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${!hasName ? "bg-muted text-muted-foreground" : ""}`}
+                  style={hasName ? { backgroundColor: `${companyColor}20`, color: companyColor } : undefined}
+                >
                   {company.id}
                 </span>
                 <Input
@@ -59,6 +66,7 @@ export function CompaniesForm() {
                   value={company.name}
                   onChange={(e) => updateCompany(company.id, { name: e.target.value })}
                   placeholder={`Entreprise ${company.id}${company.id === 7 ? " (entité spéciale)" : ""}`}
+                  style={hasName ? { color: companyColor, fontWeight: 600 } : undefined}
                 />
                 <Select
                   value={company.status}
@@ -91,7 +99,8 @@ export function CompaniesForm() {
                 />
               )}
             </div>
-          ))}
+          );
+          })}
         </div>
       </CardContent>
     </Card>

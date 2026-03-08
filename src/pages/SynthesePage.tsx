@@ -29,6 +29,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const DECISION_OPTIONS: NegotiationDecision[] = ["non_defini", "retenue", "non_retenue", "questions_reponses", "attributaire"];
 
@@ -39,6 +40,7 @@ const SynthesePage = () => {
     activateQuestionnaire, createVersion, createNextNegotiationPhase, switchVersion, deleteVersion,
     updateStatutVariante,
     updateDecisionVariante,
+    setAttributionDetails,
   } = useProjectStore();
   const navigate = useNavigate();
   const lot = project.lots[project.currentLotIndex];
@@ -628,13 +630,14 @@ const SynthesePage = () => {
 
   const scenarioDescription = useMemo(() => {
     if (!attributaireResult) return "";
+    const finalAmount = version?.attributionDetails?.[attributaireResult.company.id]?.finalAmount ?? attributaireResult.priceTotal;
     const enabledOptions = activeLotLines
       .filter((l) => l.type && enabledLines[l.id])
       .map((l) => getLineLabel(l))
       .join(", ");
-    return `L'entreprise ${attributaireResult.company.name} est retenue pour un montant de ${fmt(attributaireResult.priceTotal)} HT, incluant la Solution de Base${enabledOptions ? ` + ${enabledOptions}` : ""}.`;
+    return `L'entreprise ${attributaireResult.company.name} est retenue pour un montant de ${fmt(finalAmount)} HT, incluant la Solution de Base${enabledOptions ? ` + ${enabledOptions}` : ""}.`;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attributaireResult, activeLotLines, enabledLines]);
+  }, [attributaireResult, version?.attributionDetails, activeLotLines, enabledLines]);
 
   const getAvailableDecisions = (companyId: number): NegotiationDecision[] => {
     const company = activeCompanies.find((c) => c.id === companyId);
@@ -949,42 +952,50 @@ const SynthesePage = () => {
                         ) : (
                           (() => {
                             const decisionLockedByQuestions = (row.company.hasQuestions ?? false) && !receptionModeByCompany[row.company.id];
+                            const attributionFinalAmount = version?.attributionDetails?.[row.company.id]?.finalAmount;
                             return (
-                              <Select
-                                value={decisionLockedByQuestions ? "questions_reponses" : decision}
-                                onValueChange={(v) => {
-                                  if (v === "attributaire" && hasAttributionModalLines) {
-                                    if (!allPseVarianteRenseignes) {
-                                      setAttributaireBlockedDialogOpen(true);
+                              <div className="flex flex-col gap-1 items-center">
+                                <Select
+                                  value={decisionLockedByQuestions ? "questions_reponses" : decision}
+                                  onValueChange={(v) => {
+                                    if (v === "attributaire" && hasAttributionModalLines) {
+                                      if (!allPseVarianteRenseignes) {
+                                        setAttributaireBlockedDialogOpen(true);
+                                        return;
+                                      }
+                                      setPendingAttributionCompanyId(row.company.id);
+                                      setPendingAttributionChoices(
+                                        Object.fromEntries(
+                                          attributionModalLines.map((l) => [
+                                            l.id,
+                                            (l.type === "T_OPTIONNELLE" ? (enabledLines[l.id] ? "oui" : "non") : (pseVarianteChoice[l.id] === "oui" ? "oui" : "non")) as const,
+                                          ])
+                                        )
+                                      );
+                                      setIsPseAttributionModalOpen(true);
                                       return;
                                     }
-                                    setPendingAttributionCompanyId(row.company.id);
-                                    setPendingAttributionChoices(
-                                      Object.fromEntries(
-                                        attributionModalLines.map((l) => [
-                                          l.id,
-                                          (l.type === "T_OPTIONNELLE" ? (enabledLines[l.id] ? "oui" : "non") : (pseVarianteChoice[l.id] === "oui" ? "oui" : "non")) as const,
-                                        ])
-                                      )
-                                    );
-                                    setIsPseAttributionModalOpen(true);
-                                    return;
-                                  }
-                                  setNegotiationDecision(row.company.id, v as NegotiationDecision, version?.id);
-                                }}
-                                disabled={isReadOnly || isValidated || decisionLockedByQuestions}
-                              >
-                                <SelectTrigger className={`w-[260px] ${decisionLockedByQuestions ? "opacity-70 cursor-not-allowed" : ""}`}>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {availableDecisions.map((d) => (
-                                    <SelectItem key={d} value={d}>
-                                      {NEGOTIATION_DECISION_LABELS[d]}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                                    setNegotiationDecision(row.company.id, v as NegotiationDecision, version?.id);
+                                  }}
+                                  disabled={isReadOnly || isValidated || decisionLockedByQuestions}
+                                >
+                                  <SelectTrigger className={`w-[260px] ${decisionLockedByQuestions ? "opacity-70 cursor-not-allowed" : ""}`}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {availableDecisions.map((d) => (
+                                      <SelectItem key={d} value={d}>
+                                        {NEGOTIATION_DECISION_LABELS[d]}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {decision === "attributaire" && attributionFinalAmount != null && (
+                                  <span className="text-xs text-muted-foreground font-medium">
+                                    Montant final retenu : {fmt(attributionFinalAmount)} HT
+                                  </span>
+                                )}
+                              </div>
                             );
                           })()
                         )}
@@ -1493,42 +1504,73 @@ const SynthesePage = () => {
       }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Choix des options pour l'attribution</DialogTitle>
+            <DialogTitle>Choix des options pour l&apos;attribution</DialogTitle>
             <DialogDescription>
-              Indiquez pour chaque option si elle est retenue (OUI) ou non (NON) pour l'attribution. Par défaut tout est sur NON.
+              Choisissez les PSE et Tranches Optionnelles retenues pour le contrat final. Le montant final est calculé à partir de l&apos;offre de base et des options cochées.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-2">
-            {attributionModalLines.map((l) => (
-              <div key={l.id} className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2">
-                <span className="text-sm font-medium">{getLineLabel(l)}</span>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPendingAttributionChoices((prev) => ({ ...prev, [l.id]: "oui" }))}
-                    className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                      (pendingAttributionChoices[l.id] ?? "non") === "oui"
-                        ? "border-green-500 bg-green-500 text-white"
-                        : "border-border bg-muted/50 text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    OUI
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPendingAttributionChoices((prev) => ({ ...prev, [l.id]: "non" }))}
-                    className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                      (pendingAttributionChoices[l.id] ?? "non") === "non"
-                        ? "border-destructive bg-destructive text-destructive-foreground"
-                        : "border-border bg-muted/50 text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    NON
-                  </button>
+          {pendingAttributionCompanyId != null && (() => {
+            const company = activeCompanies.find((c) => c.id === pendingAttributionCompanyId);
+            const baseAmount = (() => {
+              if (!version) return 0;
+              let sum = getLinePrice(pendingAttributionCompanyId, 0);
+              for (const l of baseLines) {
+                sum += getLinePrice(pendingAttributionCompanyId, l.id);
+              }
+              return sum;
+            })();
+            const optionsSum = attributionModalLines
+              .filter((l) => pendingAttributionChoices[l.id] === "oui")
+              .reduce((s, l) => s + getLinePrice(pendingAttributionCompanyId, l.id), 0);
+            const finalAmount = baseAmount + optionsSum;
+            const retainedLineIds = attributionModalLines
+              .filter((l) => pendingAttributionChoices[l.id] === "oui")
+              .map((l) => l.id);
+            return (
+              <div className="space-y-4 py-2">
+                {company && (
+                  <p className="text-sm font-semibold text-foreground">
+                    Entreprise : {company.name}
+                  </p>
+                )}
+                <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">Montant de base (offre sans PSE/TO) : </span>
+                  <span className="font-semibold">{fmt(baseAmount)}</span>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">PSE et Tranches Optionnelles</p>
+                  {attributionModalLines.map((l) => (
+                    <div key={l.id} className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <Checkbox
+                          id={`attr-${l.id}`}
+                          checked={(pendingAttributionChoices[l.id] ?? "non") === "oui"}
+                          onCheckedChange={(checked) =>
+                            setPendingAttributionChoices((prev) => ({
+                              ...prev,
+                              [l.id]: checked ? "oui" : "non",
+                            }))
+                          }
+                        />
+                        <label htmlFor={`attr-${l.id}`} className="text-sm font-medium cursor-pointer truncate">
+                          {getLineLabel(l)}
+                        </label>
+                      </div>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {(pendingAttributionChoices[l.id] ?? "non") === "oui"
+                          ? fmt(getLinePrice(pendingAttributionCompanyId, l.id))
+                          : "—"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-semibold flex justify-between items-center">
+                  <span>Montant final calculé</span>
+                  <span>{fmt(finalAmount)} HT</span>
                 </div>
               </div>
-            ))}
-          </div>
+            );
+          })()}
           <DialogFooter>
             <Button
               variant="outline"
@@ -1542,7 +1584,27 @@ const SynthesePage = () => {
             </Button>
             <Button
               onClick={() => {
-                if (pendingAttributionCompanyId == null) return;
+                if (pendingAttributionCompanyId == null || !version) return;
+                const baseAmount = (() => {
+                  let sum = getLinePrice(pendingAttributionCompanyId, 0);
+                  for (const l of baseLines) {
+                    sum += getLinePrice(pendingAttributionCompanyId, l.id);
+                  }
+                  return sum;
+                })();
+                const retainedLineIds = attributionModalLines
+                  .filter((l) => pendingAttributionChoices[l.id] === "oui")
+                  .map((l) => l.id);
+                const optionsSum = retainedLineIds.reduce(
+                  (s, lineId) => s + getLinePrice(pendingAttributionCompanyId, lineId),
+                  0
+                );
+                const finalAmount = baseAmount + optionsSum;
+                setAttributionDetails(
+                  pendingAttributionCompanyId,
+                  { baseAmount, retainedLineIds, finalAmount },
+                  version.id
+                );
                 setPseVarianteChoice((prev) => ({
                   ...prev,
                   ...Object.fromEntries(
@@ -1556,13 +1618,13 @@ const SynthesePage = () => {
                   ...prev,
                   ...Object.fromEntries(toLines.map((line) => [line.id, pendingAttributionChoices[line.id] === "oui"])),
                 }));
-                setNegotiationDecision(pendingAttributionCompanyId, "attributaire", version?.id);
+                setNegotiationDecision(pendingAttributionCompanyId, "attributaire", version.id);
                 setIsPseAttributionModalOpen(false);
                 setPendingAttributionCompanyId(null);
                 setPendingAttributionChoices({});
               }}
             >
-              Valider l'attribution
+              Valider l&apos;attribution
             </Button>
           </DialogFooter>
         </DialogContent>

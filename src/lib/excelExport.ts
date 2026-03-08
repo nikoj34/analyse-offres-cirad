@@ -1814,6 +1814,7 @@ function buildSyntheseSheet(
 
     if (attributaireEntry) {
       const attrRank = rankByCompanyId[attributaireEntry.company.id] ?? 0;
+      const finalAmount = version.attributionDetails?.[attributaireEntry.company.id]?.finalAmount ?? attributaireEntry.priceTotal;
       const enabledOptions = typedLines.filter((l) => {
         const entry = version.priceEntries.find(
           (e) => e.companyId === attributaireEntry.company.id && e.lotLineId === l.id
@@ -1831,7 +1832,7 @@ function buildSyntheseSheet(
       sRow++;
 
       synthSheet.mergeCells(`B${sRow}:J${sRow}`);
-      synthSheet.getCell(`B${sRow}`).value = `L'entreprise ${attributaireEntry.company.name} est retenue pour un montant de ${fmtEuro(attributaireEntry.priceTotal)} HT, incluant la Solution de Base${optionLabels.length > 0 ? ` + ${optionLabels.join(", ")}` : ""}.`;
+      synthSheet.getCell(`B${sRow}`).value = `L'entreprise ${attributaireEntry.company.name} est retenue pour un montant de ${fmtEuro(finalAmount)} HT, incluant la Solution de Base${optionLabels.length > 0 ? ` + ${optionLabels.join(", ")}` : ""}.`;
       synthSheet.getCell(`B${sRow}`).font = { size: 10 };
       synthSheet.getCell(`B${sRow}`).alignment = { wrapText: true };
       synthSheet.getCell(`B${sRow}`).border = thinBorder();
@@ -1860,7 +1861,7 @@ function buildSyntheseSheet(
         synthSheet.getCell(`B${sRow}`).font = { size: 10 };
         sRow++;
       }
-      synthSheet.getCell(`B${sRow}`).value = `Montant final HT : ${fmtEuro(attributaireEntry.priceTotal)}`;
+      synthSheet.getCell(`B${sRow}`).value = `Montant final HT : ${fmtEuro(finalAmount)}`;
       synthSheet.getCell(`B${sRow}`).font = { bold: true, size: 10 };
       sRow += 2;
     }
@@ -2550,7 +2551,7 @@ export async function exportToExcel(project: ProjectData) {
       buildPrixSheet(wb, buildSheetName("Analyse prix", phaseLabelNego), project, negoVersion, negoCompanies);
       buildTechSheet(wb, buildSheetName("Analyse technique", phaseLabelNego), project, negoVersion, negoCompanies, prevVersion);
       buildQuestionsResponsesSheet(wb, buildSheetName("Q&R", phaseLabelNego), project, negoVersion, negoCompanies);
-      buildSyntheseSheet(wb, buildSheetName("Synthèse", phaseLabelNego), project, negoVersion, negoCompanies);
+      buildSyntheseSheet(wb, buildSheetName("Synthèse", phaseLabelNego), project, negoVersion, negoCompanies, phaseLabelNego);
     }
   }
 
