@@ -1,9 +1,11 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useProjectStore } from "@/store/projectStore";
-import { Plus, Trash2, Package } from "lucide-react";
+import { Plus, Trash2, Package, FileText } from "lucide-react";
+import { useState } from "react";
+import { Switch } from "@/components/ui/switch";
 
 const AUTHOR_OPTIONS = ["Valérie CHANCERELLE", "Jérôme FORESTIER", "Maxime GREAL", "Nicolas JAMET"];
 import type { LotData } from "@/types/project";
@@ -31,6 +33,14 @@ const Index = () => {
     currentAuthor && !AUTHOR_OPTIONS.includes(currentAuthor)
       ? [currentAuthor, ...AUTHOR_OPTIONS]
       : AUTHOR_OPTIONS;
+
+  const [newDoc, setNewDoc] = useState("");
+  const adminConfig = project?.info?.adminConfig ?? {
+    requireDecennale: true,
+    requireBiennale: true,
+    requireRC: true,
+    customDocs: [],
+  };
 
   return (
     <div className="space-y-6">
@@ -175,6 +185,102 @@ const Index = () => {
                 <span className="text-sm font-bold text-muted-foreground">{fmtEuro(totalEstimation)}</span>
               </div>
             )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Admin Docs Config */}
+      <Card className="border-primary/20">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileText className="h-5 w-5 text-primary" />
+            Pièces administratives à exiger
+          </CardTitle>
+          <CardDescription>
+            Sélectionnez les documents que les entreprises doivent fournir pour ce projet. Ces éléments seront vérifiés dans l'onglet "Administratif".
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Assurance Décennale</Label>
+                <p className="text-xs text-muted-foreground">Exiger une attestation de garantie décennale</p>
+              </div>
+              <Switch
+                checked={adminConfig.requireDecennale}
+                onCheckedChange={(c) => updateInfo({ adminConfig: { ...adminConfig, requireDecennale: c } })}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Assurance Biennale</Label>
+                <p className="text-xs text-muted-foreground">Exiger une garantie de bon fonctionnement</p>
+              </div>
+              <Switch
+                checked={adminConfig.requireBiennale}
+                onCheckedChange={(c) => updateInfo({ adminConfig: { ...adminConfig, requireBiennale: c } })}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Responsabilité Civile</Label>
+                <p className="text-xs text-muted-foreground">Exiger une attestation RC pro</p>
+              </div>
+              <Switch
+                checked={adminConfig.requireRC}
+                onCheckedChange={(c) => updateInfo({ adminConfig: { ...adminConfig, requireRC: c } })}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-3 pt-4 border-t border-border">
+            <Label>Autres documents personnalisés</Label>
+            <div className="flex gap-2">
+              <Input
+                value={newDoc}
+                onChange={(e) => setNewDoc(e.target.value)}
+                placeholder="Ex : KBIS, Planning prévisionnel..."
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newDoc.trim()) {
+                    e.preventDefault();
+                    updateInfo({ adminConfig: { ...adminConfig, customDocs: [...(adminConfig.customDocs || []), newDoc.trim()] } });
+                    setNewDoc("");
+                  }
+                }}
+              />
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  if (newDoc.trim()) {
+                    updateInfo({ adminConfig: { ...adminConfig, customDocs: [...(adminConfig.customDocs || []), newDoc.trim()] } });
+                    setNewDoc("");
+                  }
+                }}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Ajouter
+              </Button>
+            </div>
+            <div className="space-y-2 mt-2">
+              {(adminConfig.customDocs || []).map((doc, i) => (
+                <div key={i} className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
+                  <span className="text-sm font-medium">{doc}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                    onClick={() => {
+                      const newDocs = [...(adminConfig.customDocs || [])];
+                      newDocs.splice(i, 1);
+                      updateInfo({ adminConfig: { ...adminConfig, customDocs: newDocs } });
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
         </CardContent>
       </Card>

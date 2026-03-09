@@ -15,6 +15,15 @@ export interface Company {
   statutVariantes?: Record<string, string>;
   /** Décision par variante : VarianteID -> Décision */
   decisionVariantes?: Record<string, string>;
+  adminData?: {
+    decennaleFournie: boolean;
+    decennaleDateExpiration: string;
+    decennaleActiviteOK: boolean | null; // null = non vérifié
+    decennaleMontantOK: boolean | null;
+    biennaleFournie: boolean;
+    rcFournie: boolean;
+    customDocsStatus: Record<string, boolean>;
+  };
 }
 
 export type LotType = "PSE" | "VARIANTE" | "T_OPTIONNELLE";
@@ -83,6 +92,12 @@ export interface ProjectInfo {
   analysisDate: string;
   author: string;
   numberOfLots: number;
+  adminConfig?: {
+    requireDecennale: boolean;
+    requireBiennale: boolean;
+    requireRC: boolean;
+    customDocs: string[];
+  };
 }
 
 export interface TechnicalNote {
@@ -325,6 +340,12 @@ export function createDefaultProject(): ProjectData {
       analysisDate: new Date().toISOString().split("T")[0],
       author: "",
       numberOfLots: 1,
+      adminConfig: {
+        requireDecennale: true,
+        requireBiennale: true,
+        requireRC: true,
+        customDocs: [],
+      },
     },
     lots: [createDefaultLot()],
     currentLotIndex: 0,
@@ -334,7 +355,18 @@ export function createDefaultProject(): ProjectData {
 // === Migration helper ===
 
 export function migrateToMultiLot(data: any): ProjectData {
-  if (data?.lots && Array.isArray(data.lots)) return data as ProjectData;
+  if (data?.lots && Array.isArray(data.lots)) {
+    const project = data as ProjectData;
+    if (!project.info.adminConfig) {
+      project.info.adminConfig = {
+        requireDecennale: true,
+        requireBiennale: true,
+        requireRC: true,
+        customDocs: [],
+      };
+    }
+    return project;
+  }
 
   // Ancien format (sans lots) : migration ci-dessous. Ne pas filtrer les champs.
   // Migrate v5 tech notes
@@ -430,6 +462,12 @@ export function migrateToMultiLot(data: any): ProjectData {
       analysisDate: data?.info?.analysisDate ?? new Date().toISOString().split("T")[0],
       author: data?.info?.author ?? "",
       numberOfLots: 1,
+      adminConfig: data?.info?.adminConfig ?? {
+        requireDecennale: true,
+        requireBiennale: true,
+        requireRC: true,
+        customDocs: [],
+      },
     },
     lots: [lot],
     currentLotIndex: 0,

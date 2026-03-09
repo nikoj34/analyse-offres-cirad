@@ -115,7 +115,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const currentLotLabel = lot ? lotLabel(lot, project.currentLotIndex ?? 0) : "Lot";
 
   // Ordre des pages pour le bouton "Page suivante" (analyse initiale uniquement : /version/0/...)
-  const pageOrder = ["/", "/lot", "/version/0/prix", "/version/0/technique", "/version/0/synthese", "/export"];
+  const pageOrder = ["/", "/lot", "/version/0/administratif", "/version/0/prix", "/version/0/technique", "/version/0/synthese", "/export"];
   const pathBase = location.pathname.replace(/\/version\/0\/(prix|technique)\/\d+$/, "/version/0/$1");
   const currentIndex = pageOrder.indexOf(pathBase);
   const nextPath = currentIndex >= 0 && currentIndex < pageOrder.length - 1 ? pageOrder[currentIndex + 1] : null;
@@ -219,6 +219,18 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
                           const v0Links = (
                             <>
+                              <button
+                                onClick={() => handleLotSubNav(idx, "/version/0/administratif")}
+                                className={cn(
+                                  "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors text-left",
+                                  isActive && (location.pathname === "/version/0/administratif")
+                                    ? "bg-green-600 text-white font-medium dark:bg-green-700 dark:text-white"
+                                    : "text-sidebar-foreground hover:bg-sidebar-accent/20"
+                                )}
+                              >
+                                <ClipboardList className="h-3.5 w-3.5 shrink-0" />
+                                Administratif
+                              </button>
                               <button
                                 onClick={() => handleLotSubNav(idx, "/version/0/prix")}
                                 className={cn(

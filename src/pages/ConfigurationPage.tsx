@@ -49,6 +49,13 @@ export default function ConfigurationPage() {
     .filter(Boolean) as string[];
   const uniqueUsers = Array.from(new Set(activeUsers));
 
+  const adminConfig = project?.info?.adminConfig ?? {
+    requireDecennale: true,
+    requireBiennale: true,
+    requireRC: true,
+    customDocs: [],
+  };
+
   return (
     <div className="mx-auto max-w-[1600px] p-6 lg:p-8 space-y-6">
       <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm font-medium text-green-700 dark:text-green-400 dark:border-green-500/40 dark:bg-green-500/10">
@@ -58,7 +65,7 @@ export default function ConfigurationPage() {
       <div>
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
           <Settings className="h-7 w-7" />
-          Configuration
+          Configuration globale
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Paramètres globaux : sauvegarde, synchronisation, utilisateurs actifs et maintenance.

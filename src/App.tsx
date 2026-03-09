@@ -18,6 +18,7 @@ const DRAFT_BACKUP_INTERVAL_MS = 15 * 60 * 1000;
 
 const Index = lazy(() => import("./pages/Index"));
 const LotConfigPage = lazy(() => import("./pages/LotConfigPage"));
+const AdministratifPage = lazy(() => import("./pages/AdministratifPage"));
 const TechniquePage = lazy(() => import("./pages/TechniquePage"));
 const PrixPage = lazy(() => import("./pages/PrixPage"));
 const SynthesePage = lazy(() => import("./pages/SynthesePage"));
@@ -134,6 +135,7 @@ const App = () => {
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/lot" element={<LotConfigPage />} />
+                <Route path="/version/:vIndex/administratif" element={<AdministratifPage />} />
                 {/* Routes canoniques : toutes avec :vIndex pour isolation Analyse initiale / Négociation */}
                 <Route path="/version/:vIndex/prix" element={<PrixPage />} />
                 <Route path="/version/:vIndex/prix/:companyId" element={<PrixPage />} />

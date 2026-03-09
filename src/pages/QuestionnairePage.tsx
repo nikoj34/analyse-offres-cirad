@@ -17,7 +17,7 @@ import { saveAs } from "file-saver";
 const QuestionnairePage = () => {
   const { round } = useParams<{ round?: string }>();
   const { project, activateQuestionnaire, syncQuestionnaireCompanies, setQuestionnaireDealine, addQuestion, updateQuestion, removeQuestion, setQuestionResponse, setReceptionMode } = useProjectStore();
-  const lot = project.lots[project.currentLotIndex];
+  const lot = project.lots?.[project.currentLotIndex ?? 0];
   const { activeCompanies } = useAnalysisContext();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -27,7 +27,7 @@ const QuestionnairePage = () => {
   // /questions → v0 (initial), /questions/2 → v1 (nego 1)
   const roundNum = round ? parseInt(round) : 1;
   const versionIndex = roundNum - 1;
-  const targetVersion = lot.versions[versionIndex];
+  const targetVersion = lot?.versions?.[versionIndex];
 
   if (!targetVersion) {
     return (
