@@ -1,13 +1,16 @@
 import { useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Settings, FileJson, Users, Shield, RefreshCw } from "lucide-react";
 import { useMultiProjectStore } from "@/store/multiProjectStore";
+import { useProjectStore } from "@/store/projectStore";
 import { getSessionUser, resetCloudConnection } from "@/lib/storageRepository";
 import { toast } from "sonner";
 
 export default function ConfigurationPage() {
-  const { projects: allProjects, locks, refreshLocks } = useMultiProjectStore();
+  const { projects: allProjects, locks, refreshLocks, currentProjectId } = useMultiProjectStore();
+  const { project } = useProjectStore();
 
   useEffect(() => {
     refreshLocks();
@@ -171,6 +174,18 @@ export default function ConfigurationPage() {
           </p>
         </CardContent>
       </Card>
+
+      {currentProjectId && (
+        <div className="mt-6 rounded-lg border border-dashed border-muted-foreground/40 bg-muted/20 px-4 py-3">
+          <p className="text-sm text-muted-foreground mb-2">Module expérimental (bac à sable)</p>
+          <Link
+            to={`/projet/${currentProjectId}/labo-dpgf`}
+            className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-foreground bg-background border border-border hover:bg-muted transition-colors"
+          >
+            🧪 Labo DPGF
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

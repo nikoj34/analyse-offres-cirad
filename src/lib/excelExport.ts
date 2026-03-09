@@ -382,6 +382,7 @@ function buildTechSheet(
         row++;
 
         // ── Comments rows (Points Positifs + Points Négatifs) ──
+        // Données de la version courante de cet onglet (version active pour cette phase).
         // Positifs
         const posTexts = activeCompanies.map((company) => {
           const note = version.technicalNotes.find(
@@ -570,7 +571,7 @@ function buildTechSheet(
       });
       row++;
 
-      // Comments for simple criterion
+      // Comments for simple criterion (Points Positifs/Négatifs = version de cet onglet)
       const simplePosTexts = activeCompanies.map((company) => {
         const note = version.technicalNotes.find(
           (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
@@ -1869,21 +1870,49 @@ function buildSyntheseSheet(
   synthSheet.getCell(sRow, COL_LABEL).font = { bold: true, size: 10 };
   synthSheet.getCell(sRow, COL_LABEL).fill = lightFill(COLORS.lightBlue);
   synthSheet.getCell(sRow, COL_LABEL).border = thinBorder();
+  const rejetDecisions: NegotiationDecision[] = ["rejete_oab", "rejete_irreguliere", "rejete_inacceptable"];
   orderedSynth.forEach((r, idx) => {
     const col = synthCompanyCol(idx);
     const cell = synthSheet.getCell(sRow, col);
     const decision: NegotiationDecision = (version.negotiationDecisions ?? {})[r.company.id] ?? "non_defini";
+    const isRejetJuridique = rejetDecisions.includes(decision);
     cell.value = r.company.status === "ecartee" ? "Écartée" : NEGOTIATION_DECISION_LABELS[decision];
     cell.border = thinBorder();
     cell.alignment = { horizontal: "center" };
     if (r.company.status === "ecartee") {
       cell.fill = lightFill(COLORS.lightRed);
       cell.font = { italic: true, color: { argb: COLORS.excluded } };
+    } else if (isRejetJuridique) {
+      cell.font = { bold: true, color: { argb: COLORS.excluded } };
+      const compIdx = orderedSynth.filter((x) => x.company.status !== "ecartee").indexOf(r);
+      cell.fill = lightFill(companyPastelArgb(compIdx >= 0 ? compIdx : 0));
     } else {
       const isRetained = decision === "retenue" || decision === "attributaire";
       cell.font = { bold: true, color: { argb: isRetained ? "2E7D32" : COLORS.excluded } };
       const compIdx = orderedSynth.filter((x) => x.company.status !== "ecartee").indexOf(r);
       cell.fill = lightFill(companyPastelArgb(compIdx >= 0 ? compIdx : 0));
+    }
+  });
+  sRow++;
+
+  // Motif du rejet (écartée ou rejet juridique OAB / Irrégulière / Inacceptable)
+  synthSheet.getCell(sRow, COL_LABEL).value = "Motif du rejet";
+  synthSheet.getCell(sRow, COL_LABEL).font = { bold: true, size: 10 };
+  synthSheet.getCell(sRow, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+  synthSheet.getCell(sRow, COL_LABEL).border = thinBorder();
+  synthSheet.getCell(sRow, COL_LABEL).alignment = { wrapText: true };
+  orderedSynth.forEach((r, idx) => {
+    const col = synthCompanyCol(idx);
+    const cell = synthSheet.getCell(sRow, col);
+    const decision: NegotiationDecision = (version.negotiationDecisions ?? {})[r.company.id] ?? "non_defini";
+    const hasMotif = r.company.status === "ecartee" || rejetDecisions.includes(decision);
+    const motif = (r.company.exclusionReason ?? "").trim();
+    cell.value = hasMotif ? (motif || "—") : "";
+    cell.border = thinBorder();
+    cell.alignment = { wrapText: true, vertical: "top" };
+    if (hasMotif && motif) {
+      cell.fill = lightFill(COLORS.lightOrange);
+      cell.font = { size: 9 };
     }
   });
   sRow += 2;
@@ -2002,7 +2031,10 @@ function buildSyntheseSheet(
         sRow++;
       }
       for (const c of nonRetenues) {
-        synthSheet.getCell(`B${sRow}`).value = `${c.name} — Non retenue`;
+        const decision: NegotiationDecision = (allDecisions[c.id] ?? "non_retenue") as NegotiationDecision;
+        const label = NEGOTIATION_DECISION_LABELS[decision] ?? "Non retenue";
+        const motif = (c.exclusionReason ?? "").trim();
+        synthSheet.getCell(`B${sRow}`).value = motif ? `${c.name} — ${label} : ${motif}` : `${c.name} — ${label}`;
         synthSheet.getCell(`B${sRow}`).font = { size: 10, color: { argb: "E65100" } };
         sRow++;
       }
@@ -2568,6 +2600,175 @@ function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
   methSheet.getColumn("G").width = 15;
 }
 
+/**
+ * Onglet "Administratif" : vérifications administratives par entreprise non écartée.
+ * Liste les exigences (adminConfig) et l'état Fourni/Non fourni (adminData).
+ * Alerte si activité ou montant décennale non couvert.
+ */
+function buildAdministratifSheet(
+  wb: ExcelJS.Workbook,
+  project: ProjectData,
+  companies: typeof project.companies
+) {
+  const adminConfig = (project.info as { adminConfig?: { requireDecennale?: boolean; requireBiennale?: boolean; requireRC?: boolean; customDocs?: string[] } }).adminConfig;
+  const activeCompanies = companies.filter((c) => c.name.trim() !== "" && c.status !== "ecartee");
+  if (activeCompanies.length === 0) return;
+
+  const ws = wb.addWorksheet("Administratif");
+  ws.properties.defaultRowHeight = 18;
+
+  let row = 1;
+  ws.mergeCells(`A${row}:H${row}`);
+  const titleCell = ws.getCell(row, 1);
+  titleCell.value = `${project.info.name || "Projet"} — Lot ${project.info.lotNumber || ""} — Vérifications Administratives`;
+  titleCell.font = { bold: true, size: 12, color: { argb: COLORS.darkText } };
+  titleCell.fill = lightFill(COLORS.lightBlue);
+  titleCell.border = thinBorder();
+  row += 2;
+
+  // En-têtes : Exigence | Entreprise 1 | Entreprise 2 | ...
+  const colLabel = 1;
+  const companyCol = (idx: number) => 2 + idx;
+  ws.getCell(row, colLabel).value = "Exigence";
+  ws.getCell(row, colLabel).font = headerFont();
+  ws.getCell(row, colLabel).fill = headerFill();
+  ws.getCell(row, colLabel).border = thinBorder();
+  activeCompanies.forEach((c, idx) => {
+    const col = companyCol(idx);
+    ws.getCell(row, col).value = `${c.id}. ${c.name}`;
+    ws.getCell(row, col).font = headerFont();
+    ws.getCell(row, col).fill = headerFill();
+    ws.getCell(row, col).border = thinBorder();
+    ws.getCell(row, col).alignment = { wrapText: true };
+  });
+  row++;
+
+  const fmtOuiNon = (v: boolean | null | undefined): string => {
+    if (v == null) return "—";
+    return v ? "Oui" : "Non";
+  };
+
+  const styleNonRouge = (cell: ExcelJS.Cell, value: boolean | null | undefined) => {
+    if (value === false) {
+      cell.fill = lightFill(COLORS.lightRed);
+      cell.font = { color: { argb: COLORS.excluded }, bold: true };
+    }
+  };
+
+  const reqDecennale = adminConfig?.requireDecennale ?? false;
+  const reqBiennale = adminConfig?.requireBiennale ?? false;
+  const reqRC = adminConfig?.requireRC ?? false;
+  const customDocs = adminConfig?.customDocs ?? [];
+
+  if (reqDecennale) {
+    ws.getCell(row, colLabel).value = "Décennale fournie";
+    ws.getCell(row, colLabel).font = { size: 10 };
+    ws.getCell(row, colLabel).fill = lightFill(COLORS.lightYellow);
+    ws.getCell(row, colLabel).border = thinBorder();
+    activeCompanies.forEach((c, idx) => {
+      const cell = ws.getCell(row, companyCol(idx));
+      const v = c.adminData?.decennaleFournie;
+      cell.value = fmtOuiNon(v);
+      cell.border = thinBorder();
+      styleNonRouge(cell, v);
+    });
+    row++;
+
+    ws.getCell(row, colLabel).value = "Décennale — Date d'expiration";
+    ws.getCell(row, colLabel).font = { size: 10 };
+    ws.getCell(row, colLabel).fill = lightFill(COLORS.lightYellow);
+    ws.getCell(row, colLabel).border = thinBorder();
+    activeCompanies.forEach((c, idx) => {
+      const cell = ws.getCell(row, companyCol(idx));
+      cell.value = c.adminData?.decennaleDateExpiration?.trim() || "—";
+      cell.border = thinBorder();
+    });
+    row++;
+
+    ws.getCell(row, colLabel).value = "Décennale — Activité couverte";
+    ws.getCell(row, colLabel).font = { size: 10 };
+    ws.getCell(row, colLabel).fill = lightFill(COLORS.lightYellow);
+    ws.getCell(row, colLabel).border = thinBorder();
+    activeCompanies.forEach((c, idx) => {
+      const cell = ws.getCell(row, companyCol(idx));
+      const ok = c.adminData?.decennaleActiviteOK;
+      cell.value = fmtOuiNon(ok);
+      cell.border = thinBorder();
+      styleNonRouge(cell, ok);
+    });
+    row++;
+
+    ws.getCell(row, colLabel).value = "Décennale — Montant couvert";
+    ws.getCell(row, colLabel).font = { size: 10 };
+    ws.getCell(row, colLabel).fill = lightFill(COLORS.lightYellow);
+    ws.getCell(row, colLabel).border = thinBorder();
+    activeCompanies.forEach((c, idx) => {
+      const cell = ws.getCell(row, companyCol(idx));
+      const ok = c.adminData?.decennaleMontantOK;
+      cell.value = fmtOuiNon(ok);
+      cell.border = thinBorder();
+      styleNonRouge(cell, ok);
+    });
+    row++;
+  }
+
+  if (reqBiennale) {
+    ws.getCell(row, colLabel).value = "Biennale fournie";
+    ws.getCell(row, colLabel).font = { size: 10 };
+    ws.getCell(row, colLabel).fill = lightFill(COLORS.lightYellow);
+    ws.getCell(row, colLabel).border = thinBorder();
+    activeCompanies.forEach((c, idx) => {
+      const cell = ws.getCell(row, companyCol(idx));
+      const v = c.adminData?.biennaleFournie;
+      cell.value = fmtOuiNon(v);
+      cell.border = thinBorder();
+      styleNonRouge(cell, v);
+    });
+    row++;
+  }
+
+  if (reqRC) {
+    ws.getCell(row, colLabel).value = "RC fournie";
+    ws.getCell(row, colLabel).font = { size: 10 };
+    ws.getCell(row, colLabel).fill = lightFill(COLORS.lightYellow);
+    ws.getCell(row, colLabel).border = thinBorder();
+    activeCompanies.forEach((c, idx) => {
+      const cell = ws.getCell(row, companyCol(idx));
+      const v = c.adminData?.rcFournie;
+      cell.value = fmtOuiNon(v);
+      cell.border = thinBorder();
+      styleNonRouge(cell, v);
+    });
+    row++;
+  }
+
+  for (const docName of customDocs) {
+    ws.getCell(row, colLabel).value = `Doc. — ${docName}`;
+    ws.getCell(row, colLabel).font = { size: 10 };
+    ws.getCell(row, colLabel).fill = lightFill(COLORS.lightYellow);
+    ws.getCell(row, colLabel).border = thinBorder();
+    activeCompanies.forEach((c, idx) => {
+      const cell = ws.getCell(row, companyCol(idx));
+      const status = c.adminData?.customDocsStatus?.[docName];
+      cell.value = fmtOuiNon(status);
+      cell.border = thinBorder();
+      styleNonRouge(cell, status);
+    });
+    row++;
+  }
+
+  if (!reqDecennale && !reqBiennale && !reqRC && customDocs.length === 0) {
+    ws.getCell(row, colLabel).value = "Aucune exigence administrative configurée.";
+    ws.getCell(row, colLabel).font = { italic: true, size: 10 };
+    ws.getCell(row, colLabel).border = thinBorder();
+  }
+
+  ws.getColumn(colLabel).width = 32;
+  activeCompanies.forEach((_, idx) => {
+    ws.getColumn(companyCol(idx)).width = 18;
+  });
+}
+
 // =============== Main export function ===============
 
 export async function exportToExcel(project: ProjectData) {
@@ -2806,6 +3007,9 @@ export async function exportToExcel(project: ProjectData) {
 
   // =========== METHODOLOGIE (juste après DONNEES_DU_PROJET) ===========
   buildMethodologySheet(wb, project);
+
+  // =========== VÉRIFICATIONS ADMINISTRATIVES ===========
+  buildAdministratifSheet(wb, project, activeCompanies);
 
   // =========== V0 puis Négo 1, 2… — Onglets par type ===========
   const tabNamesV0 = getTabNames(project.versions.length, 0);
