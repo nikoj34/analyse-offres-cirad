@@ -119,15 +119,18 @@ export interface PriceEntry {
   dpgf2: number | null;
 }
 
-export type NegotiationDecision = "non_defini" | "retenue" | "non_retenue" | "questions_reponses" | "attributaire" | "retenue_nego_2";
+export type NegotiationDecision = "non_defini" | "retenue" | "non_retenue" | "questions_reponses" | "attributaire" | "retenue_nego_2" | "rejete_oab" | "rejete_irreguliere" | "rejete_inacceptable";
 
 export const NEGOTIATION_DECISION_LABELS: Record<NegotiationDecision, string> = {
   non_defini: "—",
   retenue: "Retenue pour négociation",
-  non_retenue: "Non retenue",
+  non_retenue: "Non retenue (Classée derrière)",
   questions_reponses: "Questions",
-  attributaire: "Attributaire",
+  attributaire: "Attributaire pressenti",
   retenue_nego_2: "Retenu pour Négociation 2",
+  rejete_oab: "Rejetée (OAB)",
+  rejete_irreguliere: "Rejetée (Irrégulière)",
+  rejete_inacceptable: "Rejetée (Inacceptable)",
 };
 
 export const VERSION_DISPLAY_LABELS: Record<string, string> = {

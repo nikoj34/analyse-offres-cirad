@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 
-const DECISION_OPTIONS: NegotiationDecision[] = ["non_defini", "retenue", "non_retenue", "questions_reponses", "attributaire"];
+const DECISION_OPTIONS: NegotiationDecision[] = ["non_defini", "retenue", "non_retenue", "questions_reponses", "attributaire", "rejete_oab", "rejete_irreguliere", "rejete_inacceptable", "retenue_nego_2"];
 
 const SynthesePage = () => {
   const {
@@ -41,6 +41,7 @@ const SynthesePage = () => {
     updateStatutVariante,
     updateDecisionVariante,
     setAttributionDetails,
+    updateCompany,
   } = useProjectStore();
   const navigate = useNavigate();
   const lot = project.lots[project.currentLotIndex];
@@ -648,13 +649,13 @@ const SynthesePage = () => {
     }
     const currentDecision = decisions[companyId] ?? "non_defini";
     if (hasAnyAttributaire && currentDecision !== "attributaire") {
-      return ["non_defini", "non_retenue"];
+      return ["non_defini", "non_retenue", "rejete_oab", "rejete_irreguliere", "rejete_inacceptable"];
     }
     // Synthèse initiale (V0) : "retenue" = retenue pour négo 1. Synthèse négo (V1+) : pas de "retenue", on garde uniquement "retenue_nego_2" pour la suite (évite doublon).
     const baseDecisions: NegotiationDecision[] =
       versionIndex >= 1
-        ? ["non_defini", "non_retenue"]
-        : ["non_defini", "non_retenue", "retenue"];
+        ? ["non_defini", "non_retenue", "rejete_oab", "rejete_irreguliere", "rejete_inacceptable"]
+        : ["non_defini", "non_retenue", "rejete_oab", "rejete_irreguliere", "rejete_inacceptable", "retenue"];
     let withAttributaire = allPseVarianteRenseignes ? [...baseDecisions, "attributaire"] : baseDecisions;
     if (versionIndex === 1) {
       withAttributaire = [...withAttributaire, "retenue_nego_2"];
@@ -995,6 +996,20 @@ const SynthesePage = () => {
                                     Montant final retenu : {fmt(attributionFinalAmount)} HT
                                   </span>
                                 )}
+                                {(decision === "rejete_oab" || decision === "rejete_irreguliere" || decision === "rejete_inacceptable") && (
+                                  <div className="w-[260px] mt-2 flex flex-col gap-1">
+                                    <Textarea
+                                      placeholder="Motif du rejet (Obligatoire)"
+                                      className={`text-xs min-h-[60px] resize-none ${!row.company.exclusionReason ? "border-destructive ring-destructive focus-visible:ring-destructive" : ""}`}
+                                      value={row.company.exclusionReason || ""}
+                                      onChange={(e) => updateCompany(row.company.id, { exclusionReason: e.target.value })}
+                                      disabled={isReadOnly || isValidated}
+                                    />
+                                    {!row.company.exclusionReason && (
+                                      <span className="text-[10px] text-destructive font-medium text-left">Le motif est requis.</span>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             );
                           })()
@@ -1035,22 +1050,38 @@ const SynthesePage = () => {
                             {(() => {
                               const decisionLockedByQuestions = (row.company.hasQuestions ?? false) && !receptionModeByCompany[row.company.id];
                               return (
-                                <Select
-                                  value={decisionLockedByQuestions ? "questions_reponses" : decisionVariante}
-                                  onValueChange={(v) => updateDecisionVariante(row.company.id, varianteId, v)}
-                                  disabled={isReadOnly || isValidated || decisionLockedByQuestions}
-                                >
-                                  <SelectTrigger className={`w-[260px] ${decisionLockedByQuestions ? "opacity-70 cursor-not-allowed" : ""}`}>
-                                    <SelectValue placeholder="Décision" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {getAvailableDecisions(row.company.id).map((d) => (
-                                      <SelectItem key={d} value={d}>
-                                        {NEGOTIATION_DECISION_LABELS[d]}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                <div className="flex flex-col gap-1 items-center">
+                                  <Select
+                                    value={decisionLockedByQuestions ? "questions_reponses" : decisionVariante}
+                                    onValueChange={(v) => updateDecisionVariante(row.company.id, varianteId, v)}
+                                    disabled={isReadOnly || isValidated || decisionLockedByQuestions}
+                                  >
+                                    <SelectTrigger className={`w-[260px] ${decisionLockedByQuestions ? "opacity-70 cursor-not-allowed" : ""}`}>
+                                      <SelectValue placeholder="Décision" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {getAvailableDecisions(row.company.id).map((d) => (
+                                        <SelectItem key={d} value={d}>
+                                          {NEGOTIATION_DECISION_LABELS[d]}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  {(decisionVariante === "rejete_oab" || decisionVariante === "rejete_irreguliere" || decisionVariante === "rejete_inacceptable") && (
+                                    <div className="w-[260px] mt-2 flex flex-col gap-1">
+                                      <Textarea
+                                        placeholder="Motif du rejet (Obligatoire)"
+                                        className={`text-xs min-h-[60px] resize-none ${!row.company.exclusionReason ? "border-destructive ring-destructive focus-visible:ring-destructive" : ""}`}
+                                        value={row.company.exclusionReason || ""}
+                                        onChange={(e) => updateCompany(row.company.id, { exclusionReason: e.target.value })}
+                                        disabled={isReadOnly || isValidated}
+                                      />
+                                      {!row.company.exclusionReason && (
+                                        <span className="text-[10px] text-destructive font-medium text-left">Le motif est requis.</span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
                               );
                             })()}
                           </TableCell>

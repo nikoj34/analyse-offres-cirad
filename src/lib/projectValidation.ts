@@ -82,7 +82,7 @@ const NegotiationVersionSchema = z.object({
   frozen: z.boolean(),
   validated: z.boolean(),
   validatedAt: z.string().max(50).nullable(),
-  negotiationDecisions: z.record(z.string(), z.enum(["non_defini", "retenue", "non_retenue", "questions_reponses", "attributaire"])),
+  negotiationDecisions: z.record(z.string(), z.enum(["non_defini", "retenue", "non_retenue", "questions_reponses", "attributaire", "retenue_nego_2", "rejete_oab", "rejete_irreguliere", "rejete_inacceptable"])),
   documentsToVerify: z.record(z.string(), z.string().max(5000)),
   questionnaire: NegotiationQuestionnaireSchema.optional(),
 });

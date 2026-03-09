@@ -1984,7 +1984,7 @@ function buildSyntheseSheet(
 
     const excludedCompanies = companies.filter((c) => c.status === "ecartee");
     const nonRetenues = companies.filter(
-      (c) => c.status !== "ecartee" && allDecisions[c.id] === "non_retenue"
+      (c) => c.status !== "ecartee" && (allDecisions[c.id] === "non_retenue" || allDecisions[c.id] === "rejete_oab" || allDecisions[c.id] === "rejete_irreguliere" || allDecisions[c.id] === "rejete_inacceptable")
     );
 
     if (excludedCompanies.length > 0 || nonRetenues.length > 0) {
