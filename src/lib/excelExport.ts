@@ -168,23 +168,45 @@ function buildDiffRichText(current: string, prev: string): ExcelJS.CellRichTextV
   return parts.length > 0 ? { richText: parts } : cur;
 }
 
-// ─── Nom de phase dynamique pour export (aligné sur l’UI) ─────────────────────
+// ─── Nom de phase dynamique pour export ──────────────────────────────────────
 const MAX_SHEET_NAME_LENGTH = 31;
 
-/** Suffixe d’onglet : ", initiale" | ", intermédiaire" | ", finale" ou "" si phase = "Synthèse" */
-function phaseSuffixForSheetName(phaseLabel: string): string {
-  if (phaseLabel === "Synthèse") return "";
-  if (phaseLabel === "Synthèse initiale") return ", initiale";
-  if (phaseLabel === "Synthèse intermédiaire") return ", intermédiaire";
-  if (phaseLabel === "Synthèse finale") return ", finale";
-  return "";
-}
+/**
+ * Retourne les noms d’onglets selon le nombre total de versions et l’index de la version courante.
+ *
+ * 0 négo       → "Analyse prix" / "Analyse technique" / "Q&R" / "Synthèse"
+ * ≥1 négo, V0  → "Analyse prix initiale" / "Analyse technique initiale" / "Q&R" / "Synthèse initiale"
+ * 1 négo, Négo → "Analyse prix Négo" / "Analyse technique Négo" / "Q&R Négo" / "Synthèse après négociation" / "Déroulement Négo"
+ * ≥2 négo, N   → idem avec numéro : "Analyse prix Négo N" / … / "Synthèse après négociation N" / "Déroulement Négo N"
+ */
+function getTabNames(
+  totalVersions: number,
+  versionIndex: number
+): { prix: string; tech: string; qr: string; synthese: string; deroulement: string } {
+  const t = (s: string) => s.length > MAX_SHEET_NAME_LENGTH ? s.slice(0, MAX_SHEET_NAME_LENGTH) : s;
+  const negoCount = totalVersions - 1;
 
-/** Nom d’onglet : "Analyse prix", "Analyse technique", "Q&R", "Synthèse" + suffixe (, initiale, intermédiaire ou finale). Max 31 caractères. */
-function buildSheetName(prefix: string, phaseLabel: string): string {
-  const suffix = phaseSuffixForSheetName(phaseLabel);
-  const name = `${prefix}${suffix}`;
-  return name.length > MAX_SHEET_NAME_LENGTH ? name.slice(0, MAX_SHEET_NAME_LENGTH) : name;
+  if (negoCount === 0) {
+    return { prix: "Analyse prix", tech: "Analyse technique", qr: "Q&R", synthese: "Synthèse", deroulement: "" };
+  }
+
+  if (versionIndex === 0) {
+    return { prix: "Analyse prix initiale", tech: "Analyse technique initiale", qr: "Q&R", synthese: "Synthèse initiale", deroulement: "" };
+  }
+
+  const n = versionIndex;
+
+  if (negoCount === 1) {
+    return { prix: "Analyse prix Négo", tech: "Analyse technique Négo", qr: "Q&R Négo", synthese: "Synthèse après négociation", deroulement: "Déroulement Négo" };
+  }
+
+  return {
+    prix:        t(`Analyse prix Négo ${n}`),
+    tech:        t(`Analyse technique Négo ${n}`),
+    qr:          t(`Q&R Négo ${n}`),
+    synthese:    t(`Synthèse après négociation ${n}`),
+    deroulement: t(`Déroulement Négo ${n}`),
+  };
 }
 
 // ─── Analyse Technique — Entreprises en colonnes ─────────────────────────────
@@ -294,12 +316,13 @@ function buildTechSheet(
 
   // ── Per criterion rows ──
   for (const criterion of technicalCriteria) {
-    const hasSubCriteria = criterion.subCriteria.length > 0;
-    const subTotal = hasSubCriteria ? criterion.subCriteria.reduce((s, sc) => s + sc.weight, 0) : 0;
+    const activeSubCriteria = criterion.subCriteria.filter((s) => s.weight > 0);
+    const hasSubCriteria = activeSubCriteria.length > 0;
+    const subTotal = activeSubCriteria.reduce((s, sc) => s + sc.weight, 0);
 
     if (hasSubCriteria) {
       // For each sub-criterion: en-tête dédié puis ligne de résultats (note brute)
-      for (const sub of criterion.subCriteria) {
+      for (const sub of activeSubCriteria) {
         // ── Ligne d'en-tête juste au-dessus des résultats : ["", "Sous-critère X", "Appréciation", "Note / {poids}", ...] ──
         ws.getCell(row, COL_LABEL).value = "";
         ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightBlue);
@@ -438,6 +461,34 @@ function buildTechSheet(
           cell.alignment = { wrapText: true, vertical: "top" };
           cell.border = thinBorder();
           cell.fill = lightFill("FFFDF8");
+        });
+        row++;
+
+        // Répond aux questions
+        const qrTextsSubCrit = activeCompanies.map((company) => {
+          const note = version.technicalNotes.find(
+            (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
+          );
+          return note?.questionResponse || "";
+        });
+        ws.getCell(row, COL_LABEL).value = "Répond aux questions";
+        ws.getCell(row, COL_LABEL).font = { italic: true, size: 9, color: { argb: "FF0D47A1" } };
+        ws.getCell(row, COL_LABEL).fill = lightFill("E8F0FE");
+        ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "top" };
+        ws.getCell(row, COL_LABEL).border = thinBorder();
+        ws.getRow(row).height = rowHeightFromCellValues(qrTextsSubCrit, 40, 250);
+        activeCompanies.forEach((company, idx) => {
+          const colA = companyColStart(idx);
+          const colB = colA + 1;
+          const note = version.technicalNotes.find(
+            (n) => n.companyId === company.id && n.criterionId === criterion.id && n.subCriterionId === sub.id
+          );
+          ws.mergeCells(row, colA, row, colB);
+          const cell = ws.getCell(row, colA);
+          cell.value = note?.questionResponse || "";
+          cell.alignment = { wrapText: true, vertical: "top" };
+          cell.border = thinBorder();
+          cell.fill = lightFill("E8F0FE");
         });
         row++;
       }
@@ -591,6 +642,34 @@ function buildTechSheet(
         cell.alignment = { wrapText: true, vertical: "top" };
         cell.border = thinBorder();
         cell.fill = lightFill("FFFDF8");
+      });
+      row++;
+
+      // Répond aux questions
+      const qrTextsSimple = activeCompanies.map((company) => {
+        const note = version.technicalNotes.find(
+          (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
+        );
+        return note?.questionResponse || "";
+      });
+      ws.getCell(row, COL_LABEL).value = "Répond aux questions";
+      ws.getCell(row, COL_LABEL).font = { italic: true, size: 9, color: { argb: "FF0D47A1" } };
+      ws.getCell(row, COL_LABEL).fill = lightFill("E8F0FE");
+      ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "top" };
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getRow(row).height = rowHeightFromCellValues(qrTextsSimple, 40, 250);
+      activeCompanies.forEach((company, idx) => {
+        const colA = companyColStart(idx);
+        const colB = colA + 1;
+        const note = version.technicalNotes.find(
+          (n) => n.companyId === company.id && n.criterionId === criterion.id && !n.subCriterionId
+        );
+        ws.mergeCells(row, colA, row, colB);
+        const cell = ws.getCell(row, colA);
+        cell.value = note?.questionResponse || "";
+        cell.alignment = { wrapText: true, vertical: "top" };
+        cell.border = thinBorder();
+        cell.fill = lightFill("E8F0FE");
       });
       row++;
     }
@@ -872,7 +951,7 @@ function buildTechSheet(
 
   // ── Documents à vérifier ──
   const docVerifyTexts = activeCompanies.map((company) => String(version.documentsToVerify?.[company.id] ?? ""));
-  ws.getCell(row, COL_LABEL).value = "Document à vérifier";
+  ws.getCell(row, COL_LABEL).value = "Documents à vérifier / commentaire global";
   ws.getCell(row, COL_LABEL).font = { bold: true, size: 9, color: { argb: "FFE65100" } };
   ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightOrange);
   ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "top" };
@@ -1099,7 +1178,18 @@ function buildPrixSheet(
   // ── Section: Tranche Ferme — 1 ligne DPGF 1, 1 ligne DPGF 2 (si coché), 1 ligne Total TF ──
   ws.mergeCells(row, COL_LABEL, row, lastCol);
   const tfHeader = ws.getCell(row, COL_LABEL);
-  tfHeader.value = "TRANCHE FERME (hors PSE, Variante et Tranche Optionnelle)";
+  {
+    const tfExclusions = (
+      [
+        pseLines.length > 0 ? "PSE" : null,
+        varianteLines.length > 0 ? "Variante" : null,
+        toLines.length > 0 ? "Tranche Optionnelle" : null,
+      ] as (string | null)[]
+    ).filter((x): x is string => x !== null);
+    tfHeader.value = tfExclusions.length > 0
+      ? `TRANCHE FERME (hors ${tfExclusions.join(", ")})`
+      : "TRANCHE FERME";
+  }
   tfHeader.font = { bold: true, size: 10, color: { argb: COLORS.headerFont } };
   tfHeader.fill = headerFill();
   tfHeader.border = thinBorder();
@@ -1285,7 +1375,14 @@ function buildPrixSheet(
   const _estTo = toLines.reduce((s, l) => s + _estLine(l), 0);
   const estGlobal = _estBase + _estTo + _estPse;
 
-  ws.getCell(row, COL_LABEL).value = `Total Global Évalué (Base + PSE + TO) — Estimé à ${estGlobal.toLocaleString("fr-FR")} € HT`;
+  {
+    const totalGlobalParts = (
+      [toLines.length > 0 ? "TO" : null, pseLines.length > 0 ? "PSE" : null] as (string | null)[]
+    ).filter((x): x is string => x !== null);
+    ws.getCell(row, COL_LABEL).value = totalGlobalParts.length > 0
+      ? `Total Global Évalué (Base + ${totalGlobalParts.join(" + ")}) — Estimé à ${estGlobal.toLocaleString("fr-FR")} € HT`
+      : `Total Global Évalué — Estimé à ${estGlobal.toLocaleString("fr-FR")} € HT`;
+  }
   ws.getCell(row, COL_LABEL).font = { bold: true, size: 10 };
   ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightGreen);
   ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "middle" };
@@ -1411,9 +1508,11 @@ function buildPrixSheet(
   const baseAndTo = [...baseLines, ...toLines];
   const scenarios: ScenarioLine[] = [];
 
-  // 1) Toujours : Tranche ferme + Tranche optionnelle
+  // 1) Toujours : Tranche ferme (+ Tranche optionnelle s'il y en a)
   scenarios.push({
-    label: `TOTAL TF + Tranche Optionnelle — Estimé à ${(estBase + estTo).toLocaleString("fr-FR")} € HT`,
+    label: toLines.length > 0
+      ? `TOTAL TF + Tranche Optionnelle — Estimé à ${(estBase + estTo).toLocaleString("fr-FR")} € HT`
+      : `TOTAL — Estimé à ${estBase.toLocaleString("fr-FR")} € HT`,
     estLabel: "",
     lines: baseAndTo,
     fillColor: COLORS.white,
@@ -1424,7 +1523,9 @@ function buildPrixSheet(
     const est = subset.reduce((s, l) => s + estLine(l), 0);
     const names = subset.map((_, i) => `PSE N°${pseLines.indexOf(subset[i]) + 1}`).join(" + ");
     scenarios.push({
-      label: `TOTAL TF + Tranches Optionnelles + ${names} — Estimé à ${(estBase + estTo + est).toLocaleString("fr-FR")} € HT`,
+      label: toLines.length > 0
+        ? `TOTAL TF + Tranches Optionnelles + ${names} — Estimé à ${(estBase + estTo + est).toLocaleString("fr-FR")} € HT`
+        : `TOTAL TF + ${names} — Estimé à ${(estBase + est).toLocaleString("fr-FR")} € HT`,
       estLabel: "",
       lines: [...baseAndTo, ...subset],
       fillColor: COLORS.white,
@@ -1436,7 +1537,9 @@ function buildPrixSheet(
     const est = subset.reduce((s, l) => s + estLine(l), 0);
     const names = subset.map((_, i) => `Variante N°${varianteLines.indexOf(subset[i]) + 1}`).join(" + ");
     scenarios.push({
-      label: `TOTAL TF + Tranches Optionnelles + ${names} — Estimé à ${(estBase + estTo + est).toLocaleString("fr-FR")} € HT`,
+      label: toLines.length > 0
+        ? `TOTAL TF + Tranches Optionnelles + ${names} — Estimé à ${(estBase + estTo + est).toLocaleString("fr-FR")} € HT`
+        : `TOTAL TF + ${names} — Estimé à ${(estBase + est).toLocaleString("fr-FR")} € HT`,
       estLabel: "",
       lines: [...baseAndTo, ...subset],
       fillColor: COLORS.white,
@@ -1446,8 +1549,15 @@ function buildPrixSheet(
   // 4) Total général (uniquement s'il y a au moins une PSE ou une variante, pour éviter doublon avec le premier scénario)
   const hasPseOrVar = pseLines.length > 0 || varianteLines.length > 0;
   if (hasPseOrVar) {
+    const totalGenParts = (
+      [
+        toLines.length > 0 ? "Tranches Optionnelles" : null,
+        pseLines.length > 0 ? "PSE" : null,
+        varianteLines.length > 0 ? "Variantes" : null,
+      ] as (string | null)[]
+    ).filter((x): x is string => x !== null);
     scenarios.push({
-      label: `TOTAL GÉNÉRAL (TF + Tranches Optionnelles + PSE + Variantes) — Estimé à ${(estBase + estPse + estVar + estTo).toLocaleString("fr-FR")} € HT`,
+      label: `TOTAL GÉNÉRAL (TF + ${totalGenParts.join(" + ")}) — Estimé à ${(estBase + estPse + estVar + estTo).toLocaleString("fr-FR")} € HT`,
       estLabel: "",
       lines: [...baseAndTo, ...pseLines, ...varianteLines],
       fillColor: COLORS.lightGreen,
@@ -1695,9 +1805,15 @@ function buildSyntheseSheet(
   const criteriaRows: { label: string; getVal: (r: SynthResult) => string | number; numFmt?: string }[] = [
     { label: "Montant Total HT", getVal: (r) => (r.company.status === "ecartee" ? "—" : r.priceTotal), numFmt: '#,##0.00 "€"' },
     { label: `Note Prix (/${prixWeight})`, getVal: (r) => Number(r.priceScore.toFixed(2)) },
-    { label: `Note Technique (/${totalPoidsTechnique})`, getVal: (r) => (r.company.status === "ecartee" ? "—" : Number(r.techScore.toFixed(2))) },
-    { label: `Note Enviro. (/${envW})`, getVal: (r) => (r.company.status === "ecartee" ? "—" : Number(r.envScore.toFixed(2))) },
-    { label: `Note Planning (/${planW})`, getVal: (r) => (r.company.status === "ecartee" ? "—" : Number(r.planScore.toFixed(2))) },
+    ...(totalPoidsTechnique > 0
+      ? [{ label: `Note Technique (/${totalPoidsTechnique})`, getVal: (r: SynthResult) => (r.company.status === "ecartee" ? "—" : Number(r.techScore.toFixed(2))) }]
+      : []),
+    ...(envW > 0
+      ? [{ label: `Note Enviro. (/${envW})`, getVal: (r: SynthResult) => (r.company.status === "ecartee" ? "—" : Number(r.envScore.toFixed(2))) }]
+      : []),
+    ...(planW > 0
+      ? [{ label: `Note Planning (/${planW})`, getVal: (r: SynthResult) => (r.company.status === "ecartee" ? "—" : Number(r.planScore.toFixed(2))) }]
+      : []),
     { label: `Note Globale (/${maxGlobal})`, getVal: (r) => (r.company.status === "ecartee" ? "—" : Number(r.globalScore.toFixed(2))) },
   ];
 
@@ -2053,16 +2169,35 @@ function buildQuestionsResponsesSheet(
   sheetName: string,
   project: ProjectData,
   version: NegotiationVersion,
-  companies: { id: number; name: string }[]
+  companies: { id: number; name: string }[],
+  showIfEmpty = false
 ) {
   const questionnaire = version.questionnaire;
-  if (!questionnaire?.questionnaires?.length) return;
-
   const companyIds = new Set(companies.map((c) => c.id));
-  const questionnairesWithQuestions = questionnaire.questionnaires.filter(
-    (cq) => companyIds.has(cq.companyId) && cq.questions?.length > 0
-  );
-  if (questionnairesWithQuestions.length === 0) return;
+  const questionnairesWithQuestions = questionnaire?.questionnaires
+    ? questionnaire.questionnaires.filter((cq) => companyIds.has(cq.companyId) && cq.questions?.length > 0)
+    : [];
+
+  if (questionnairesWithQuestions.length === 0) {
+    if (!showIfEmpty) return;
+    const ws = wb.addWorksheet(sheetName);
+    ws.properties.defaultRowHeight = 18;
+    ws.mergeCells("A1:D1");
+    const titleCell = ws.getCell("A1");
+    const titleText = sheetName.replace(/^Q&R/, "Questions & Réponses");
+    titleCell.value = `${project.info.name || "Projet"} — Lot ${project.info.lotNumber || ""} — ${titleText}`;
+    titleCell.font = { bold: true, size: 13, color: { argb: COLORS.darkText } };
+    titleCell.fill = lightFill(COLORS.lightBlue);
+    titleCell.alignment = { horizontal: "center", vertical: "middle" };
+    ws.getRow(1).height = 22;
+    ws.getCell("A2").value = "Aucune question / réponse enregistrée pour cette phase.";
+    ws.getCell("A2").font = { italic: true, size: 10, color: { argb: "FF888888" } };
+    ws.getColumn("A").width = 28;
+    ws.getColumn("B").width = 6;
+    ws.getColumn("C").width = 50;
+    ws.getColumn("D").width = 50;
+    return;
+  }
 
   const ws = wb.addWorksheet(sheetName);
   ws.properties.defaultRowHeight = 18;
@@ -2122,6 +2257,143 @@ function buildQuestionsResponsesSheet(
   ws.getColumn(COL_NUM).width = 6;
   ws.getColumn(COL_QUESTION).width = 50;
   ws.getColumn(COL_REPONSE).width = 50;
+}
+
+// ─── CR Négo par entreprise ──────────────────────────────────────────────────
+
+/** Construit le nom d'onglet "CR négo N NomEntreprise" (tronqué à 31 chars). */
+function buildCRSheetName(negoIndex: number, companyName: string): string {
+  const prefix = `CR négo ${negoIndex} `;
+  const name = companyName.trim() || "—";
+  const available = MAX_SHEET_NAME_LENGTH - prefix.length;
+  return prefix + (name.length > available ? name.slice(0, available) : name);
+}
+
+/** Crée un onglet de compte-rendu de négociation pour UNE entreprise. */
+function buildDeroulementCompanySheet(
+  wb: ExcelJS.Workbook,
+  sheetName: string,
+  project: ProjectData,
+  version: NegotiationVersion,
+  company: ProjectData["companies"][number],
+  companyIdx: number
+): void {
+  type ExecData = { date?: string; attendees?: string; answers?: Record<string, string>; freeText?: string };
+  type PrepQuestion = { id: string; text: string; order: number; importance: string };
+
+  const execData = (version.negotiationData?.[company.id]?.execution ?? null) as ExecData | null;
+  const prepQuestions = ((version.negotiationData?.[company.id]?.prep?.questions ?? []) as PrepQuestion[])
+    .slice()
+    .sort((a, b) => a.order - b.order);
+
+  const ws = wb.addWorksheet(sheetName);
+  ws.properties.defaultRowHeight = 18;
+
+  const COL_LABEL = 1;
+  const COL_VALUE = 2;
+  const importanceLabel: Record<string, string> = { faible: "Faible", moyen: "Moyen", fort: "Fort" };
+  let row = 1;
+
+  // Titre
+  ws.mergeCells(row, COL_LABEL, row, COL_VALUE);
+  const titleCell = ws.getCell(row, COL_LABEL);
+  titleCell.value = `${project.info.name || "Projet"} — Lot ${project.info.lotNumber || ""} — Compte-rendu de négociation`;
+  titleCell.font = { bold: true, size: 13, color: { argb: COLORS.darkText } };
+  titleCell.fill = lightFill(COLORS.lightBlue);
+  titleCell.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getRow(row).height = 22;
+  row++;
+
+  // En-tête entreprise (bandeau coloré)
+  ws.mergeCells(row, COL_LABEL, row, COL_VALUE);
+  const compHeader = ws.getCell(row, COL_LABEL);
+  compHeader.value = company.name || `Entreprise ${company.id}`;
+  compHeader.font = { bold: true, size: 12, color: { argb: "FFFFFFFF" } };
+  compHeader.fill = solidFill(COMPANY_ARGB[companyIdx % COMPANY_ARGB.length]);
+  compHeader.alignment = { horizontal: "left", vertical: "middle" };
+  compHeader.border = thickBorder();
+  ws.getRow(row).height = 26;
+  row++;
+
+  // Date de la réunion
+  ws.getCell(row, COL_LABEL).value = "Date de la réunion";
+  ws.getCell(row, COL_LABEL).font = { bold: true, size: 10 };
+  ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+  ws.getCell(row, COL_LABEL).border = thinBorder();
+  ws.getCell(row, COL_VALUE).value = execData?.date || "—";
+  ws.getCell(row, COL_VALUE).border = thinBorder();
+  ws.getRow(row).height = 18;
+  row++;
+
+  // Personnes présentes
+  const attendeesText = execData?.attendees || "—";
+  ws.getCell(row, COL_LABEL).value = "Personnes présentes";
+  ws.getCell(row, COL_LABEL).font = { bold: true, size: 10 };
+  ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+  ws.getCell(row, COL_LABEL).border = thinBorder();
+  ws.getCell(row, COL_LABEL).alignment = { vertical: "top" };
+  ws.getCell(row, COL_VALUE).value = attendeesText;
+  ws.getCell(row, COL_VALUE).alignment = { wrapText: true, vertical: "top" };
+  ws.getCell(row, COL_VALUE).border = thinBorder();
+  ws.getRow(row).height = rowHeightFromCellValues([attendeesText], 18, 120);
+  row++;
+
+  // Questions / Réponses
+  if (prepQuestions.length > 0) {
+    ws.mergeCells(row, COL_LABEL, row, COL_VALUE);
+    const qrHeader = ws.getCell(row, COL_LABEL);
+    qrHeader.value = "Questions / Réponses";
+    qrHeader.font = { bold: true, size: 10, color: { argb: COLORS.headerFont } };
+    qrHeader.fill = headerFill();
+    qrHeader.border = thinBorder();
+    ws.getRow(row).height = 18;
+    row++;
+
+    prepQuestions.forEach((q, qi) => {
+      const answer = execData?.answers?.[q.id] ?? "";
+      const impLabel = importanceLabel[q.importance] ?? q.importance;
+      const questionText = q.text || "—";
+
+      ws.getCell(row, COL_LABEL).value = `Q${qi + 1} (${impLabel})`;
+      ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
+      ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightYellow);
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getCell(row, COL_LABEL).alignment = { vertical: "top" };
+      ws.getCell(row, COL_VALUE).value = questionText;
+      ws.getCell(row, COL_VALUE).font = { bold: true, size: 9 };
+      ws.getCell(row, COL_VALUE).fill = lightFill(COLORS.lightYellow);
+      ws.getCell(row, COL_VALUE).alignment = { wrapText: true, vertical: "top" };
+      ws.getCell(row, COL_VALUE).border = thinBorder();
+      ws.getRow(row).height = rowHeightFromCellValues([questionText], 18, 120);
+      row++;
+
+      ws.getCell(row, COL_LABEL).value = "Réponse";
+      ws.getCell(row, COL_LABEL).font = { italic: true, size: 9 };
+      ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.white);
+      ws.getCell(row, COL_LABEL).border = thinBorder();
+      ws.getCell(row, COL_LABEL).alignment = { vertical: "top" };
+      ws.getCell(row, COL_VALUE).value = answer || "—";
+      ws.getCell(row, COL_VALUE).alignment = { wrapText: true, vertical: "top" };
+      ws.getCell(row, COL_VALUE).border = thinBorder();
+      ws.getRow(row).height = rowHeightFromCellValues([answer || "—"], 18, 200);
+      row++;
+    });
+  }
+
+  // Compte-rendu / Notes libres
+  const freeText = execData?.freeText || "—";
+  ws.getCell(row, COL_LABEL).value = "Compte-rendu / Notes libres";
+  ws.getCell(row, COL_LABEL).font = { bold: true, size: 10 };
+  ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightGreen);
+  ws.getCell(row, COL_LABEL).border = thinBorder();
+  ws.getCell(row, COL_LABEL).alignment = { vertical: "top" };
+  ws.getCell(row, COL_VALUE).value = freeText;
+  ws.getCell(row, COL_VALUE).alignment = { wrapText: true, vertical: "top" };
+  ws.getCell(row, COL_VALUE).border = thinBorder();
+  ws.getRow(row).height = rowHeightFromCellValues([freeText], 18, 250);
+
+  ws.getColumn(COL_LABEL).width = 30;
+  ws.getColumn(COL_VALUE).width = 80;
 }
 
 function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
@@ -2409,39 +2681,49 @@ export async function exportToExcel(project: ProjectData) {
     row++;
   }
 
-  row += 1;
-  pgSheet.mergeCells(`A${row}:F${row}`);
-  const lotTitle = pgSheet.getCell(`A${row}`);
-  lotTitle.value = "PSE / VARIANTE / TRANCHE OPTIONNELLE";
-  lotTitle.font = headerFont();
-  lotTitle.fill = headerFill();
-  lotTitle.border = thinBorder();
-  row++;
+  const typedLinesForPg = activeLotLines.filter((l) => l.type);
+  if (typedLinesForPg.length > 0) {
+    row += 1;
+    pgSheet.mergeCells(`A${row}:F${row}`);
+    const lotTitle = pgSheet.getCell(`A${row}`);
+    const lotTitleParts = (
+      [
+        typedLinesForPg.some((l) => l.type === "PSE") ? "PSE" : null,
+        typedLinesForPg.some((l) => l.type === "VARIANTE") ? "VARIANTE" : null,
+        typedLinesForPg.some((l) => l.type === "T_OPTIONNELLE") ? "TRANCHE OPTIONNELLE" : null,
+      ] as (string | null)[]
+    ).filter((x): x is string => x !== null);
+    lotTitle.value = lotTitleParts.join(" / ");
+    lotTitle.font = headerFont();
+    lotTitle.fill = headerFill();
+    lotTitle.border = thinBorder();
+    row++;
 
-  ["Type", "N°", "Intitulé", "DPGF", "Est. DPGF 1 (€)", "Est. DPGF 2 (€)"].forEach((h, i) => {
-    const col = String.fromCharCode(65 + i);
-    const c = pgSheet.getCell(`${col}${row}`);
-    c.value = h;
-    c.font = { bold: true, size: 9 };
-    c.fill = lightFill(COLORS.lightBlue);
-    c.border = thinBorder();
-  });
-  row++;
-
-  const dpgfAssignmentLabel: Record<string, string> = { DPGF_1: "DPGF 1", DPGF_2: "DPGF 2", both: "DPGF 1 et DPGF 2" };
-  for (const line of activeLotLines) {
-    pgSheet.getCell(`A${row}`).value = line.type || "—";
-    pgSheet.getCell(`B${row}`).value = line.id;
-    pgSheet.getCell(`C${row}`).value = line.label;
-    pgSheet.getCell(`D${row}`).value = dpgfAssignmentLabel[line.dpgfAssignment] ?? line.dpgfAssignment;
-    pgSheet.getCell(`E${row}`).value = line.estimationDpgf1 ?? 0;
-    pgSheet.getCell(`E${row}`).numFmt = '#,##0.00 "€"';
-    pgSheet.getCell(`F${row}`).value = line.estimationDpgf2 ?? 0;
-    pgSheet.getCell(`F${row}`).numFmt = '#,##0.00 "€"';
-    ["A", "B", "C", "D", "E", "F"].forEach((col) => {
-      pgSheet.getCell(`${col}${row}`).border = thinBorder();
+    ["Type", "N°", "Intitulé", "DPGF", "Est. DPGF 1 (€)", "Est. DPGF 2 (€)"].forEach((h, i) => {
+      const col = String.fromCharCode(65 + i);
+      const c = pgSheet.getCell(`${col}${row}`);
+      c.value = h;
+      c.font = { bold: true, size: 9 };
+      c.fill = lightFill(COLORS.lightBlue);
+      c.border = thinBorder();
     });
     row++;
+
+    const dpgfAssignmentLabel: Record<string, string> = { DPGF_1: "DPGF 1", DPGF_2: "DPGF 2", both: "DPGF 1 et DPGF 2" };
+    for (const line of typedLinesForPg) {
+      pgSheet.getCell(`A${row}`).value = line.type;
+      pgSheet.getCell(`B${row}`).value = line.id;
+      pgSheet.getCell(`C${row}`).value = line.label;
+      pgSheet.getCell(`D${row}`).value = dpgfAssignmentLabel[line.dpgfAssignment] ?? line.dpgfAssignment;
+      pgSheet.getCell(`E${row}`).value = line.estimationDpgf1 ?? 0;
+      pgSheet.getCell(`E${row}`).numFmt = '#,##0.00 "€"';
+      pgSheet.getCell(`F${row}`).value = line.estimationDpgf2 ?? 0;
+      pgSheet.getCell(`F${row}`).numFmt = '#,##0.00 "€"';
+      ["A", "B", "C", "D", "E", "F"].forEach((col) => {
+        pgSheet.getCell(`${col}${row}`).border = thinBorder();
+      });
+      row++;
+    }
   }
 
   row += 1;
@@ -2522,36 +2804,44 @@ export async function exportToExcel(project: ProjectData) {
   pgSheet.getColumn("F").width = 20;
   pgSheet.getColumn("G").width = 15;
 
-  // =========== V0 puis Négo 1, 2… — Onglets par type (nom dynamique comme l’UI) ──
-  const lotForLabel = project as unknown as LotData;
-  const phaseLabelV0 = getSyntheseLabel(lotForLabel, 0);
-  buildPrixSheet(wb, buildSheetName("Analyse prix", phaseLabelV0), project, v0, activeCompanies);
-  buildTechSheet(wb, buildSheetName("Analyse technique", phaseLabelV0), project, v0, activeCompanies);
-  buildQuestionsResponsesSheet(wb, buildSheetName("Q&R", phaseLabelV0), project, v0, activeCompanies);
-  buildSyntheseSheet(wb, buildSheetName("Synthèse", phaseLabelV0), project, v0, activeCompanies);
-
-  // =========== Methodology ===========
+  // =========== METHODOLOGIE (juste après DONNEES_DU_PROJET) ===========
   buildMethodologySheet(wb, project);
 
-  // =========== Négo 1, Négo 2… — Un onglet par phase et par type ──
+  // =========== V0 puis Négo 1, 2… — Onglets par type ===========
+  const tabNamesV0 = getTabNames(project.versions.length, 0);
+  buildPrixSheet(wb, tabNamesV0.prix, project, v0, activeCompanies);
+  buildTechSheet(wb, tabNamesV0.tech, project, v0, activeCompanies);
+  buildQuestionsResponsesSheet(wb, tabNamesV0.qr, project, v0, activeCompanies, true);
+  buildSyntheseSheet(wb, tabNamesV0.synthese, project, v0, activeCompanies);
+
+  // =========== Négo 1, Négo 2… ===========
   for (let i = 1; i < project.versions.length; i++) {
     const negoVersion = project.versions[i];
-    const negoRound = i;
-    const phaseLabelNego = getSyntheseLabel(lotForLabel, i);
-
     const prevVersion = project.versions[i - 1];
     const prevDecisions = prevVersion.negotiationDecisions ?? {};
     const retainedIds = Object.entries(prevDecisions)
       .filter(([, d]) => d === "retenue" || d === "attributaire")
       .map(([id]) => Number(id));
-
     const negoCompanies = activeCompanies.filter((c) => retainedIds.includes(c.id));
 
     if (negoCompanies.length > 0) {
-      buildPrixSheet(wb, buildSheetName("Analyse prix", phaseLabelNego), project, negoVersion, negoCompanies);
-      buildTechSheet(wb, buildSheetName("Analyse technique", phaseLabelNego), project, negoVersion, negoCompanies, prevVersion);
-      buildQuestionsResponsesSheet(wb, buildSheetName("Q&R", phaseLabelNego), project, negoVersion, negoCompanies);
-      buildSyntheseSheet(wb, buildSheetName("Synthèse", phaseLabelNego), project, negoVersion, negoCompanies, phaseLabelNego);
+      const tabNames = getTabNames(project.versions.length, i);
+      buildPrixSheet(wb, tabNames.prix, project, negoVersion, negoCompanies);
+      buildTechSheet(wb, tabNames.tech, project, negoVersion, negoCompanies, prevVersion);
+      buildQuestionsResponsesSheet(wb, tabNames.qr, project, negoVersion, negoCompanies);
+      // CR négo : un onglet par entreprise, avant la Synthèse
+      for (const company of negoCompanies) {
+        const companyIdx = project.companies.findIndex((c) => c.id === company.id);
+        buildDeroulementCompanySheet(
+          wb,
+          buildCRSheetName(i, company.name),
+          project,
+          negoVersion,
+          company,
+          companyIdx >= 0 ? companyIdx : 0
+        );
+      }
+      buildSyntheseSheet(wb, tabNames.synthese, project, negoVersion, negoCompanies);
     }
   }
 

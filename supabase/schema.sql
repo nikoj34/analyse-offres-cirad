@@ -94,6 +94,7 @@ create table if not exists public.analyses (
   questionnaire jsonb,
   technical_notes jsonb not null default '[]',
   price_entries jsonb not null default '[]',
+  negotiation_data jsonb,
   updated_at timestamptz not null default now()
 );
 

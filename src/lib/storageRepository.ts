@@ -74,6 +74,7 @@ interface DbAnalysis {
   questionnaire: unknown;
   technical_notes: unknown;
   price_entries: unknown;
+  negotiation_data?: unknown;
   updated_at: string;
 }
 
@@ -180,6 +181,9 @@ function dbAnalysisToVersion(row: DbAnalysis): NegotiationVersion {
     questionnaire: row.questionnaire as NegotiationVersion["questionnaire"],
     technicalNotes: Array.isArray(row.technical_notes) ? row.technical_notes : [],
     priceEntries: Array.isArray(row.price_entries) ? row.price_entries : [],
+    negotiationData: (row.negotiation_data && typeof row.negotiation_data === "object")
+      ? row.negotiation_data as Record<number, unknown>
+      : {},
   };
 }
 
@@ -328,7 +332,6 @@ export class SupabaseRepository implements StorageRepository {
         author: project.info.author,
         number_of_lots: project.info.numberOfLots,
         current_lot_index: project.currentLotIndex,
-        ...(project.importedAt != null && project.importedAt !== "" ? { imported_at: project.importedAt } : {}),
       };
       const { error: projectError } = await supabase
         .from("projects")
@@ -462,13 +465,51 @@ export class SupabaseRepository implements StorageRepository {
   async heartbeat(_projectId: string, _userId: string): Promise<void> {}
 }
 
+// ─── LocalStorageRepository (fallback offline) ──────────────────────────────
+
+const LS_PROJECTS_KEY = "cirad-multiprojects";
+
+export class LocalStorageRepository implements StorageRepository {
+  async loadAll(): Promise<Record<string, ProjectData>> {
+    try {
+      const raw = localStorage.getItem(LS_PROJECTS_KEY);
+      if (!raw) return {};
+      return JSON.parse(raw) as Record<string, ProjectData>;
+    } catch {
+      return {};
+    }
+  }
+
+  async loadOne(id: string): Promise<ProjectData | null> {
+    const all = await this.loadAll();
+    return all[id] ?? null;
+  }
+
+  async save(project: ProjectData): Promise<void> {
+    const all = await this.loadAll();
+    all[project.id] = project;
+    localStorage.setItem(LS_PROJECTS_KEY, JSON.stringify(all));
+  }
+
+  async remove(id: string): Promise<void> {
+    const all = await this.loadAll();
+    delete all[id];
+    localStorage.setItem(LS_PROJECTS_KEY, JSON.stringify(all));
+  }
+
+  async acquireLock(_projectId: string, _userId: string): Promise<boolean> { return true; }
+  async releaseLock(_projectId: string, _userId: string): Promise<void> {}
+  async getAllLocks(): Promise<Record<string, ProjectLock>> { return {}; }
+  async heartbeat(_projectId: string, _userId: string): Promise<void> {}
+}
+
 // ─── Singleton & initialisation ─────────────────────────────────────────────
 
 let _repo: StorageRepository | null = null;
 
 /**
  * Initialise le dépôt : utilise Supabase si les variables d'env sont présentes
- * et que l'utilisateur est authentifié. Sinon aucun fallback (l'app doit gérer l'auth).
+ * et que l'auth aboutit. Sinon bascule sur LocalStorageRepository.
  */
 export async function initRepository(): Promise<StorageRepository> {
   if (_repo) return _repo;
@@ -477,26 +518,36 @@ export async function initRepository(): Promise<StorageRepository> {
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
   if (!url || !key) {
-    throw new Error(
-      "VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY doivent être définis dans .env"
-    );
+    _repo = new LocalStorageRepository();
+    console.log("[StorageRepository] Mode localStorage (Supabase non configuré)");
+    return _repo;
   }
+
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("Timeout connexion Supabase (4s)")), 4000)
+  );
 
   try {
-    const supabase = getSupabase();
-    let { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user?.id) {
-      const { data, error } = await supabase.auth.signInAnonymously();
-      if (error) throw error;
-      session = data.session;
-    }
-    if (session?.user?.id) _cachedUserId = session.user.id;
+    await Promise.race([
+      (async () => {
+        const supabase = getSupabase();
+        let { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user?.id) {
+          const { data, error } = await supabase.auth.signInAnonymously();
+          if (error) throw error;
+          session = data.session;
+        }
+        if (session?.user?.id) _cachedUserId = session.user.id;
+      })(),
+      timeout,
+    ]);
+    _repo = new SupabaseRepository();
+    console.log("[StorageRepository] Mode Supabase (RLS actif)");
   } catch (e) {
-    console.warn("[StorageRepository] Supabase session / signInAnonymously:", getErrorMessage(e));
+    console.warn("[StorageRepository] Supabase indisponible, bascule sur localStorage :", getErrorMessage(e));
+    _repo = new LocalStorageRepository();
   }
 
-  _repo = new SupabaseRepository();
-  console.log("[StorageRepository] Mode Supabase (RLS actif)");
   return _repo;
 }
 

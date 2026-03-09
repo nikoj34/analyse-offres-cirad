@@ -295,7 +295,7 @@ const TechniquePage = () => {
 
               {/* Documents à vérifier */}
               <div className="space-y-2">
-                <h3 className="text-sm font-bold text-foreground border-b border-border pb-2">Documents à vérifier</h3>
+                <h3 className="text-sm font-bold text-foreground border-b border-border pb-2">Documents à vérifier / commentaire global</h3>
                 <Textarea
                   disabled={isReadOnly}
                   className="min-h-[80px] text-sm"
@@ -531,11 +531,37 @@ function CriterionBlock({
                   (v) => setTechnicalNote(companyId, criterion.id, sub.id, v, note?.comment ?? "", undefined, undefined, versionId)
                 )}
                 <div className="flex-1 space-y-2">
+                  {isNego && (
+                    <>
+                      <div>
+                        <label className="text-xs text-green-700 font-medium">✅ Points Positifs (Phase précédente)</label>
+                        <Textarea
+                          disabled={true}
+                          className="min-h-[60px] text-sm border-green-200 opacity-60 bg-muted"
+                          rows={3}
+                          value={getPrevNote(sub.id)?.commentPositif ?? ""}
+                          placeholder="Points positifs…"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-red-600 font-medium">❌ Points Négatifs (Phase précédente)</label>
+                        <Textarea
+                          disabled={true}
+                          className="min-h-[60px] text-sm border-red-200 opacity-60 bg-muted"
+                          rows={3}
+                          value={getPrevNote(sub.id)?.commentNegatif ?? ""}
+                          placeholder="Points négatifs…"
+                        />
+                      </div>
+                    </>
+                  )}
                   <div>
-                    <label className="text-xs text-green-700 font-medium">✅ Points Positifs</label>
+                    <label className="text-xs text-green-700 font-medium">
+                      ✅ Points Positifs{isNego ? " (Phase courante)" : ""}
+                    </label>
                     <Textarea
-                      disabled={disabled || isNego}
-                      className={`min-h-[60px] text-sm border-green-200 ${isNego ? 'opacity-60' : ''}`}
+                      disabled={disabled}
+                      className="min-h-[60px] text-sm border-green-200"
                       rows={3}
                       value={note?.commentPositif ?? ""}
                       onChange={(e) =>
@@ -546,10 +572,12 @@ function CriterionBlock({
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-red-600 font-medium">❌ Points Négatifs</label>
+                    <label className="text-xs text-red-600 font-medium">
+                      ❌ Points Négatifs{isNego ? " (Phase courante)" : ""}
+                    </label>
                     <Textarea
-                      disabled={disabled || isNego}
-                      className={`min-h-[60px] text-sm border-red-200 ${isNego ? 'opacity-60' : ''}`}
+                      disabled={disabled}
+                      className="min-h-[60px] text-sm border-red-200"
                       rows={3}
                       value={note?.commentNegatif ?? ""}
                       onChange={(e) =>
@@ -559,21 +587,6 @@ function CriterionBlock({
                       maxLength={2000}
                     />
                   </div>
-                  {isNego && (
-                    <div>
-                      <label className="text-xs text-blue-600 font-medium">💬 Réponses aux questions</label>
-                      <Textarea
-                        disabled={disabled}
-                        className="min-h-[60px] text-sm border-blue-200"
-                        rows={3}
-                        value={note?.questionResponse ?? ""}
-                        onChange={(e) =>
-                          setTechnicalNoteResponse(companyId, criterion.id, sub.id, e.target.value, versionId)
-                        }
-                        placeholder="Réponses du candidat aux questions posées…"
-                      />
-                    </div>
-                  )}
                   {renderFieldDiff(note?.commentPositif ?? "", getPrevNote(sub.id)?.commentPositif ?? "", "Points Positifs")}
                   {renderFieldDiff(note?.commentNegatif ?? "", getPrevNote(sub.id)?.commentNegatif ?? "", "Points Négatifs")}
                 </div>
@@ -654,25 +667,53 @@ function CriterionBlock({
             (v) => setTechnicalNote(companyId, criterion.id, undefined, v, note?.comment ?? "", undefined, undefined, versionId)
           )}
           <div className="flex-1 space-y-2">
+            {isNego && (
+              <>
+                <div>
+                  <label className="text-xs text-green-700 font-medium">✅ Points Positifs (Phase précédente)</label>
+                  <Textarea
+                    disabled={true}
+                    className="min-h-[60px] text-sm border-green-200 opacity-60 bg-muted"
+                    rows={3}
+                    value={getPrevNote()?.commentPositif ?? ""}
+                    placeholder="Points positifs…"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-red-600 font-medium">❌ Points Négatifs (Phase précédente)</label>
+                  <Textarea
+                    disabled={true}
+                    className="min-h-[60px] text-sm border-red-200 opacity-60 bg-muted"
+                    rows={3}
+                    value={getPrevNote()?.commentNegatif ?? ""}
+                    placeholder="Points négatifs…"
+                  />
+                </div>
+              </>
+            )}
             <div>
-              <label className="text-xs text-green-700 font-medium">✅ Points Positifs</label>
+              <label className="text-xs text-green-700 font-medium">
+                ✅ Points Positifs{isNego ? " (Phase courante)" : ""}
+              </label>
               <Textarea
-              disabled={disabled || isNego}
-              className={`min-h-[60px] text-sm border-green-200 ${isNego ? 'opacity-60' : ''}`}
-              rows={3}
-              value={note?.commentPositif ?? ""}
-              onChange={(e) =>
-                setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, note?.comment ?? "", e.target.value, undefined, versionId)
-              }
-              placeholder="Points positifs…"
-              maxLength={2000}
+                disabled={disabled}
+                className="min-h-[60px] text-sm border-green-200"
+                rows={3}
+                value={note?.commentPositif ?? ""}
+                onChange={(e) =>
+                  setTechnicalNote(companyId, criterion.id, undefined, note?.notation ?? null, note?.comment ?? "", e.target.value, undefined, versionId)
+                }
+                placeholder="Points positifs…"
+                maxLength={2000}
               />
             </div>
             <div>
-              <label className="text-xs text-red-600 font-medium">❌ Points Négatifs</label>
+              <label className="text-xs text-red-600 font-medium">
+                ❌ Points Négatifs{isNego ? " (Phase courante)" : ""}
+              </label>
               <Textarea
-                disabled={disabled || isNego}
-                className={`min-h-[60px] text-sm border-red-200 ${isNego ? 'opacity-60' : ''}`}
+                disabled={disabled}
+                className="min-h-[60px] text-sm border-red-200"
                 rows={3}
                 value={note?.commentNegatif ?? ""}
                 onChange={(e) =>
@@ -682,21 +723,6 @@ function CriterionBlock({
                 maxLength={2000}
               />
             </div>
-            {isNego && (
-              <div>
-                <label className="text-xs text-blue-600 font-medium">💬 Réponses aux questions</label>
-                <Textarea
-                  disabled={disabled}
-                  className="min-h-[60px] text-sm border-blue-200"
-                  rows={3}
-                  value={note?.questionResponse ?? ""}
-                  onChange={(e) =>
-                    setTechnicalNoteResponse(companyId, criterion.id, undefined, e.target.value, versionId)
-                  }
-                  placeholder="Réponses du candidat aux questions posées…"
-                />
-              </div>
-            )}
             {renderFieldDiff(note?.commentPositif ?? "", getPrevNote()?.commentPositif ?? "", "Points Positifs")}
             {renderFieldDiff(note?.commentNegatif ?? "", getPrevNote()?.commentNegatif ?? "", "Points Négatifs")}
           </div>

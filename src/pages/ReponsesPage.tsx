@@ -302,10 +302,10 @@ const ReponsesPage = () => {
                   Écart % (V0 → nouveau prix)
                 </Label>
                 <div
-                  className={`rounded-md border px-3 py-2 text-sm font-medium ${
-                    ecartPctInitial >= 0
-                      ? "text-green-600"
-                      : "text-red-600"
+                  className={`rounded-md border px-3 py-2 text-sm ${
+                    ecartPctInitial > 0
+                      ? "text-red-500 font-bold"
+                      : "text-green-600 font-medium"
                   }`}
                 >
                   {ecartPctInitial >= 0 ? "+" : ""}
@@ -317,10 +317,10 @@ const ReponsesPage = () => {
                   Écart vs estimation projet
                 </Label>
                 <div
-                  className={`rounded-md border px-3 py-2 text-sm font-medium ${
-                    ecartPctEstimation >= 0
-                      ? "text-green-600"
-                      : "text-red-600"
+                  className={`rounded-md border px-3 py-2 text-sm ${
+                    ecartPctEstimation > 0
+                      ? "text-red-500 font-bold"
+                      : "text-green-600 font-medium"
                   }`}
                 >
                   {ecartPctEstimation >= 0 ? "+" : ""}

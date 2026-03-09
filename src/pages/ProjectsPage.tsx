@@ -198,11 +198,11 @@ const ProjectsPage = () => {
         }
 
         let projectsToImport: unknown[] = [];
-        if (parsed.info && parsed.lots) {
+        if (parsed.info && typeof parsed.info === "object") {
           projectsToImport = [parsed];
         } else if (Object.keys(parsed).length > 0) {
           const values = Object.values(parsed);
-          if (values.length > 0 && values[0] && typeof values[0] === "object" && (values[0] as { info?: unknown; lots?: unknown }).info && (values[0] as { info?: unknown; lots?: unknown }).lots) {
+          if (values.length > 0 && values[0] && typeof values[0] === "object" && (values[0] as { info?: unknown }).info && typeof (values[0] as { info?: unknown }).info === "object") {
             projectsToImport = values;
           } else {
             toast.error("Structure du JSON non reconnue.");
@@ -243,9 +243,7 @@ const ProjectsPage = () => {
           cloned.info.author = cloned.info.author ?? "";
           cloned.info.numberOfLots = cloned.info.numberOfLots ?? Math.max(1, cloned.lots?.length ?? 1);
           cloned.currentLotIndex = Math.min(cloned.currentLotIndex ?? 0, (cloned.lots?.length ?? 1) - 1);
-          if (existingNames.has(cloned.info.name.toLowerCase())) {
-            cloned.importedAt = new Date().toISOString();
-          }
+          cloned.importedAt = new Date().toISOString();
           existingNames.add(cloned.info.name.toLowerCase());
 
           for (const lot of cloned.lots ?? []) {
@@ -268,18 +266,23 @@ const ProjectsPage = () => {
             lot.currentVersionId = lot.currentVersionId ?? lot.versions[0]?.id ?? "";
           }
 
-          // Import récursive : saveCurrentProject envoie le projet + lots, offers, analyses vers Supabase.
-          await store.saveCurrentProject(cloned);
+          try {
+            await store.saveCurrentProject(cloned);
+          } catch (saveErr) {
+            console.error("Erreur sauvegarde projet à l'import :", saveErr);
+            skipped++;
+            continue;
+          }
           count++;
         }
-        await store.loadFromRepository();
         const msg = skipped > 0
-          ? `${count} analyse(s) importée(s), ${skipped} ignorée(s) (format invalide).`
+          ? `${count} analyse(s) importée(s), ${skipped} ignorée(s) (erreur de sauvegarde).`
           : `${count} analyse(s) importée(s) avec succès !`;
         toast[count > 0 ? "success" : "warning"](msg);
       } catch (err) {
-        console.warn("Import JSON:", err);
-        toast.error("Fichier invalide ou erreur lors de l'import. Veuillez sélectionner un fichier JSON exporté.");
+        console.error("Import JSON:", err);
+        const detail = err instanceof Error ? err.message : String(err);
+        toast.error(`Erreur lors de l'import : ${detail}`);
       }
     };
     reader.readAsText(file);

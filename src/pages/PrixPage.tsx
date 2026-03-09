@@ -703,7 +703,7 @@ const PrixPage = () => {
                   return (
                     <div className={`grid ${hasDualDpgf ? "grid-cols-[1fr_160px_80px_160px_80px]" : "grid-cols-[1fr_160px_80px]"} gap-2 rounded-md border border-blue-200 bg-blue-50 p-2 text-sm`}>
                       <span className="font-semibold text-blue-800">Gain négociation {negoRound} (vs initial)</span>
-                      <span className={`text-right font-bold ${gainPct >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      <span className={gainPct < 0 ? "text-right text-red-500 font-bold" : "text-right text-green-600 font-bold"}>
                         {gainPct >= 0 ? "+" : ""}{gainPct.toFixed(2)}%
                       </span>
                       <span></span>

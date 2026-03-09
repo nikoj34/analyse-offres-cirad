@@ -228,7 +228,7 @@ const PreparationNegoPage = () => {
         <Button type="button" variant="outline" onClick={handleExportWord} className="gap-2">
           Exporter en Word
         </Button>
-        {savedAt && !isLocked && (
+        {savedAt && (
           <span className="text-sm text-muted-foreground">
             Enregistré à {savedAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
           </span>

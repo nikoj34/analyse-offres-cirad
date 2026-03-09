@@ -189,7 +189,7 @@ export default function StatistiquesPage() {
             <TrendingDown className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-bold ${stats.totalGainNegociation >= 0 ? "text-green-600" : "text-red-600"}`}>
+            <div className={stats.totalGainNegociation < 0 ? "text-2xl font-bold text-red-500" : "text-2xl font-bold text-green-600"}>
               {fmtEuro(stats.totalGainNegociation)}
             </div>
             <p className="text-xs text-muted-foreground">économie vs offre initiale</p>
@@ -251,7 +251,7 @@ export default function StatistiquesPage() {
                 {stats.gainNegociationByYearList.map(([year, gain]) => (
                   <li key={year} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
                     <span className="font-medium">{year}</span>
-                    <span className={`font-mono font-medium ${gain >= 0 ? "text-green-600" : "text-red-600"}`}>
+                    <span className={`font-mono ${gain < 0 ? "font-bold text-red-500" : "font-medium text-green-600"}`}>
                       {fmtEuro(gain)}
                     </span>
                   </li>
