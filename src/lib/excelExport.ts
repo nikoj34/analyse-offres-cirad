@@ -12,7 +12,7 @@ import {
   getSyntheseLabel,
 } from "@/types/project";
 import type { ProjectData as MultiLotProjectData, LotData } from "@/types/project";
-import { getCompanyTotalGlobalEvalue } from "./scenarioTotal";
+import { getCompanyTotalGlobalEvalue, getCompanyTotalForPseSubset } from "./scenarioTotal";
 
 type ProjectData = LegacyProjectView;
 
@@ -28,6 +28,8 @@ const COLORS = {
   borderColor: "B4C6E7",
   darkText: "1F4E79",
   excluded: "D9534F",
+  /** Police grise pour la ligne "Note associée (sur 100)" dans le récap prix Synthèse */
+  noteGray: "6B7280",
 };
 
 // 30 distinct company colors (matching companyColors.ts)
@@ -96,6 +98,24 @@ function formulaSumRange(colIndex: number, firstRow: number, lastRow: number): s
 function formulaSumRows(colIndex: number, rows: number[]): string {
   const col = colLetter(colIndex);
   return rows.map((r) => `${col}${r}`).join("+");
+}
+
+/**
+ * Applique le renvoi à la ligne (wrap text) et l'alignement vertical centré à toutes les cellules
+ * d'une feuille. Préserve l'alignement existant via déstructuration avec valeur de repli.
+ */
+function applyWrapTextToSheet(ws: ExcelJS.Worksheet): void {
+  ws.eachRow((row) => {
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      const existing = cell.alignment ?? {};
+      cell.alignment = { ...existing, wrapText: true, vertical: "middle" as const };
+    });
+  });
+}
+
+/** Applique le wrap text et l'alignement vertical à toutes les feuilles du classeur. */
+function applyWrapTextToAllSheets(wb: ExcelJS.Workbook): void {
+  wb.worksheets.forEach((ws) => applyWrapTextToSheet(ws));
 }
 
 const ROW_HEIGHT_LINE = 15;
@@ -1015,8 +1035,8 @@ function buildTechSheet(
   // ── Column widths ──
   ws.getColumn(COL_LABEL).width = 28;
   activeCompanies.forEach((_, idx) => {
-    ws.getColumn(companyColStart(idx)).width = 22;
-    ws.getColumn(companyColStart(idx) + 1).width = 10;
+    ws.getColumn(companyColStart(idx)).width = 35;
+    ws.getColumn(companyColStart(idx) + 1).width = 12;
   });
 }
 
@@ -1026,7 +1046,8 @@ function buildPrixSheet(
   sheetName: string,
   project: ProjectData,
   version: NegotiationVersion,
-  companies: typeof project.companies
+  companies: typeof project.companies,
+  baseLabel: string
 ) {
   const ws = wb.addWorksheet(sheetName);
   ws.properties.defaultRowHeight = 18;
@@ -1038,6 +1059,7 @@ function buildPrixSheet(
   const varianteLines = activeLotLines.filter((l) => l.type === "VARIANTE");
   const toLines = activeLotLines.filter((l) => l.type === "T_OPTIONNELLE");
   const typedLines = activeLotLines.filter((l) => l.type);
+  const tfShort = baseLabel === "Tranche Ferme" ? "TF" : "Base";
 
   const prixCriterion = project.weightingCriteria.find((c) => c.id === "prix");
   const prixWeight = prixCriterion?.weight ?? 40;
@@ -1176,7 +1198,7 @@ function buildPrixSheet(
     }
   };
 
-  // ── Section: Tranche Ferme — 1 ligne DPGF 1, 1 ligne DPGF 2 (si coché), 1 ligne Total TF ──
+  // ── Section: Base / Tranche Ferme — 1 ligne DPGF 1, 1 ligne DPGF 2 (si coché), 1 ligne Total ──
   ws.mergeCells(row, COL_LABEL, row, lastCol);
   const tfHeader = ws.getCell(row, COL_LABEL);
   {
@@ -1188,8 +1210,8 @@ function buildPrixSheet(
       ] as (string | null)[]
     ).filter((x): x is string => x !== null);
     tfHeader.value = tfExclusions.length > 0
-      ? `TRANCHE FERME (hors ${tfExclusions.join(", ")})`
-      : "TRANCHE FERME";
+      ? `${baseLabel.toUpperCase()} (hors ${tfExclusions.join(", ")})`
+      : baseLabel.toUpperCase();
   }
   tfHeader.font = { bold: true, size: 10, color: { argb: COLORS.headerFont } };
   tfHeader.fill = headerFill();
@@ -1260,7 +1282,7 @@ function buildPrixSheet(
   }
 
   const totalTfRow = row;
-  ws.getCell(row, COL_LABEL).value = `Total TF (DPGF 1 et DPGF 2) — Estimé à ${estBaseTotalLabel.toLocaleString("fr-FR")} € HT`;
+  ws.getCell(row, COL_LABEL).value = `Total ${tfShort} (DPGF 1 et DPGF 2) — Estimé à ${estBaseTotalLabel.toLocaleString("fr-FR")} € HT`;
   ws.getCell(row, COL_LABEL).font = { bold: true, size: 10 };
   ws.getCell(row, COL_LABEL).fill = lightFill("C8E6C9");
   ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "middle" };
@@ -1381,7 +1403,7 @@ function buildPrixSheet(
       [toLines.length > 0 ? "TO" : null, pseLines.length > 0 ? "PSE" : null] as (string | null)[]
     ).filter((x): x is string => x !== null);
     ws.getCell(row, COL_LABEL).value = totalGlobalParts.length > 0
-      ? `Total Global Évalué (Base + ${totalGlobalParts.join(" + ")}) — Estimé à ${estGlobal.toLocaleString("fr-FR")} € HT`
+      ? `Total Global Évalué (${baseLabel} + ${totalGlobalParts.join(" + ")}) — Estimé à ${estGlobal.toLocaleString("fr-FR")} € HT`
       : `Total Global Évalué — Estimé à ${estGlobal.toLocaleString("fr-FR")} € HT`;
   }
   ws.getCell(row, COL_LABEL).font = { bold: true, size: 10 };
@@ -1475,188 +1497,6 @@ function buildPrixSheet(
     row++;
   }
 
-  // ── Tous les scénarios possibles : TF+TO, puis chaque combinaison de PSE, puis chaque combinaison de Variantes, puis Total ──
-  type ScenarioLine = { label: string; estLabel: string; lines: typeof activeLotLines; fillColor: string };
-  const estBase = (project.info.estimationDpgf1 ?? 0) + (project.info.estimationDpgf2 ?? 0);
-  const estLine = (l: typeof activeLotLines[0]) => hasDpgf2 ? (l.estimationDpgf1 ?? 0) + (l.estimationDpgf2 ?? 0) : (l.estimationDpgf1 ?? 0);
-  const estPse = pseLines.reduce((s, l) => s + estLine(l), 0);
-  const estVar = varianteLines.reduce((s, l) => s + estLine(l), 0);
-  const estTo = toLines.reduce((s, l) => s + estLine(l), 0);
-
-  /** Génère tous les sous-ensembles non vides : d'abord singletons (1, 2, 3…), puis paires (1+2, 1+3…), etc. */
-  function nonEmptySubsets<T>(arr: T[]): T[][] {
-    if (arr.length === 0) return [];
-    const out: T[][] = [];
-    for (let k = 1; k <= arr.length; k++) {
-      const stack: { start: number; path: T[] } = [{ start: 0, path: [] }];
-      while (stack.length) {
-        const { start, path } = stack.pop()!;
-        if (path.length === k) {
-          out.push([...path]);
-          continue;
-        }
-        for (let i = arr.length - 1; i >= start; i--) {
-          stack.push({ start: i + 1, path: [...path, arr[i]] });
-        }
-      }
-    }
-    return out;
-  }
-
-  const pseSubsets = nonEmptySubsets(pseLines);
-  const varSubsets = nonEmptySubsets(varianteLines);
-
-  const baseAndTo = [...baseLines, ...toLines];
-  const scenarios: ScenarioLine[] = [];
-
-  // 1) Toujours : Tranche ferme (+ Tranche optionnelle s'il y en a)
-  scenarios.push({
-    label: toLines.length > 0
-      ? `TOTAL TF + Tranche Optionnelle — Estimé à ${(estBase + estTo).toLocaleString("fr-FR")} € HT`
-      : `TOTAL — Estimé à ${estBase.toLocaleString("fr-FR")} € HT`,
-    estLabel: "",
-    lines: baseAndTo,
-    fillColor: COLORS.white,
-  });
-
-  // 2) Chaque combinaison de PSE (PSE 1 seule, PSE 2 seule, PSE 1+2, …)
-  for (const subset of pseSubsets) {
-    const est = subset.reduce((s, l) => s + estLine(l), 0);
-    const names = subset.map((_, i) => `PSE N°${pseLines.indexOf(subset[i]) + 1}`).join(" + ");
-    scenarios.push({
-      label: toLines.length > 0
-        ? `TOTAL TF + Tranches Optionnelles + ${names} — Estimé à ${(estBase + estTo + est).toLocaleString("fr-FR")} € HT`
-        : `TOTAL TF + ${names} — Estimé à ${(estBase + est).toLocaleString("fr-FR")} € HT`,
-      estLabel: "",
-      lines: [...baseAndTo, ...subset],
-      fillColor: COLORS.white,
-    });
-  }
-
-  // 3) Chaque combinaison de Variantes (Variante 1 seule, Variante 2 seule, V1+V2, …)
-  for (const subset of varSubsets) {
-    const est = subset.reduce((s, l) => s + estLine(l), 0);
-    const names = subset.map((_, i) => `Variante N°${varianteLines.indexOf(subset[i]) + 1}`).join(" + ");
-    scenarios.push({
-      label: toLines.length > 0
-        ? `TOTAL TF + Tranches Optionnelles + ${names} — Estimé à ${(estBase + estTo + est).toLocaleString("fr-FR")} € HT`
-        : `TOTAL TF + ${names} — Estimé à ${(estBase + est).toLocaleString("fr-FR")} € HT`,
-      estLabel: "",
-      lines: [...baseAndTo, ...subset],
-      fillColor: COLORS.white,
-    });
-  }
-
-  // 4) Total général (uniquement s'il y a au moins une PSE ou une variante, pour éviter doublon avec le premier scénario)
-  const hasPseOrVar = pseLines.length > 0 || varianteLines.length > 0;
-  if (hasPseOrVar) {
-    const totalGenParts = (
-      [
-        toLines.length > 0 ? "Tranches Optionnelles" : null,
-        pseLines.length > 0 ? "PSE" : null,
-        varianteLines.length > 0 ? "Variantes" : null,
-      ] as (string | null)[]
-    ).filter((x): x is string => x !== null);
-    scenarios.push({
-      label: `TOTAL GÉNÉRAL (TF + ${totalGenParts.join(" + ")}) — Estimé à ${(estBase + estPse + estVar + estTo).toLocaleString("fr-FR")} € HT`,
-      estLabel: "",
-      lines: [...baseAndTo, ...pseLines, ...varianteLines],
-      fillColor: COLORS.lightGreen,
-    });
-  }
-
-  const scenarioStartRow = row;
-  for (const scenario of scenarios) {
-    ws.getCell(row, COL_LABEL).value = scenario.label;
-    ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
-    ws.getCell(row, COL_LABEL).fill = lightFill(scenario.fillColor);
-    ws.getCell(row, COL_LABEL).alignment = { wrapText: true, vertical: "middle" };
-    ws.getCell(row, COL_LABEL).border = thickBorder();
-    ws.getRow(row).height = 22;
-
-    activeCompanies.forEach((company, idx) => {
-      const col = companyCol(idx);
-      const total = getTotal(company.id, scenario.lines, true);
-      const cell = ws.getCell(row, col);
-      cell.value = total || null;
-      if (total) cell.numFmt = '#,##0.00 "€"';
-      cell.font = { bold: true, size: 9 };
-      cell.fill = lightFill(scenario.fillColor);
-      cell.alignment = { horizontal: "right" };
-      cell.border = thickBorder();
-    });
-    row++;
-  }
-
-  ws.getRow(row).height = 6;
-  row++;
-
-  // ── Notes de prix par scénario (même ordre que les scénarios totaux) ──
-  const noteRows = scenarios.map((sc, i) => ({
-    label: i === scenarios.length - 1 && hasPseOrVar ? `NOTE DU PRIX GLOBAL (/${prixWeight}) — Scénario TOTAL GÉNÉRAL` : `NOTE DU PRIX (/${prixWeight}) — ${sc.label.split(" — ")[0]}`,
-    lines: sc.lines,
-    fillColor: sc.fillColor === COLORS.lightGreen ? "FFB3B3" : i % 3 === 0 ? "BFE9FF" : i % 3 === 1 ? "B8F0C8" : "FFE8A0",
-    isBold: sc.fillColor === COLORS.lightGreen,
-  }));
-
-  for (const noteRow of noteRows) {
-    const totals = activeCompanies.map((company) => getTotal(company.id, noteRow.lines, true));
-    const validTotals = totals.filter((t) => t > 0);
-    const minTotal = validTotals.length > 0 ? Math.min(...validTotals) : 0;
-
-    ws.getCell(row, COL_LABEL).value = noteRow.label;
-    ws.getCell(row, COL_LABEL).font = { bold: true, size: 9, color: noteRow.isBold ? { argb: "FF8B0000" } : { argb: "FF1F4E79" } };
-    ws.getCell(row, COL_LABEL).fill = lightFill(noteRow.fillColor);
-    ws.getCell(row, COL_LABEL).alignment = { wrapText: true };
-    ws.getCell(row, COL_LABEL).border = thickBorder();
-    ws.getRow(row).height = 22;
-
-    activeCompanies.forEach((company, idx) => {
-      const col = companyCol(idx);
-      const total = totals[idx];
-      const notePrice = total > 0 && minTotal > 0 ? Number(((minTotal / total) * prixWeight).toFixed(2)) : 0;
-      const cell = ws.getCell(row, col);
-      cell.value = notePrice || "—";
-      if (typeof notePrice === "number" && notePrice > 0) cell.numFmt = "0.00";
-      cell.font = { bold: true, size: 11, color: noteRow.isBold ? { argb: "FF8B0000" } : { argb: "FF1F4E79" } };
-      cell.fill = lightFill(noteRow.fillColor);
-      cell.alignment = { horizontal: "center" };
-      cell.border = thickBorder();
-    });
-    row++;
-  }
-
-  // ── Écart total incl. variantes (référence : dernière ligne scénarios) ──
-  {
-    const estTotalAll = estBase + estPse + estVar + estTo;
-    const totalGeneralRow = hasPseOrVar ? scenarioStartRow + scenarios.length - 1 : scenarioStartRow;
-    ws.getCell(row, COL_LABEL).value = `ÉCART GLOBAL / ESTIMATION (${estTotalAll.toLocaleString("fr-FR")} €) — Seuil ±${toleranceSeuil}%`;
-    ws.getCell(row, COL_LABEL).font = { bold: true, size: 9 };
-    ws.getCell(row, COL_LABEL).fill = lightFill(COLORS.lightRed);
-    ws.getCell(row, COL_LABEL).border = thinBorder();
-    ws.getRow(row).height = 18;
-
-    activeCompanies.forEach((company, idx) => {
-      const colIdx = companyCol(idx);
-      const total = getTotal(company.id, activeLotLines, true);
-      const cell = ws.getCell(row, colIdx);
-      if (estTotalAll > 0) {
-        cell.value = { formula: `=(${colLetter(colIdx)}${totalGeneralRow}-${estTotalAll})/${estTotalAll}*100` };
-        cell.numFmt = '+0.00%;-0.00%;0%';
-        const dev = total > 0 ? ((total - estTotalAll) / Math.abs(estTotalAll)) * 100 : 0;
-        const absDev = Math.abs(dev);
-        const halfSeuil = toleranceSeuil / 2;
-        cell.font = { bold: true, color: { argb: absDev <= halfSeuil ? "FF2E7D32" : absDev <= toleranceSeuil ? "FFE65100" : "FFC62828" } };
-        cell.fill = lightFill(absDev <= halfSeuil ? "E8F5E9" : absDev <= toleranceSeuil ? "FFF3E0" : "FFEBEE");
-      } else {
-        cell.value = "—";
-        cell.fill = lightFill(COLORS.lightRed);
-      }
-      cell.alignment = { horizontal: "center" };
-      cell.border = thinBorder();
-    });
-  }
-
   // ── Volets figés (colonne A + lignes 1–2) ──
   ws.views = [{ state: "frozen", xSplit: 1, ySplit: 2, topLeftCell: "B3", activeCell: "B3" }];
 
@@ -1679,7 +1519,8 @@ function buildSyntheseSheet(
   sheetName: string,
   project: ProjectData,
   version: NegotiationVersion,
-  companies: typeof project.companies
+  companies: typeof project.companies,
+  baseLabel: string
 ) {
   const synthSheet = wb.addWorksheet(sheetName);
   synthSheet.properties.defaultRowHeight = 18;
@@ -1782,6 +1623,7 @@ function buildSyntheseSheet(
   const COL_LABEL = 1;
   const synthCompanyCol = (idx: number) => 2 + idx;
   const lastSynthDataCol = synthCompanyCol(orderedSynth.length - 1);
+  const pseLines = activeLotLines.filter((l) => l.type === "PSE");
 
   // Tableau transposé : critères en lignes (A), entreprises en colonnes (B, C, D…) — ordre = ordre application
   const headerRow = sRow;
@@ -1802,10 +1644,87 @@ function buildSyntheseSheet(
   });
   sRow++;
 
-  // Lignes du tableau : Montant Total HT = Total Global Évalué ; notes = notes finales pondérées ; Note Globale = somme exacte
+  // ── Récapitulatif consolidé : 1 ligne Montant Total HT (Base + PSE), puis notes, puis Décision / Motif (aucun détail PSE individuel) ──
+  const pseIdsAll = pseLines.map((l) => l.id);
+  const amountsByCompany = orderedSynth.map((r) =>
+    r.company.status === "ecartee" ? 0 : getCompanyTotalForPseSubset(version, r.company.id, pseIdsAll)
+  );
+  const minSynthPriceForNote = amountsByCompany.some((a) => a > 0) ? Math.min(...amountsByCompany.filter((a) => a > 0)) : 0;
+
+  // Ligne 1 : Montant Total HT (Base + PSE)
+  synthSheet.getCell(sRow, COL_LABEL).value = "Montant Total HT (Base + PSE)";
+  synthSheet.getCell(sRow, COL_LABEL).font = { bold: true, size: 10 };
+  synthSheet.getCell(sRow, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+  synthSheet.getCell(sRow, COL_LABEL).border = thinBorder();
+  synthSheet.getCell(sRow, COL_LABEL).alignment = { horizontal: "left" };
+  orderedSynth.forEach((r, idx) => {
+    const col = synthCompanyCol(idx);
+    const cell = synthSheet.getCell(sRow, col);
+    const val = amountsByCompany[idx];
+    cell.value = r.company.status === "ecartee" ? "—" : val;
+    if (typeof val === "number") cell.numFmt = '#,##0.00 "€"';
+    cell.border = thinBorder();
+    cell.alignment = { horizontal: "center" };
+    if (r.company.status === "ecartee") {
+      cell.font = { bold: true, italic: true, color: { argb: COLORS.excluded } };
+      cell.fill = lightFill(COLORS.lightRed);
+    } else {
+      cell.font = { bold: true };
+      const compIdx = orderedSynth.filter((x) => x.company.status !== "ecartee").indexOf(r);
+      cell.fill = lightFill(companyPastelArgb(compIdx >= 0 ? compIdx : 0));
+    }
+  });
+  sRow++;
+
+  // Recalcul note prix pour cette solution unique (base + toutes PSE) pour affichage cohérent
+  for (let i = 0; i < orderedSynth.length; i++) {
+    const r = orderedSynth[i];
+    if (r.company.status !== "ecartee" && amountsByCompany[i] > 0 && minSynthPriceForNote > 0) {
+      r.priceScore = (minSynthPriceForNote / amountsByCompany[i]) * prixWeight;
+      r.globalScore = r.techScore + r.envScore + r.planScore + r.priceScore;
+    }
+  }
+
+  // Note finale sur 100
+  synthSheet.getCell(sRow, COL_LABEL).value = "Note finale sur 100";
+  synthSheet.getCell(sRow, COL_LABEL).font = { size: 10 };
+  synthSheet.getCell(sRow, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+  synthSheet.getCell(sRow, COL_LABEL).border = thinBorder();
+  orderedSynth.forEach((r, idx) => {
+    const col = synthCompanyCol(idx);
+    const cell = synthSheet.getCell(sRow, col);
+    cell.value = r.company.status === "ecartee" ? "—" : Number(r.globalScore.toFixed(2));
+    cell.border = thinBorder();
+    cell.alignment = { horizontal: "center" };
+    if (r.company.status === "ecartee") cell.fill = lightFill(COLORS.lightRed);
+    else {
+      const compIdx = orderedSynth.filter((x) => x.company.status !== "ecartee").indexOf(r);
+      cell.fill = lightFill(companyPastelArgb(compIdx >= 0 ? compIdx : 0));
+    }
+  });
+  sRow++;
+
+  // Note Prix
+  synthSheet.getCell(sRow, COL_LABEL).value = `Note Prix (/${prixWeight})`;
+  synthSheet.getCell(sRow, COL_LABEL).font = { size: 10 };
+  synthSheet.getCell(sRow, COL_LABEL).fill = lightFill(COLORS.lightBlue);
+  synthSheet.getCell(sRow, COL_LABEL).border = thinBorder();
+  orderedSynth.forEach((r, idx) => {
+    const col = synthCompanyCol(idx);
+    const cell = synthSheet.getCell(sRow, col);
+    cell.value = r.company.status === "ecartee" ? "—" : Number(r.priceScore.toFixed(2));
+    cell.border = thinBorder();
+    cell.alignment = { horizontal: "center" };
+    if (r.company.status === "ecartee") cell.fill = lightFill(COLORS.lightRed);
+    else {
+      const compIdx = orderedSynth.filter((x) => x.company.status !== "ecartee").indexOf(r);
+      cell.fill = lightFill(companyPastelArgb(compIdx >= 0 ? compIdx : 0));
+    }
+  });
+  sRow++;
+
+  // Lignes des autres notes (Technique, Enviro., Planning uniquement — Note finale déjà affichée ci-dessus)
   const criteriaRows: { label: string; getVal: (r: SynthResult) => string | number; numFmt?: string }[] = [
-    { label: "Montant Total HT", getVal: (r) => (r.company.status === "ecartee" ? "—" : r.priceTotal), numFmt: '#,##0.00 "€"' },
-    { label: `Note Prix (/${prixWeight})`, getVal: (r) => Number(r.priceScore.toFixed(2)) },
     ...(totalPoidsTechnique > 0
       ? [{ label: `Note Technique (/${totalPoidsTechnique})`, getVal: (r: SynthResult) => (r.company.status === "ecartee" ? "—" : Number(r.techScore.toFixed(2))) }]
       : []),
@@ -1815,12 +1734,11 @@ function buildSyntheseSheet(
     ...(planW > 0
       ? [{ label: `Note Planning (/${planW})`, getVal: (r: SynthResult) => (r.company.status === "ecartee" ? "—" : Number(r.planScore.toFixed(2))) }]
       : []),
-    { label: `Note Globale (/${maxGlobal})`, getVal: (r) => (r.company.status === "ecartee" ? "—" : Number(r.globalScore.toFixed(2))) },
   ];
 
   for (const cr of criteriaRows) {
     synthSheet.getCell(sRow, COL_LABEL).value = cr.label;
-    synthSheet.getCell(sRow, COL_LABEL).font = cr.label.startsWith("Note Globale") ? { bold: true, size: 10 } : { size: 10 };
+    synthSheet.getCell(sRow, COL_LABEL).font = { size: 10 };
     synthSheet.getCell(sRow, COL_LABEL).fill = lightFill(COLORS.lightBlue);
     synthSheet.getCell(sRow, COL_LABEL).border = thinBorder();
     synthSheet.getCell(sRow, COL_LABEL).alignment = { horizontal: "left" };
@@ -1977,7 +1895,7 @@ function buildSyntheseSheet(
       sRow++;
 
       synthSheet.mergeCells(`B${sRow}:J${sRow}`);
-      synthSheet.getCell(`B${sRow}`).value = `L'entreprise ${attributaireEntry.company.name} est retenue pour un montant de ${fmtEuro(finalAmount)} HT, incluant la Solution de Base${optionLabels.length > 0 ? ` + ${optionLabels.join(", ")}` : ""}.`;
+      synthSheet.getCell(`B${sRow}`).value = `L'entreprise ${attributaireEntry.company.name} est retenue pour un montant de ${fmtEuro(finalAmount)} HT, incluant la Solution de ${baseLabel}${optionLabels.length > 0 ? ` + ${optionLabels.join(", ")}` : ""}.`;
       synthSheet.getCell(`B${sRow}`).font = { size: 10 };
       synthSheet.getCell(`B${sRow}`).alignment = { wrapText: true };
       synthSheet.getCell(`B${sRow}`).border = thinBorder();
@@ -1992,7 +1910,7 @@ function buildSyntheseSheet(
       synthSheet.getCell(`B${sRow}`).value = "Détail du scénario retenu :";
       synthSheet.getCell(`B${sRow}`).font = { bold: true, size: 10 };
       sRow++;
-      synthSheet.getCell(`B${sRow}`).value = "• Solution de Base (Tranche Ferme)";
+      synthSheet.getCell(`B${sRow}`).value = `• Solution de ${baseLabel}`;
       synthSheet.getCell(`B${sRow}`).font = { size: 10 };
       sRow++;
       for (const l of enabledOptions) {
@@ -2052,7 +1970,7 @@ function buildSyntheseSheet(
     scenTitle.border = thinBorder();
     sRow++;
 
-    synthSheet.getCell(`B${sRow}`).value = "Notes de prix pour chaque scénario (Base + option individuelle), y compris ceux non retenus.";
+    synthSheet.getCell(`B${sRow}`).value = `Notes de prix pour chaque scénario (${baseLabel} + option individuelle), y compris ceux non retenus.`;
     synthSheet.getCell(`B${sRow}`).font = { italic: true, size: 9 };
     sRow += 2;
 
@@ -2087,13 +2005,13 @@ function buildSyntheseSheet(
     {
       synthSheet.mergeCells(`B${sRow}:H${sRow}`);
       const tfTitle = synthSheet.getCell(`B${sRow}`);
-      tfTitle.value = "Tranche Ferme (Base seule)";
+      tfTitle.value = `${baseLabel} (seule)`;
       tfTitle.font = { bold: true, size: 10, color: { argb: COLORS.headerFont } };
       tfTitle.fill = headerFill();
       tfTitle.border = thinBorder();
       sRow++;
 
-      ["Entreprise", "Prix Base (€ HT)", `Note Tech`, `Note Prix (/${prixWeight})`, `Note Globale (/${maxGlobal})`, "Rang"].forEach((h, i) => {
+      ["Entreprise", `Prix ${baseLabel} (€ HT)`, `Note Tech`, `Note Prix (/${prixWeight})`, `Note Globale (/${maxGlobal})`, "Rang"].forEach((h, i) => {
         const c = synthSheet.getCell(sRow, i + 2);
         c.value = h;
         c.font = { bold: true, size: 9 };
@@ -2137,7 +2055,7 @@ function buildSyntheseSheet(
       const label = getLineLabelSynth(line);
       synthSheet.mergeCells(`B${sRow}:H${sRow}`);
       const secTitle = synthSheet.getCell(`B${sRow}`);
-      secTitle.value = `Base + ${label}`;
+      secTitle.value = `${baseLabel} + ${label}`;
       secTitle.font = { bold: true, size: 10, color: { argb: COLORS.headerFont } };
       secTitle.fill = headerFill();
       secTitle.border = thinBorder();
@@ -2188,7 +2106,7 @@ function buildSyntheseSheet(
 
   synthSheet.getColumn(COL_LABEL).width = 28;
   for (let i = 2; i <= lastSynthDataCol; i++) {
-    synthSheet.getColumn(i).width = 18;
+    synthSheet.getColumn(i).width = 40;
   }
 }
 
@@ -2428,7 +2346,7 @@ function buildDeroulementCompanySheet(
   ws.getColumn(COL_VALUE).width = 80;
 }
 
-function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
+function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData, baseLabel: string) {
   const methSheet = wb.addWorksheet("METHODOLOGIE");
   methSheet.properties.defaultRowHeight = 18;
 
@@ -2541,11 +2459,12 @@ function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
     });
     row++;
 
-    methSheet.getCell(row, 1).value = "Base seule";
+    const tfShort = baseLabel === "Tranche Ferme" ? "TF" : "Base";
+    methSheet.getCell(row, 1).value = `${baseLabel} seule`;
     methSheet.getCell(row, 1).border = thinBorder();
-    methSheet.getCell(row, 2).value = "Tranche Ferme (DPGF)";
+    methSheet.getCell(row, 2).value = `${baseLabel} (DPGF)`;
     methSheet.getCell(row, 2).border = thinBorder();
-    methSheet.getCell(row, 3).value = "Solution de base uniquement";
+    methSheet.getCell(row, 3).value = `Solution de ${baseLabel.toLowerCase()} uniquement`;
     methSheet.getCell(row, 3).border = thinBorder();
     row++;
 
@@ -2554,36 +2473,36 @@ function buildMethodologySheet(wb: ExcelJS.Workbook, project: ProjectData) {
     const toLines = typedLines.filter((l) => l.type === "T_OPTIONNELLE");
 
     if (pseLines.length > 0) {
-      methSheet.getCell(row, 1).value = "Base + PSE";
+      methSheet.getCell(row, 1).value = `${baseLabel} + PSE`;
       methSheet.getCell(row, 1).border = thinBorder();
-      methSheet.getCell(row, 2).value = `TF + ${pseLines.map((l) => l.label).join(", ")}`;
+      methSheet.getCell(row, 2).value = `${tfShort} + ${pseLines.map((l) => l.label).join(", ")}`;
       methSheet.getCell(row, 2).border = thinBorder();
-      methSheet.getCell(row, 3).value = "Solution de base avec toutes les PSE";
+      methSheet.getCell(row, 3).value = `Solution de ${baseLabel.toLowerCase()} avec toutes les PSE`;
       methSheet.getCell(row, 3).border = thinBorder();
       row++;
     }
     if (varianteLines.length > 0) {
-      methSheet.getCell(row, 1).value = "Base + Variantes";
+      methSheet.getCell(row, 1).value = `${baseLabel} + Variantes`;
       methSheet.getCell(row, 1).border = thinBorder();
-      methSheet.getCell(row, 2).value = `TF + ${varianteLines.map((l) => l.label).join(", ")}`;
+      methSheet.getCell(row, 2).value = `${tfShort} + ${varianteLines.map((l) => l.label).join(", ")}`;
       methSheet.getCell(row, 2).border = thinBorder();
-      methSheet.getCell(row, 3).value = "Solution de base avec toutes les Variantes";
+      methSheet.getCell(row, 3).value = `Solution de ${baseLabel.toLowerCase()} avec toutes les Variantes`;
       methSheet.getCell(row, 3).border = thinBorder();
       row++;
     }
     if (toLines.length > 0) {
-      methSheet.getCell(row, 1).value = "Base + Tranches Optionnelles";
+      methSheet.getCell(row, 1).value = `${baseLabel} + Tranches Optionnelles`;
       methSheet.getCell(row, 1).border = thinBorder();
-      methSheet.getCell(row, 2).value = `TF + ${toLines.map((l) => l.label).join(", ")}`;
+      methSheet.getCell(row, 2).value = `${tfShort} + ${toLines.map((l) => l.label).join(", ")}`;
       methSheet.getCell(row, 2).border = thinBorder();
-      methSheet.getCell(row, 3).value = "Solution de base avec toutes les Tranches Optionnelles";
+      methSheet.getCell(row, 3).value = `Solution de ${baseLabel.toLowerCase()} avec toutes les Tranches Optionnelles`;
       methSheet.getCell(row, 3).border = thinBorder();
       row++;
     }
     if (pseLines.length > 0 && toLines.length > 0) {
-      methSheet.getCell(row, 1).value = "Base + PSE + Tranches Optionnelles";
+      methSheet.getCell(row, 1).value = `${baseLabel} + PSE + Tranches Optionnelles`;
       methSheet.getCell(row, 1).border = thinBorder();
-      methSheet.getCell(row, 2).value = `TF + ${[...pseLines, ...toLines].map((l) => l.label).join(", ")}`;
+      methSheet.getCell(row, 2).value = `${tfShort} + ${[...pseLines, ...toLines].map((l) => l.label).join(", ")}`;
       methSheet.getCell(row, 2).border = thinBorder();
       methSheet.getCell(row, 3).value = "Combinaison complète";
       methSheet.getCell(row, 3).border = thinBorder();
@@ -2780,6 +2699,10 @@ export async function exportToExcel(project: ProjectData) {
   const activeLotLines = project.lotLines.filter((l) => l.label.trim() !== "");
   const v0 = project.versions[0];
   if (!v0) return;
+
+  // Détection Tranches Optionnelles : si au moins une ligne de type T_OPTIONNELLE, on utilise "Tranche Ferme", sinon "Base"
+  const hasTranches = activeLotLines.some((l) => l.type === "T_OPTIONNELLE");
+  const baseLabel = hasTranches ? "Tranche Ferme" : "Base";
 
   // =========== DONNÉES DU PROJET (tableau à partir de A1) ===========
   const pgSheet = wb.addWorksheet("DONNEES_DU_PROJET");
@@ -3006,17 +2929,17 @@ export async function exportToExcel(project: ProjectData) {
   pgSheet.getColumn("G").width = 15;
 
   // =========== METHODOLOGIE (juste après DONNEES_DU_PROJET) ===========
-  buildMethodologySheet(wb, project);
+  buildMethodologySheet(wb, project, baseLabel);
 
   // =========== VÉRIFICATIONS ADMINISTRATIVES ===========
   buildAdministratifSheet(wb, project, activeCompanies);
 
   // =========== V0 puis Négo 1, 2… — Onglets par type ===========
   const tabNamesV0 = getTabNames(project.versions.length, 0);
-  buildPrixSheet(wb, tabNamesV0.prix, project, v0, activeCompanies);
+  buildPrixSheet(wb, tabNamesV0.prix, project, v0, activeCompanies, baseLabel);
   buildTechSheet(wb, tabNamesV0.tech, project, v0, activeCompanies);
   buildQuestionsResponsesSheet(wb, tabNamesV0.qr, project, v0, activeCompanies, true);
-  buildSyntheseSheet(wb, tabNamesV0.synthese, project, v0, activeCompanies);
+  buildSyntheseSheet(wb, tabNamesV0.synthese, project, v0, activeCompanies, baseLabel);
 
   // =========== Négo 1, Négo 2… ===========
   for (let i = 1; i < project.versions.length; i++) {
@@ -3030,7 +2953,7 @@ export async function exportToExcel(project: ProjectData) {
 
     if (negoCompanies.length > 0) {
       const tabNames = getTabNames(project.versions.length, i);
-      buildPrixSheet(wb, tabNames.prix, project, negoVersion, negoCompanies);
+      buildPrixSheet(wb, tabNames.prix, project, negoVersion, negoCompanies, baseLabel);
       buildTechSheet(wb, tabNames.tech, project, negoVersion, negoCompanies, prevVersion);
       buildQuestionsResponsesSheet(wb, tabNames.qr, project, negoVersion, negoCompanies);
       // CR négo : un onglet par entreprise, avant la Synthèse
@@ -3045,7 +2968,7 @@ export async function exportToExcel(project: ProjectData) {
           companyIdx >= 0 ? companyIdx : 0
         );
       }
-      buildSyntheseSheet(wb, tabNames.synthese, project, negoVersion, negoCompanies);
+      buildSyntheseSheet(wb, tabNames.synthese, project, negoVersion, negoCompanies, baseLabel);
     }
   }
 
@@ -3068,6 +2991,7 @@ export async function exportAllProjectsToExcel(projects: Record<string, MultiLot
   if (list.length === 0) {
     const ws = wb.addWorksheet("Synthèse");
     ws.getCell("A1").value = "Aucun projet.";
+    applyWrapTextToAllSheets(wb);
     const buffer = await wb.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     saveAs(blob, "Analyse_Offres_Ensemble_Projets.xlsx");
@@ -3130,6 +3054,7 @@ export async function exportAllProjectsToExcel(projects: Record<string, MultiLot
     }
   }
 
+  applyWrapTextToAllSheets(wb);
   const buffer = await wb.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   saveAs(blob, `Analyse_Offres_Ensemble_Projets_${new Date().toISOString().slice(0, 10)}.xlsx`);

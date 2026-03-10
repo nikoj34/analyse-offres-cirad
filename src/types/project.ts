@@ -138,7 +138,7 @@ export type NegotiationDecision = "non_defini" | "retenue" | "non_retenue" | "qu
 export const NEGOTIATION_DECISION_LABELS: Record<NegotiationDecision, string> = {
   non_defini: "—",
   retenue: "Retenue pour négociation",
-  non_retenue: "Non retenue (Classée derrière)",
+  non_retenue: "Non retenue",
   questions_reponses: "Questions",
   attributaire: "Attributaire pressenti",
   retenue_nego_2: "Retenu pour Négociation 2",
