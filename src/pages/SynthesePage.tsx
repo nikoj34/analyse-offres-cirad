@@ -11,7 +11,7 @@ import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getV
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle, Award,
-  Settings2, MessageSquare, Plus, GitBranch, ArrowRight, Trash2,
+  Settings2, MessageSquare, Plus, GitBranch, ArrowRight, Trash2, FileText,
 } from "lucide-react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
 import { getCompanyColor, getCompanyBgColor } from "@/lib/companyColors";
@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { exportRaoWord } from "@/lib/exportRaoWord";
 
 const DECISION_OPTIONS: NegotiationDecision[] = ["non_defini", "retenue", "non_retenue", "questions_reponses", "attributaire", "rejete_oab", "rejete_irreguliere", "rejete_inacceptable", "retenue_nego_2"];
 
@@ -109,6 +110,7 @@ const SynthesePage = () => {
   const [validationComment, setValidationComment] = useState("");
   const [validationDialogOpen, setValidationDialogOpen] = useState(false);
   const [evictionMotif, setEvictionMotif] = useState("");
+  const [exportingRao, setExportingRao] = useState(false);
   // Choix OUI / NON pour chaque PSE et Variante : détermine ce qui est inclus dans la comparaison (montant scénario, notes, classement). OUI par défaut = toutes incluses.
   const [pseVarianteChoice, setPseVarianteChoice] = useState<Record<number, "oui" | "non" | null>>(() => {
     const init: Record<number, "oui" | "non" | null> = {};
@@ -117,6 +119,47 @@ const SynthesePage = () => {
     }
     return init;
   });
+
+  const handleExportRao = async () => {
+    if (!version) return;
+    setExportingRao(true);
+    try {
+      await exportRaoWord({
+        projectName: project.info.name,
+        marketRef: project.info.marketRef,
+        analysisDate: project.info.analysisDate,
+        author: project.info.author,
+        lotLabel: lot.label,
+        lotNumber: lot.lotNumber,
+        lotAnalyzed: lot.lotAnalyzed,
+        versionLabel: version.label,
+        weightingCriteria,
+        companies: activeCompanies,
+        sortedResults: scenarioSorted.map((r) => ({
+          company: r.company,
+          techScore: r.techScore,
+          priceScore: r.priceScore,
+          priceTotal: r.priceTotal,
+          globalScore: r.globalScore,
+        })),
+        technicalNotes: version.technicalNotes,
+        decisions: version.negotiationDecisions ?? {},
+        attributaireResult: attributaireResult
+          ? {
+              company: attributaireResult.company,
+              techScore: attributaireResult.techScore,
+              priceScore: attributaireResult.priceScore,
+              priceTotal: attributaireResult.priceTotal,
+              globalScore: attributaireResult.globalScore,
+            }
+          : undefined,
+        scenarioDescription,
+        hasQuestionnaire: !!(version.questionnaire?.activated),
+      });
+    } finally {
+      setExportingRao(false);
+    }
+  };
 
   const toggleLine = (id: number, lineType?: string | null) => {
     setEnabledLines((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -1243,6 +1286,19 @@ const SynthesePage = () => {
               <p className="text-xs text-muted-foreground">
                 Attribuez une décision à chaque entreprise éligible pour pouvoir valider.
               </p>
+            )}
+
+            {/* Bouton export RAO — toujours disponible si une version est active */}
+            {version && (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={handleExportRao}
+                disabled={exportingRao}
+              >
+                <FileText className="h-4 w-4" />
+                {exportingRao ? "Génération…" : "Télécharger le RAO (Word)"}
+              </Button>
             )}
           </div>
         </CardContent>
