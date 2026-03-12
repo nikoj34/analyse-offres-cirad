@@ -11,7 +11,7 @@ import { NOTATION_VALUES, NegotiationDecision, NEGOTIATION_DECISION_LABELS, getV
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Lock, CheckCircle, ShieldCheck, Unlock, AlertTriangle, Award,
-  Settings2, MessageSquare, Plus, GitBranch, ArrowRight, Trash2,
+  Settings2, MessageSquare, Plus, GitBranch, ArrowRight, Trash2, FileText,
 } from "lucide-react";
 import { useAnalysisContext } from "@/hooks/useAnalysisContext";
 import { getCompanyColor, getCompanyBgColor } from "@/lib/companyColors";
@@ -30,6 +30,8 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { exportRaoWord } from "@/lib/exportRaoWord";
 
 const DECISION_OPTIONS: NegotiationDecision[] = ["non_defini", "retenue", "non_retenue", "questions_reponses", "attributaire", "rejete_oab", "rejete_irreguliere", "rejete_inacceptable", "retenue_nego_2"];
 
@@ -108,6 +110,7 @@ const SynthesePage = () => {
   const [validationComment, setValidationComment] = useState("");
   const [validationDialogOpen, setValidationDialogOpen] = useState(false);
   const [evictionMotif, setEvictionMotif] = useState("");
+  const [exportingRao, setExportingRao] = useState(false);
   // Choix OUI / NON pour chaque PSE et Variante : détermine ce qui est inclus dans la comparaison (montant scénario, notes, classement). OUI par défaut = toutes incluses.
   const [pseVarianteChoice, setPseVarianteChoice] = useState<Record<number, "oui" | "non" | null>>(() => {
     const init: Record<number, "oui" | "non" | null> = {};
@@ -116,6 +119,47 @@ const SynthesePage = () => {
     }
     return init;
   });
+
+  const handleExportRao = async () => {
+    if (!version) return;
+    setExportingRao(true);
+    try {
+      await exportRaoWord({
+        projectName: project.info.name,
+        marketRef: project.info.marketRef,
+        analysisDate: project.info.analysisDate,
+        author: project.info.author,
+        lotLabel: lot.label,
+        lotNumber: lot.lotNumber,
+        lotAnalyzed: lot.lotAnalyzed,
+        versionLabel: version.label,
+        weightingCriteria,
+        companies: activeCompanies,
+        sortedResults: scenarioSorted.map((r) => ({
+          company: r.company,
+          techScore: r.techScore,
+          priceScore: r.priceScore,
+          priceTotal: r.priceTotal,
+          globalScore: r.globalScore,
+        })),
+        technicalNotes: version.technicalNotes,
+        decisions: version.negotiationDecisions ?? {},
+        attributaireResult: attributaireResult
+          ? {
+              company: attributaireResult.company,
+              techScore: attributaireResult.techScore,
+              priceScore: attributaireResult.priceScore,
+              priceTotal: attributaireResult.priceTotal,
+              globalScore: attributaireResult.globalScore,
+            }
+          : undefined,
+        scenarioDescription,
+        hasQuestionnaire: !!(version.questionnaire?.activated),
+      });
+    } finally {
+      setExportingRao(false);
+    }
+  };
 
   const toggleLine = (id: number, lineType?: string | null) => {
     setEnabledLines((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -142,10 +186,10 @@ const SynthesePage = () => {
   const hasTO = toLines.length > 0;
   const hasScenarioOptions = hasPSE || hasVariante || hasTO;
 
-  /** Lignes à afficher dans la modale d'attribution (PSE + TO + Variantes) */
+  /** Lignes à afficher dans la modale d'attribution : PSE uniquement (les tranches optionnelles sont incluses d'office au contrat). */
   const attributionModalLines = useMemo(
-    () => [...pseLines, ...toLines, ...varianteLines],
-    [pseLines, toLines, varianteLines]
+    () => [...pseLines],
+    [pseLines]
   );
   const hasAttributionModalLines = attributionModalLines.length > 0;
 
@@ -185,6 +229,14 @@ const SynthesePage = () => {
     const questionnaires = version?.questionnaire?.questionnaires ?? [];
     return Object.fromEntries(questionnaires.map((cq) => [cq.companyId, cq.receptionMode === true]));
   }, [version?.questionnaire?.questionnaires]);
+
+  /** Au moins une entreprise avec « Question(s) à poser » n'a pas encore validé la saisie/import des réponses → blocage de l'attribution */
+  const hasPendingQuestions = useMemo(
+    () => activeCompanies.some(
+      (c) => c.hasQuestions === true && receptionModeByCompany[c.id] !== true
+    ),
+    [activeCompanies, receptionModeByCompany]
+  );
 
   const eligibleCompanies = useMemo(
     () => activeCompanies.filter((c) => c.status !== "ecartee"),
@@ -631,37 +683,43 @@ const SynthesePage = () => {
 
   const scenarioDescription = useMemo(() => {
     if (!attributaireResult) return "";
-    const finalAmount = version?.attributionDetails?.[attributaireResult.company.id]?.finalAmount ?? attributaireResult.priceTotal;
-    const enabledOptions = activeLotLines
-      .filter((l) => l.type && enabledLines[l.id])
-      .map((l) => getLineLabel(l))
+    const details = version?.attributionDetails?.[attributaireResult.company.id];
+    const finalAmount = details?.finalAmount ?? attributaireResult.priceTotal;
+    const retainedIds = details?.retainedLineIds ?? [];
+    const baseLabelDetail = hasTO ? "Tranche Ferme" : "Solution de base";
+    if (retainedIds.length === 0) {
+      return `L'entreprise ${attributaireResult.company.name} est retenue pour un montant de ${fmt(finalAmount)} € HT (${baseLabelDetail} uniquement).`;
+    }
+    const pseNames = retainedIds
+      .map((id) => activeLotLines.find((l) => l.id === id))
+      .filter(Boolean)
+      .map((l) => getLineLabel(l!))
       .join(", ");
-    return `L'entreprise ${attributaireResult.company.name} est retenue pour un montant de ${fmt(finalAmount)} HT, incluant la Solution de Base${enabledOptions ? ` + ${enabledOptions}` : ""}.`;
+    return `L'entreprise ${attributaireResult.company.name} est retenue pour un montant de ${fmt(finalAmount)} € HT incluant la ${baseLabelDetail.toLowerCase()} et les PSE suivantes : ${pseNames}.`;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attributaireResult, version?.attributionDetails, activeLotLines, enabledLines]);
+  }, [attributaireResult, version?.attributionDetails, activeLotLines, hasTO]);
 
   const getAvailableDecisions = (companyId: number): NegotiationDecision[] => {
     const company = activeCompanies.find((c) => c.id === companyId);
     const hasQuestions = company?.hasQuestions ?? false;
-    const responsesValidated = receptionModeByCompany[companyId] === true;
-    if (hasQuestions && !responsesValidated) {
-      return ["questions_reponses"];
-    }
     const currentDecision = decisions[companyId] ?? "non_defini";
     if (hasAnyAttributaire && currentDecision !== "attributaire") {
       return ["non_defini", "non_retenue", "rejete_oab", "rejete_irreguliere", "rejete_inacceptable"];
     }
-    // Synthèse initiale (V0) : "retenue" = retenue pour négo 1. Synthèse négo (V1+) : pas de "retenue", on garde uniquement "retenue_nego_2" pour la suite (évite doublon).
     const baseDecisions: NegotiationDecision[] =
       versionIndex >= 1
         ? ["non_defini", "non_retenue", "rejete_oab", "rejete_irreguliere", "rejete_inacceptable"]
         : ["non_defini", "non_retenue", "rejete_oab", "rejete_irreguliere", "rejete_inacceptable", "retenue"];
+    // Blocage attribution uniquement : si questions en attente, on n'ajoute pas "attributaire". Les autres décisions restent possibles.
     let withAttributaire = allPseVarianteRenseignes ? [...baseDecisions, "attributaire"] : baseDecisions;
+    if (hasPendingQuestions) {
+      withAttributaire = baseDecisions;
+    }
     if (versionIndex === 1) {
       withAttributaire = [...withAttributaire, "retenue_nego_2"];
     }
-    if (hasAnyWithQuestionsStatus) {
-      return withAttributaire;
+    if (hasQuestions || hasAnyWithQuestionsStatus) {
+      withAttributaire = withAttributaire.includes("questions_reponses") ? withAttributaire : ["questions_reponses", ...withAttributaire];
     }
     return withAttributaire;
   };
@@ -858,6 +916,15 @@ const SynthesePage = () => {
       {/* ═══════════════════════════════════════════════════ */}
       {/* SECTION 6.1 — CLASSEMENT GÉNÉRAL                   */}
       {/* ═══════════════════════════════════════════════════ */}
+      {hasPendingQuestions && !isValidated && (
+        <Alert className="border-amber-500 bg-amber-50 text-amber-900 dark:border-amber-600 dark:bg-amber-950/40 dark:text-amber-200 [&>svg]:text-amber-600 dark:[&>svg]:text-amber-500">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Attribution bloquée</AlertTitle>
+          <AlertDescription>
+            Une ou plusieurs demandes d&apos;éclaircissement sont en attente. Pour débloquer l&apos;attribution, vous devez cliquer sur &quot;Valider la saisie ou import des réponses&quot; pour toutes les entreprises concernées.
+          </AlertDescription>
+        </Alert>
+      )}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Classement Général</CardTitle>
@@ -952,35 +1019,40 @@ const SynthesePage = () => {
                           </HoverCard>
                         ) : (
                           (() => {
-                            const decisionLockedByQuestions = (row.company.hasQuestions ?? false) && !receptionModeByCompany[row.company.id];
                             const attributionFinalAmount = version?.attributionDetails?.[row.company.id]?.finalAmount;
                             return (
                               <div className="flex flex-col gap-1 items-center">
                                 <Select
-                                  value={decisionLockedByQuestions ? "questions_reponses" : decision}
+                                  value={decision}
                                   onValueChange={(v) => {
-                                    if (v === "attributaire" && hasAttributionModalLines) {
-                                      if (!allPseVarianteRenseignes) {
-                                        setAttributaireBlockedDialogOpen(true);
+                                    if (v === "attributaire") {
+                                      if (hasAttributionModalLines) {
+                                        if (!allPseVarianteRenseignes) {
+                                          setAttributaireBlockedDialogOpen(true);
+                                          return;
+                                        }
+                                        setPendingAttributionCompanyId(row.company.id);
+                                        setPendingAttributionChoices(
+                                          Object.fromEntries(
+                                            attributionModalLines.map((l) => [
+                                              l.id,
+                                              (pseVarianteChoice[l.id] === "oui" ? "oui" : "non") as const,
+                                            ])
+                                          )
+                                        );
+                                        setIsPseAttributionModalOpen(true);
                                         return;
                                       }
-                                      setPendingAttributionCompanyId(row.company.id);
-                                      setPendingAttributionChoices(
-                                        Object.fromEntries(
-                                          attributionModalLines.map((l) => [
-                                            l.id,
-                                            (l.type === "T_OPTIONNELLE" ? (enabledLines[l.id] ? "oui" : "non") : (pseVarianteChoice[l.id] === "oui" ? "oui" : "non")) as const,
-                                          ])
-                                        )
-                                      );
-                                      setIsPseAttributionModalOpen(true);
-                                      return;
+                                      if (version) {
+                                        const baseAmount = getLinePrice(row.company.id, 0);
+                                        setAttributionDetails(row.company.id, { baseAmount, retainedLineIds: [], finalAmount: baseAmount }, version.id);
+                                      }
                                     }
                                     setNegotiationDecision(row.company.id, v as NegotiationDecision, version?.id);
                                   }}
-                                  disabled={isReadOnly || isValidated || decisionLockedByQuestions}
+                                  disabled={isReadOnly || isValidated}
                                 >
-                                  <SelectTrigger className={`w-[260px] ${decisionLockedByQuestions ? "opacity-70 cursor-not-allowed" : ""}`}>
+                                  <SelectTrigger className="w-[260px]">
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
@@ -1048,15 +1120,14 @@ const SynthesePage = () => {
                           <TableCell className="text-right font-bold">{vr.globalScore.toFixed(2)}</TableCell>
                           <TableCell className="text-center min-w-[260px] flex flex-wrap items-center justify-center">
                             {(() => {
-                              const decisionLockedByQuestions = (row.company.hasQuestions ?? false) && !receptionModeByCompany[row.company.id];
                               return (
                                 <div className="flex flex-col gap-1 items-center">
                                   <Select
-                                    value={decisionLockedByQuestions ? "questions_reponses" : decisionVariante}
+                                    value={decisionVariante}
                                     onValueChange={(v) => updateDecisionVariante(row.company.id, varianteId, v)}
-                                    disabled={isReadOnly || isValidated || decisionLockedByQuestions}
+                                    disabled={isReadOnly || isValidated}
                                   >
-                                    <SelectTrigger className={`w-[260px] ${decisionLockedByQuestions ? "opacity-70 cursor-not-allowed" : ""}`}>
+                                    <SelectTrigger className="w-[260px]">
                                       <SelectValue placeholder="Décision" />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -1146,8 +1217,14 @@ const SynthesePage = () => {
               <Button
                 className="gap-2 bg-green-600 hover:bg-green-700"
                 onClick={() => setValidationDialogOpen(true)}
-                disabled={pseVarianteBlocksValidation}
-                title={pseVarianteBlocksValidation ? "Renseignez OUI/NON pour chaque PSE et Variante d'abord" : undefined}
+                disabled={pseVarianteBlocksValidation || hasPendingQuestions}
+                title={
+                  hasPendingQuestions
+                    ? "Décochez les questions en attente (analyses technique/prix) pour pouvoir attribuer"
+                    : pseVarianteBlocksValidation
+                    ? "Renseignez OUI/NON pour chaque PSE et Variante d'abord"
+                    : undefined
+                }
               >
                 <CheckCircle className="h-4 w-4" />
                 {versionHasAttributaire ? "Valider et clôturer la phase — Attribuer" : "Valider la Synthèse et clôturer la phase"}
@@ -1209,6 +1286,19 @@ const SynthesePage = () => {
               <p className="text-xs text-muted-foreground">
                 Attribuez une décision à chaque entreprise éligible pour pouvoir valider.
               </p>
+            )}
+
+            {/* Bouton export RAO — toujours disponible si une version est active */}
+            {version && (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={handleExportRao}
+                disabled={exportingRao}
+              >
+                <FileText className="h-4 w-4" />
+                {exportingRao ? "Génération…" : "Télécharger le RAO (Word)"}
+              </Button>
             )}
           </div>
         </CardContent>
@@ -1436,13 +1526,25 @@ const SynthesePage = () => {
               </div>
               <div className="rounded-md border border-border bg-muted/30 p-4 text-sm">
                 <p className="font-semibold mb-1">Détail du scénario retenu :</p>
-                <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
-                  <li>Solution de Base (Tranche Ferme)</li>
-                  {activeLotLines.filter((l) => l.type && enabledLines[l.id]).map((l) => (
-                    <li key={l.id}>{getLineLabel(l)} — {fmt(getLinePrice(attributaireResult.company.id, l.id))}</li>
-                  ))}
-                </ul>
-                <p className="mt-2 font-semibold">Montant final HT : {fmt(attributaireResult.priceTotal)}</p>
+                {(() => {
+                  const details = version?.attributionDetails?.[attributaireResult.company.id];
+                  const baseLabelDetail = hasTO ? "Tranche Ferme" : "Solution de base";
+                  const baseAmt = details?.baseAmount ?? getLinePrice(attributaireResult.company.id, 0);
+                  const retainedIds = details?.retainedLineIds ?? [];
+                  const finalAmt = details?.finalAmount ?? attributaireResult.priceTotal;
+                  return (
+                    <>
+                      <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
+                        <li>{baseLabelDetail} — {fmt(baseAmt)}</li>
+                        {retainedIds.map((lineId) => {
+                          const line = activeLotLines.find((l) => l.id === lineId);
+                          return line ? <li key={line.id}>{getLineLabel(line)} — {fmt(getLinePrice(attributaireResult.company.id, line.id))}</li> : null;
+                        })}
+                      </ul>
+                      <p className="mt-2 font-semibold">Montant final HT : {fmt(finalAmt)}</p>
+                    </>
+                  );
+                })()}
               </div>
               {activeLotLines.some((l) => l.type === "VARIANTE" && enabledLines[l.id]) && (
                 <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm">
@@ -1537,19 +1639,12 @@ const SynthesePage = () => {
           <DialogHeader>
             <DialogTitle>Choix des options pour l&apos;attribution</DialogTitle>
             <DialogDescription>
-              Choisissez les PSE et Tranches Optionnelles retenues pour le contrat final. Le montant final est calculé à partir de l&apos;offre de base et des options cochées.
+              Choisissez les PSE retenues pour le contrat final. Le montant total = Base (ou Tranche Ferme) + PSE cochées. Les tranches optionnelles sont incluses d&apos;office.
             </DialogDescription>
           </DialogHeader>
           {pendingAttributionCompanyId != null && (() => {
             const company = activeCompanies.find((c) => c.id === pendingAttributionCompanyId);
-            const baseAmount = (() => {
-              if (!version) return 0;
-              let sum = getLinePrice(pendingAttributionCompanyId, 0);
-              for (const l of baseLines) {
-                sum += getLinePrice(pendingAttributionCompanyId, l.id);
-              }
-              return sum;
-            })();
+            const baseAmount = getLinePrice(pendingAttributionCompanyId, 0);
             const optionsSum = attributionModalLines
               .filter((l) => pendingAttributionChoices[l.id] === "oui")
               .reduce((s, l) => s + getLinePrice(pendingAttributionCompanyId, l.id), 0);
@@ -1565,11 +1660,13 @@ const SynthesePage = () => {
                   </p>
                 )}
                 <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
-                  <span className="text-muted-foreground">Montant de base (offre sans PSE/TO) : </span>
+                  <span className="text-muted-foreground">
+                    Montant de base (Tranche Ferme seule) :
+                  </span>
                   <span className="font-semibold">{fmt(baseAmount)}</span>
                 </div>
                 <div className="space-y-2">
-                  <p className="text-sm font-medium">PSE et Tranches Optionnelles</p>
+                  <p className="text-sm font-medium">PSE (Prestations Supplémentaires Éventuelles)</p>
                   {attributionModalLines.map((l) => (
                     <div key={l.id} className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -1596,7 +1693,7 @@ const SynthesePage = () => {
                   ))}
                 </div>
                 <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-semibold flex justify-between items-center">
-                  <span>Montant final calculé</span>
+                  <span>Montant total avec options</span>
                   <span>{fmt(finalAmount)} HT</span>
                 </div>
               </div>
@@ -1616,13 +1713,7 @@ const SynthesePage = () => {
             <Button
               onClick={() => {
                 if (pendingAttributionCompanyId == null || !version) return;
-                const baseAmount = (() => {
-                  let sum = getLinePrice(pendingAttributionCompanyId, 0);
-                  for (const l of baseLines) {
-                    sum += getLinePrice(pendingAttributionCompanyId, l.id);
-                  }
-                  return sum;
-                })();
+                const baseAmount = getLinePrice(pendingAttributionCompanyId, 0);
                 const retainedLineIds = attributionModalLines
                   .filter((l) => pendingAttributionChoices[l.id] === "oui")
                   .map((l) => l.id);
@@ -1639,7 +1730,7 @@ const SynthesePage = () => {
                 setPseVarianteChoice((prev) => ({
                   ...prev,
                   ...Object.fromEntries(
-                    [...pseLines, ...varianteLines].map((line) => [
+                    pseLines.map((line) => [
                       line.id,
                       (pendingAttributionChoices[line.id] ?? "non") as "oui" | "non",
                     ])
@@ -1647,7 +1738,7 @@ const SynthesePage = () => {
                 }));
                 setEnabledLines((prev) => ({
                   ...prev,
-                  ...Object.fromEntries(toLines.map((line) => [line.id, pendingAttributionChoices[line.id] === "oui"])),
+                  ...Object.fromEntries(toLines.map((line) => [line.id, true])),
                 }));
                 setNegotiationDecision(pendingAttributionCompanyId, "attributaire", version.id);
                 setIsPseAttributionModalOpen(false);

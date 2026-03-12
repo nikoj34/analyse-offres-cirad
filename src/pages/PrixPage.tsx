@@ -76,7 +76,7 @@ const fmt = (n: number) =>
   new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
 const PrixPage = () => {
-  const { project, setPriceEntry, getPriceEntry, setCompanyProposedVariante, getCompanyProposedVariante, updateCompany } = useProjectStore();
+  const { project, setPriceEntry, getPriceEntry, setCompanyProposedVariante, getCompanyProposedVariante, updateCompany, setReceptionMode } = useProjectStore();
   const lotIndex = Math.max(0, Math.min(project?.currentLotIndex ?? 0, (project?.lots?.length ?? 1) - 1));
   const lot = project?.lots?.[lotIndex];
   const { activeCompanies, version, versionIndex, isReadOnly, isNego, negoLabel, negoRound } = useAnalysisContext();
@@ -718,7 +718,7 @@ const PrixPage = () => {
         </Card>
       ))}
 
-      {activeCompanies.length > 0 && activeCompanies[safeIndex] && (
+      {activeCompanies.length > 0 && activeCompanies[safeIndex] && activeCompanies[safeIndex].status !== "ecartee" && !isNego && (
         <div className="mt-6 mb-4 flex items-center space-x-2">
           <Checkbox
             id="has-questions-prix"
@@ -728,6 +728,22 @@ const PrixPage = () => {
           <Label htmlFor="has-questions-prix">
             Question(s) à poser à {activeCompanies[safeIndex].name || "cette entreprise"}
           </Label>
+        </div>
+      )}
+
+      {activeCompanies.length > 0 && activeCompanies[safeIndex] && activeCompanies[safeIndex].status !== "ecartee" && !isNego && (activeCompanies[safeIndex].hasQuestions === true) && version && (
+        <div className="mt-6 mb-4 flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            onClick={() => {
+              setReceptionMode(version.id, activeCompanies[safeIndex].id, true);
+              toast.success(`Saisie validée pour ${activeCompanies[safeIndex].name || "cette entreprise"}.`);
+            }}
+          >
+            Valider la saisie ou import des réponses de l&apos;entreprise {activeCompanies[safeIndex].name || "cette entreprise"}
+          </Button>
         </div>
       )}
 

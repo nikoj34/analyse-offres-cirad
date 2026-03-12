@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import type { NegotiationPrepQuestion } from "@/pages/PreparationNegoPage";
 import { getCompanyColor, getCompanyBgColor } from "@/lib/companyColors";
+import { exportNegoWord } from "@/lib/exportNegoWord";
+import { exportNegoExcel } from "@/lib/exportNegoExcel";
 
 const DeroulementNegoPage = () => {
   const { vIndex, companyId } = useParams<{ vIndex?: string; companyId?: string }>();
@@ -81,11 +83,38 @@ const DeroulementNegoPage = () => {
     toast.success("Compte-rendu enregistré.");
   };
 
-  const handleExportWord = () => {
-    toast.info("Export Word en cours de développement.");
+  const companyName = company?.name?.trim() ? company.name : `Entreprise ${companyId ?? "—"}`;
+
+  const handleExportTrameWord = async () => {
+    try {
+      const marketRef = project?.info?.marketRef ?? project?.info?.name ?? "—";
+      const lotLabel = lot?.label ?? lot?.lotAnalyzed ?? `Lot ${(lot?.lotNumber ?? "")}` ?? "—";
+      await exportNegoWord({
+        marketRef,
+        lotLabel,
+        companyName,
+        phase: "Déroulement",
+        questions: sortedQuestions,
+      });
+      toast.success("Trame Word exportée.");
+    } catch (e) {
+      console.error(e);
+      toast.error("Erreur lors de l'export Word.");
+    }
   };
 
-  const companyName = company?.name?.trim() ? company.name : `Entreprise ${companyId ?? "—"}`;
+  const handleExportGrilleExcel = async () => {
+    try {
+      await exportNegoExcel({
+        phase: "Déroulement",
+        questions: sortedQuestions,
+      });
+      toast.success("Grille Excel exportée.");
+    } catch (e) {
+      console.error(e);
+      toast.error("Erreur lors de l'export Excel.");
+    }
+  };
 
   const importanceLabel: Record<string, string> = {
     faible: "Faible",
@@ -116,6 +145,14 @@ const DeroulementNegoPage = () => {
         <h1 className="text-2xl font-bold text-foreground">
           Déroulement de la négociation — {companyName}
         </h1>
+        <div className="flex flex-wrap gap-2 mt-2">
+          <Button type="button" variant="outline" size="sm" onClick={handleExportTrameWord} className="gap-1.5">
+            Exporter la trame (Word)
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={handleExportGrilleExcel} className="gap-1.5">
+            Exporter la grille (Excel)
+          </Button>
+        </div>
       </header>
 
       <Card>
@@ -210,8 +247,8 @@ const DeroulementNegoPage = () => {
         <Button type="button" onClick={handleSave}>
           Enregistrer le compte-rendu
         </Button>
-        <Button type="button" variant="secondary" onClick={handleExportWord}>
-          Éditer le compte-rendu Word
+        <Button type="button" variant="secondary" onClick={handleExportTrameWord}>
+          Exporter la trame (Word)
         </Button>
       </div>
       </div>

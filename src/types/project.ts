@@ -86,6 +86,18 @@ export interface SubCriterion {
   items: SubCriterionItem[];
 }
 
+/** Ligne du référentiel DPGF (bac à sable) : chapitre ou ligne de prix. */
+export interface DpgfLine {
+  id: string;
+  reference: string;
+  designation: string;
+  unite: string;
+  quantite: number;
+  puEstime: number;
+  /** true = titre de chapitre, false = ligne de prix */
+  isChapter: boolean;
+}
+
 export interface ProjectInfo {
   name: string;
   marketRef: string;
@@ -98,6 +110,8 @@ export interface ProjectInfo {
     requireRC: boolean;
     customDocs: string[];
   };
+  /** Référentiel DPGF (module bac à sable, isolé). */
+  dpgfMaster?: DpgfLine[];
 }
 
 export interface TechnicalNote {
@@ -124,7 +138,7 @@ export type NegotiationDecision = "non_defini" | "retenue" | "non_retenue" | "qu
 export const NEGOTIATION_DECISION_LABELS: Record<NegotiationDecision, string> = {
   non_defini: "—",
   retenue: "Retenue pour négociation",
-  non_retenue: "Non retenue (Classée derrière)",
+  non_retenue: "Non retenue",
   questions_reponses: "Questions",
   attributaire: "Attributaire pressenti",
   retenue_nego_2: "Retenu pour Négociation 2",

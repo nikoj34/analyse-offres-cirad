@@ -32,6 +32,7 @@ const StatistiquesPage = lazy(() => import("./pages/StatistiquesPage"));
 const FAQPage = lazy(() => import("./pages/FAQPage"));
 const PreparationNegoPage = lazy(() => import("./pages/PreparationNegoPage"));
 const DeroulementNegoPage = lazy(() => import("./pages/DeroulementNegoPage"));
+const DpgfSandboxPage = lazy(() => import("./pages/DpgfSandboxPage"));
 
 const queryClient = new QueryClient();
 
@@ -156,6 +157,7 @@ const App = () => {
                 <Route path="/versions" element={<VersionsPage />} />
                 <Route path="/export" element={<ExportPage />} />
                 <Route path="/config" element={<ConfigurationPage />} />
+                <Route path="/projet/:id/labo-dpgf" element={<DpgfSandboxPage />} />
                 <Route path="*" element={<Index />} />
 
               </Routes>
