@@ -264,41 +264,56 @@ const QuestionnairePage = () => {
                       Saisie verrouillée
                     </Badge>
                   )}
-                  {currentCq.questions.length > 0 && !isLocked && (
-                    <div className="flex gap-2 ml-auto">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-1 text-xs"
-                        onClick={() => handleExport(currentCq.companyId)}
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        Export question(s)
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-1 text-xs"
-                        onClick={() => fileInputRef.current?.click()}
-                      >
-                        <Upload className="h-3.5 w-3.5" />
-                        Import réponses
-                      </Button>
-                      <input
-                        type="file"
-                        accept=".xlsx,.xls"
-                        className="hidden"
-                        ref={fileInputRef}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            handleImport(currentCq.companyId, file);
-                            e.target.value = "";
-                          }
-                        }}
-                      />
-                    </div>
-                  )}
+                {currentCq.questions.length > 0 && !isLocked && (
+                  <div className="flex gap-2 ml-auto">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1 text-xs"
+                      onClick={() => handleExport(currentCq.companyId)}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Export question(s)
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1 text-xs"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      Import réponses
+                    </Button>
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      className="hidden"
+                      ref={fileInputRef}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          handleImport(currentCq.companyId, file);
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="gap-1 text-xs"
+                      onClick={() => {
+                        setReceptionMode(versionId, currentCq.companyId, true);
+                        toast({
+                          title: "Saisie validée",
+                          description: `Les réponses de l'entreprise ${getCompanyName(currentCq.companyId)} sont validées.`,
+                        });
+                      }}
+                    >
+                      <CheckCircle className="h-3.5 w-3.5" />
+                      Valider la saisie ou import des réponses de l'entreprise {getCompanyName(currentCq.companyId)}
+                    </Button>
+                  </div>
+                )}
                   {isLocked && (
                     <div className="flex gap-2 ml-auto">
                       {currentCq.questions.length > 0 && (
@@ -468,26 +483,6 @@ const QuestionnairePage = () => {
           </div>
         )}
 
-        {currentIndex === retainedQuestionnaires.length - 1 && (
-          <div className="mt-6 flex justify-center">
-            <Button
-              type="button"
-              className="gap-2"
-              onClick={() => {
-                retainedQuestionnaires.forEach((cq) => {
-                  setReceptionMode(versionId, cq.companyId, true);
-                });
-                toast({
-                  title: "Saisie validée",
-                  description: "L'onglet est renommé « Réponses aux questions » et remonté juste avant Synthèse.",
-                });
-              }}
-            >
-              <CheckCircle className="h-4 w-4" />
-              Valider la saisie ou import des réponses
-            </Button>
-          </div>
-        )}
       </div>
     </div>
   );

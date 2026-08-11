@@ -13,6 +13,7 @@ import { useWeightingValid } from "@/hooks/useWeightingValid";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 
 const NOTATION_OPTIONS: NotationLevel[] = ["tres_bien", "bien", "moyen", "passable", "insuffisant"];
 
@@ -22,7 +23,7 @@ function getVisibleSubCriteria(criterion: WeightingCriterion): SubCriterion[] {
 }
 
 const TechniquePage = () => {
-  const { project, setTechnicalNote, getTechnicalNote, setDocumentsToVerify, getDocumentsToVerify, updateCompany, getVarianteTechnicalNote, setVarianteTechnicalNote, updateNoteVariante } = useProjectStore();
+  const { project, setTechnicalNote, getTechnicalNote, setDocumentsToVerify, getDocumentsToVerify, updateCompany, getVarianteTechnicalNote, setVarianteTechnicalNote, updateNoteVariante, setReceptionMode } = useProjectStore();
   const lot = project.lots[project.currentLotIndex];
   const { activeCompanies, version, isReadOnly, isNego, negoLabel, negoRound } = useAnalysisContext();
   const { weightingCriteria } = lot;
@@ -311,7 +312,7 @@ const TechniquePage = () => {
         </Card>
       ))}
 
-      {activeCompanies.length > 0 && activeCompanies[safeIndex] && (
+      {activeCompanies.length > 0 && activeCompanies[safeIndex] && activeCompanies[safeIndex].status !== "ecartee" && !isNego && (
         <div className="mt-6 mb-4 flex items-center space-x-2">
           <Checkbox
             id="has-questions-technique"
@@ -321,6 +322,22 @@ const TechniquePage = () => {
           <Label htmlFor="has-questions-technique">
             Question(s) à poser à {activeCompanies[safeIndex].name || "cette entreprise"}
           </Label>
+        </div>
+      )}
+
+      {activeCompanies.length > 0 && activeCompanies[safeIndex] && activeCompanies[safeIndex].status !== "ecartee" && !isNego && (activeCompanies[safeIndex].hasQuestions === true) && version && (
+        <div className="mt-6 mb-4 flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            onClick={() => {
+              setReceptionMode(version.id, activeCompanies[safeIndex].id, true);
+              toast.success(`Saisie validée pour ${activeCompanies[safeIndex].name || "cette entreprise"}.`);
+            }}
+          >
+            Valider la saisie ou import des réponses de l&apos;entreprise {activeCompanies[safeIndex].name || "cette entreprise"}
+          </Button>
         </div>
       )}
 

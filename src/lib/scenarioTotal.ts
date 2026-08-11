@@ -108,3 +108,20 @@ export function getCompanyTotalGlobalEvalue(
   }
   return total;
 }
+
+/**
+ * Montant pour un scénario donné : Base (lotLineId 0) + les PSE dont les id sont dans pseLineIds.
+ * Utilisé pour l'export Synthèse (combinatoire des scénarios PSE).
+ */
+export function getCompanyTotalForPseSubset(
+  version: NegotiationVersion | undefined,
+  companyId: number,
+  pseLineIds: number[]
+): number {
+  if (!version) return 0;
+  let total = getLinePrice(version, companyId, 0);
+  for (const lineId of pseLineIds) {
+    total += getLinePrice(version, companyId, lineId);
+  }
+  return total;
+}

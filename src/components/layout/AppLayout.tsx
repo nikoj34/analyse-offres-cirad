@@ -19,6 +19,7 @@ import {
   ClipboardList,
   CalendarCheck,
   Building2,
+  FlaskConical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getCompanyColor } from "@/lib/companyColors";
@@ -66,7 +67,7 @@ function SidebarLink({
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { project, switchLot } = useProjectStore();
-  const { closeProject } = useMultiProjectStore();
+  const { closeProject, currentProjectId } = useMultiProjectStore();
   const location = useLocation();
   const navigate = useNavigate();
   const lot = project.lots?.[project.currentLotIndex ?? 0];
@@ -492,6 +493,21 @@ export function AppLayout({ children }: { children: ReactNode }) {
               );
             })}
             </nav>
+
+            {currentProjectId && (
+              <div className="mt-auto border-t border-sidebar-border px-3 pt-2 pb-2">
+                <NavLink
+                  to={`/projet/${currentProjectId}/labo-dpgf`}
+                  className={cn(
+                    "flex items-center gap-2 rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-sidebar-accent/20 hover:text-foreground transition-colors",
+                    location.pathname === `/projet/${currentProjectId}/labo-dpgf` && "bg-sidebar-accent/15 text-foreground font-medium"
+                  )}
+                >
+                  <FlaskConical className="h-3.5 w-3.5 shrink-0" />
+                  🧪 Labo DPGF
+                </NavLink>
+              </div>
+            )}
           </div>
         </aside>
 
